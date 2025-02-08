@@ -17,12 +17,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Memcached GUI")
         self.setMinimumSize(1200, 800)
         
+        # 添加上下文配置文件路径
+        self.config_file = "contexts.json"
+        
         # 创建中心部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # 添加上下文配置文件路径
-        self.config_file = "contexts.json"
         
         # 创建主布局
         main_layout = QHBoxLayout(central_widget)
@@ -50,29 +50,32 @@ class MainWindow(QMainWindow):
                 padding: 0px;
                 border: none;
             }
-        """)
-        
-        # 删除重复的列表配置代码
-        
-        self.context_list.setSpacing(10)  # 设置项目间距
-        self.context_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self.context_list.setMovement(QListWidget.Movement.Static)
-        self.context_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.context_list.setItemDelegate(ContextItemDelegate(self.context_list))
-        self.context_list.setStyleSheet("""
-            QListWidget {
-                background: white;
-                padding: 10px;
-            }
-            QListWidget::item {
-                background: transparent;
-                border: none;
-            }
             QListWidget::item:selected {
                 background: rgba(0, 0, 0, 10);
                 border: 1px solid #ccc;
             }
         """)
+        
+        # # 删除重复的列表配置代码
+        # self.context_list.setSpacing(10)  # 设置项目间距
+        # self.context_list.setViewMode(QListWidget.ViewMode.IconMode)
+        # self.context_list.setMovement(QListWidget.Movement.Static)
+        # self.context_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        # self.context_list.setItemDelegate(ContextItemDelegate(self.context_list))
+        # self.context_list.setStyleSheet("""
+        #     QListWidget {
+        #         background: white;
+        #         padding: 10px;
+        #     }
+        #     QListWidget::item {
+        #         background: transparent;
+        #         border: none;
+        #     }
+        #     QListWidget::item:selected {
+        #         background: rgba(0, 0, 0, 10);
+        #         border: 1px solid #ccc;
+        #     }
+        # """)
         
         # 上下文管理按钮
         context_buttons_layout = QHBoxLayout()
@@ -153,6 +156,9 @@ class MainWindow(QMainWindow):
         # 添加上下文选择信号
         self.context_list.currentItemChanged.connect(self.handle_context_changed)
         
+        # 加载已保存的上下文
+        self.load_contexts()
+    
     def handle_context_changed(self, current, previous):
         """处理上下文选择变化"""
         self.connect_btn.setEnabled(current is not None)
@@ -212,11 +218,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "连接错误", str(e))
             self.status_bar.showMessage(f"连接失败: {str(e)}")
             self.protocol_text.append(f"连接失败: {str(e)}")
-    
-        # 添加上下文配置文件路径
-        self.config_file = "contexts.json"
-        # 加载已保存的上下文
-        self.load_contexts()
     
     def load_contexts(self):
         """加载保存的上下文配置"""

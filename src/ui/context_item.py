@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
-from PyQt6.QtCore import Qt, QRect, QSize, QRectF
+from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QPointF
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QFont, QPainterPath
 import random
 
@@ -26,19 +26,20 @@ class ContextItemDelegate(QStyledItemDelegate):
         
         # 绘制背景
         rect = option.rect
-        gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        
+        # 创建渐变
+        gradient = QLinearGradient(
+            QPointF(rect.topLeft()),
+            QPointF(rect.bottomRight())
+        )
+        
+        # 设置随机渐变背景
+        color_pair = random.choice(self.colors)
         gradient.setColorAt(0, QColor(*color_pair[0]))
         gradient.setColorAt(1, QColor(*color_pair[1]))
         
-        # 如果被选中，添加选中效果
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(rect, QColor(51, 153, 255, 50))  # 半透明蓝色选中效果
-        else:
-            painter.fillRect(rect, gradient)
-            
-        # 绘制底部分割线
-        painter.setPen(QColor(200, 200, 200))
-        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        # 填充背景
+        painter.fillRect(rect, gradient)
         
         # 获取数据
         data = index.data()
@@ -73,7 +74,15 @@ class ContextItemDelegate(QStyledItemDelegate):
         count_rect.setTop(info_rect.top() + 20)
         painter.drawText(count_rect, Qt.AlignmentFlag.AlignHCenter, "Servers: 1")
         
+        # 如果被选中，添加选中效果
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(rect, QColor(51, 153, 255, 50))
+            
+        # 绘制底部分割线
+        painter.setPen(QColor(200, 200, 200))
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QSize(option.rect.width(), 100)  # 使用容器的完整宽度
+        return QSize(option.rect.width(), 100)
