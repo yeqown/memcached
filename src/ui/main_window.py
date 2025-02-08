@@ -42,7 +42,9 @@ class MainWindow(QMainWindow):
         self.context_list.setSpacing(0)  # 移除间距
         self.context_list.setViewMode(QListWidget.ViewMode.ListMode)  # 改为列表模式
         self.context_list.setMovement(QListWidget.Movement.Static)
-        self.context_list.setItemDelegate(ContextItemDelegate(self.context_list, self.handle_delete_context, self.handle_add_context))
+        self.context_list.setItemDelegate(
+            ContextItemDelegate(self.context_list, self.handle_delete_context, self.handle_add_context, self.handle_edit_context)
+        )
         self.context_list.setStyleSheet("""
             QListWidget {
                 border: none;
@@ -286,14 +288,44 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "错误", "名称和主机不能为空")
                 return
             
-            # 添加到列表
+            # 移除 "+" 按钮
+            self.context_list.takeItem(self.context_list.count() - 1)
+            
+            # 添加新的 context
             self.context_list.addItem(
                 f"{context_data['name']} ({context_data['host']}:{context_data['port']})"
             )
+            
+            # 重新添加 "+" 按钮
+            self.context_list.addItem("+")
+            
             # 保存配置
             self.save_contexts()
             self.status_bar.showMessage("上下文添加成功")
     
+    def handle_edit_context(self, index):
+        """处理编辑上下文"""
+        row = index.row()
+        item = self.context_list.item(row)
+        if item.text() == "+":
+            return
+
+        dialog = ContextDialog(self, item.text())
+        if dialog.exec():
+            context_data = dialog.get_context_data()
+            if not context_data["name"] or not context_data["host"]:
+                QMessageBox.warning(self, "错误", "名称和主机不能为空")
+                return
+
+            # 更新上下文列表项
+            item.setText(
+                f"{context_data['name']} ({context_data['host']}:{context_data['port']})"
+            )
+
+            # 保存配置
+            self.save_contexts()
+            self.status_bar.showMessage("上下文编辑成功")
+
     def handle_delete_context(self, index):
         """处理删除上下文"""
         row = index.row()
