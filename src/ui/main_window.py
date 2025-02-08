@@ -294,11 +294,11 @@ class MainWindow(QMainWindow):
             self.save_contexts()
             self.status_bar.showMessage("上下文添加成功")
     
-    def handle_delete_context(self):
+    def handle_delete_context(self, index):
         """处理删除上下文"""
-        current_item = self.context_list.currentItem()
-        if not current_item:
-            QMessageBox.warning(self, "错误", "请先选择要删除的上下文")
+        row = index.row()
+
+        if self.context_list.item(row).text() == "+":
             return
         
         reply = QMessageBox.question(
@@ -308,6 +308,6 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.context_list.takeItem(self.context_list.row(current_item))
+            self.context_list.takeItem(row)
             self.save_contexts()
             self.status_bar.showMessage("上下文删除成功")
