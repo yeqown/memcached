@@ -7,15 +7,24 @@ class ContextDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("添加上下文")
-        self.setMinimumWidth(300)
+        self.setMinimumWidth(600)  # 从 300 改为 600
+        self.setMinimumHeight(200) # 添加最小高度设置
         
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         
         # 创建输入框
         self.name_input = QLineEdit()
+        self.name_input.setMinimumWidth(400)
+        self.name_input.setMinimumHeight(30)
+        
         self.host_input = QLineEdit()
+        self.host_input.setMinimumWidth(400)
+        self.host_input.setMinimumHeight(30)
+        
         self.port_input = QLineEdit()
+        self.port_input.setMinimumWidth(400)
+        self.port_input.setMinimumHeight(30)
         self.port_input.setText("11211")
         
         # 添加表单项

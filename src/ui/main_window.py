@@ -1,15 +1,18 @@
+import os
+import json
+import random
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QStatusBar,
     QListWidget, QSplitter, QTextEdit, QGroupBox,
-    QMessageBox
+    QMessageBox, QListWidgetItem
 )
 from PyQt6.QtCore import Qt
-from .context_dialog import ContextDialog
+
 from core.client import MemcachedClient
-import json
-import os
-from .context_item import ContextItemDelegate
+from ui.context_dialog import ContextDialog
+from ui.context_item import ContextItemDelegate
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -42,8 +45,6 @@ class MainWindow(QMainWindow):
         self.context_list.setItemDelegate(ContextItemDelegate(self.context_list))
         self.context_list.setStyleSheet("""
             QListWidget {
-                background: white;
-                padding: 0px;
                 border: none;
             }
             QListWidget::item {
@@ -219,6 +220,38 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"连接失败: {str(e)}")
             self.protocol_text.append(f"连接失败: {str(e)}")
     
+    def save_contexts(self):
+        """保存上下文配置"""
+        contexts = []
+        colors = [
+            ((240, 248, 255), (230, 230, 250)),  # Alice Blue to Lavender
+            ((255, 240, 245), (255, 228, 225)),  # Lavender Blush to Misty Rose
+            ((240, 255, 240), (245, 255, 250)),  # Honeydew to Mint Cream
+            ((255, 250, 240), (255, 245, 238)),  # Floral White to Seashell
+            ((240, 255, 255), (240, 248, 255)),  # Azure to Alice Blue
+        ]
+        
+        for i in range(self.context_list.count()):
+            item_text = self.context_list.item(i).text()
+            name = item_text.split(" (")[0]
+            host_port = item_text.split(" (")[1].rstrip(")")
+            host, port = host_port.split(":")
+            
+            # 为每个 context 添加随机颜色
+            context = {
+                "name": name,
+                "host": host,
+                "port": port,
+                "colors": random.choice(colors)  # 添加随机颜色
+            }
+            contexts.append(context)
+        
+        try:
+            with open(self.config_file, 'w') as f:
+                json.dump(contexts, f)
+        except Exception as e:
+            self.status_bar.showMessage(f"保存配置失败: {str(e)}")
+
     def load_contexts(self):
         """加载保存的上下文配置"""
         if os.path.exists(self.config_file):
@@ -226,29 +259,12 @@ class MainWindow(QMainWindow):
                 with open(self.config_file, 'r') as f:
                     contexts = json.load(f)
                     for context in contexts:
-                        self.context_list.addItem(f"{context['name']} ({context['host']}:{context['port']})")
+                        item = QListWidgetItem(f"{context['name']} ({context['host']}:{context['port']})")
+                        # 将颜色信息存储到 item 的 data 中
+                        item.setData(Qt.ItemDataRole.UserRole, context.get('colors'))
+                        self.context_list.addItem(item)
             except Exception as e:
                 self.status_bar.showMessage(f"加载配置失败: {str(e)}")
-    
-    def save_contexts(self):
-        """保存上下文配置"""
-        contexts = []
-        for i in range(self.context_list.count()):
-            item_text = self.context_list.item(i).text()
-            name = item_text.split(" (")[0]
-            host_port = item_text.split(" (")[1].rstrip(")")
-            host, port = host_port.split(":")
-            contexts.append({
-                "name": name,
-                "host": host,
-                "port": port
-            })
-        
-        try:
-            with open(self.config_file, 'w') as f:
-                json.dump(contexts, f)
-        except Exception as e:
-            self.status_bar.showMessage(f"保存配置失败: {str(e)}")
     
     def handle_add_context(self):
         """处理添加上下文"""

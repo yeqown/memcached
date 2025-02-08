@@ -6,35 +6,28 @@ import random
 class ContextItemDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.colors = [
-            ((240, 248, 255), (230, 230, 250)),  # Alice Blue to Lavender
-            ((255, 240, 245), (255, 228, 225)),  # Lavender Blush to Misty Rose
-            ((240, 255, 240), (245, 255, 250)),  # Honeydew to Mint Cream
-            ((255, 250, 240), (255, 245, 238)),  # Floral White to Seashell
-            ((240, 255, 255), (240, 248, 255)),  # Azure to Alice Blue
-        ]
-        self.item_colors = {}  # 存储每个项目的固定颜色
+        # 移除原有的颜色定义
+        self.default_colors = ((220, 220, 220), (200, 200, 200))  # 默认灰色渐变
 
     def paint(self, painter, option, index):
         painter.save()
         
-        # 获取或创建项目的固定颜色
-        item_id = id(index.data())
-        if item_id not in self.item_colors:
-            self.item_colors[item_id] = random.choice(self.colors)
-        color_pair = self.item_colors[item_id]
+        # 获取数据
+        data = index.data()
+        
+        # 尝试从数据中获取背景色，如果没有则使用默认灰色
+        try:
+            context_colors = getattr(data, 'colors', None)
+            color_pair = context_colors if context_colors else self.default_colors
+        except:
+            color_pair = self.default_colors
         
         # 绘制背景
         rect = option.rect
-        
-        # 创建渐变
         gradient = QLinearGradient(
             QPointF(rect.topLeft()),
             QPointF(rect.bottomRight())
         )
-        
-        # 设置随机渐变背景
-        color_pair = random.choice(self.colors)
         gradient.setColorAt(0, QColor(*color_pair[0]))
         gradient.setColorAt(1, QColor(*color_pair[1]))
         
