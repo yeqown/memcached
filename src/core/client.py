@@ -17,3 +17,8 @@ class MemcachedClient:
         if self.client:
             self.client.close()
             self.client = None
+
+    def get(self, key):
+        if self.client:
+            return self.client.get(key)
+        return None

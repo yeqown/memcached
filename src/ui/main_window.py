@@ -58,40 +58,8 @@ class MainWindow(QMainWindow):
                 border: 1px solid #ccc;
             }
         """)
-        
-        # # 删除重复的列表配置代码
-        # self.context_list.setSpacing(10)  # 设置项目间距
-        # self.context_list.setViewMode(QListWidget.ViewMode.IconMode)
-        # self.context_list.setMovement(QListWidget.Movement.Static)
-        # self.context_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        # self.context_list.setItemDelegate(ContextItemDelegate(self.context_list))
-        # self.context_list.setStyleSheet("""
-        #     QListWidget {
-        #         background: white;
-        #         padding: 10px;
-        #     }
-        #     QListWidget::item {
-        #         background: transparent;
-        #         border: none;
-        #     }
-        #     QListWidget::item:selected {
-        #         background: rgba(0, 0, 0, 10);
-        #         border: 1px solid #ccc;
-        #     }
-        # """)
-        
-        # 上下文管理按钮
-        # ... 前面的代码保持不变 ...
-        
-        # 移除原有的按钮布局
-        # context_buttons_layout = QHBoxLayout()
-        # self.add_context_btn = QPushButton("Add")
-        # self.delete_context_btn = QPushButton("Delete")
-        # context_buttons_layout.addWidget(self.add_context_btn)
-        # context_buttons_layout.addWidget(self.delete_context_btn)
-        
+
         context_layout.addWidget(self.context_list)
-        # context_layout.addLayout(context_buttons_layout)  # 移除这行
         context_group.setLayout(context_layout)
         
         # 右侧操作和展示区域
@@ -102,14 +70,27 @@ class MainWindow(QMainWindow):
         
         # 操作区域
         operation_group = QGroupBox("Operations")
-        operation_layout = QHBoxLayout()
+        operation_layout = QVBoxLayout()  # 改为垂直布局
         
+        # 连接按钮区域
+        connect_layout = QHBoxLayout()
         self.connect_btn = QPushButton("Connect")
+        connect_layout.addWidget(self.connect_btn)
+        connect_layout.addStretch()  # 添加弹性空间
+        
+        # 查询区域
+        query_layout = QHBoxLayout()
         self.key_input = QLineEdit()
         self.key_input.setPlaceholderText("Enter key")
+        self.retrieve_btn = QPushButton("Retrieve")  # 新增检索按钮
+        self.retrieve_btn.setEnabled(False)  # 初始状态禁用
         
-        operation_layout.addWidget(self.connect_btn)
-        operation_layout.addWidget(self.key_input)
+        query_layout.addWidget(self.key_input)
+        query_layout.addWidget(self.retrieve_btn)
+        
+        # 将子布局添加到主布局
+        operation_layout.addLayout(connect_layout)
+        operation_layout.addLayout(query_layout)
         operation_group.setLayout(operation_layout)
         
         # 展示区域分割器
@@ -149,8 +130,7 @@ class MainWindow(QMainWindow):
         
         # 连接信号
         self.connect_btn.clicked.connect(self.handle_connect)
-        # self.add_context_btn.clicked.connect(self.handle_add_context)      # Remove this line
-        # self.delete_context_btn.clicked.connect(self.handle_delete_context)  # Remove this line
+        self.retrieve_btn.clicked.connect(self.handle_retrieve)
         
         # 添加 Memcached 客户端
         self.memcached_client = MemcachedClient()
@@ -161,11 +141,16 @@ class MainWindow(QMainWindow):
         
         # 添加上下文选择信号
         self.context_list.currentItemChanged.connect(self.handle_context_changed)
-        
+
         # 加载已保存的上下文
         self.load_contexts()
     
     def handle_context_changed(self, current, previous):
+        if current is None or current.text() == "+":
+            return
+
+        self.status_bar.showMessage(f"当前上下文: {current.text()}")
+
         """处理上下文选择变化"""
         self.connect_btn.setEnabled(current is not None)
         if self.is_connected:
@@ -196,6 +181,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("已断开连接")
         self.protocol_text.append("已断开连接")
     
+    # 修改连接状态处理
     def handle_connect(self):
         """处理连接/断开操作"""
         if self.is_connected:
@@ -206,35 +192,58 @@ class MainWindow(QMainWindow):
         if not context:
             QMessageBox.warning(self, "错误", "请先选择一个上下文")
             return
-            
+
+        # self.status_bar.showMessage(f"正在连接到 {context['host']}:{context['port']}")
+        # self.protocol_text.append(f"正在连接到 {context['host']}:{context['port']}")
+
         try:
             result = self.memcached_client.connect(context["host"], int(context["port"]))
-            if isinstance(result, tuple):
-                success, error = result
-                if not success:
-                    raise Exception(error)
-                    
+            if not result:
+                raise Exception("连接失败")
             self.is_connected = True
             self.connect_btn.setText("Disconnect")
             self.key_input.setEnabled(True)
+            self.retrieve_btn.setEnabled(True)  # 连接成功时启用检索按钮
             self.status_bar.showMessage(f"已连接到 {context['host']}:{context['port']}")
             self.protocol_text.append(f"已连接到 {context['host']}:{context['port']}")
-            
         except Exception as e:
             QMessageBox.critical(self, "连接错误", str(e))
             self.status_bar.showMessage(f"连接失败: {str(e)}")
             self.protocol_text.append(f"连接失败: {str(e)}")
     
+    def disconnect_memcached(self):
+        """断开 Memcached 连接"""
+        self.memcached_client.disconnect()
+        self.is_connected = False
+        self.connect_btn.setText("Connect")
+        self.key_input.setEnabled(False)
+        self.retrieve_btn.setEnabled(False)  # 断开连接时禁用检索按钮
+        self.status_bar.showMessage("已断开连接")
+        self.protocol_text.append("已断开连接")
+    
+    def handle_retrieve(self):
+        """处理键值检索"""
+        key = self.key_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "错误", "请输入要检索的键")
+            return
+        
+        self.protocol_text.append(f"检索Key：{key}")
+        try:
+            value = self.memcached_client.get(key)
+            self.protocol_text.append(f"检索结果: {value}")
+            if not value:
+                self.value_text.clear()
+                self.value_text.append("键不存在")
+                raise Exception("键不存在")
+            self.value_text.setText(str(value))
+            self.status_bar.showMessage(f"成功检索键: {key}")
+        except Exception as e:
+            self.status_bar.showMessage(f"检索失败: {str(e)}")
+    
     def save_contexts(self):
         """保存上下文配置"""
         contexts = []
-        colors = [
-            ((240, 248, 255), (230, 230, 250)),  # Alice Blue to Lavender
-            ((255, 240, 245), (255, 228, 225)),  # Lavender Blush to Misty Rose
-            ((240, 255, 240), (245, 255, 250)),  # Honeydew to Mint Cream
-            ((255, 250, 240), (255, 245, 238)),  # Floral White to Seashell
-            ((240, 255, 255), (240, 248, 255)),  # Azure to Alice Blue
-        ]
         
         for i in range(self.context_list.count()):
             item = self.context_list.item(i)
@@ -253,7 +262,6 @@ class MainWindow(QMainWindow):
                 "name": name,
                 "host": host,
                 "port": port,
-                "colors": random.choice(colors)  # 添加随机颜色
             }
             contexts.append(context)
         
