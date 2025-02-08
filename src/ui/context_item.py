@@ -1,37 +1,45 @@
-from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
-from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QPointF
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QFont, QPainterPath
 import random
 
+from PyQt6.QtWidgets import QStyledItemDelegate, QStyle
+from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QPointF
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QFont, QPainterPath, QIcon
+
+
 class ContextItemDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None):
+    handle_delete_context = None
+    handle_add_context = None
+
+
+    def __init__(self, parent=None, handle_delete_context=None, handle_add_context=None):
         super().__init__(parent)
-        # 移除原有的颜色定义
-        self.default_colors = ((220, 220, 220), (200, 200, 200))  # 默认灰色渐变
+        self.default_colors = ((220, 220, 220), (200, 200, 200))
+        self.add_icon = QIcon("src/ui/assets/add.png")      # 需要添加对应的图标文件
+        self.delete_icon = QIcon("src/ui/assets/trash.png") # 需要添加对应的图标文件
+        self.icon_size = QSize(24, 24)
+
+        self.handle_delete_context = handle_delete_context
+        self.handle_add_context = handle_add_context
 
     def paint(self, painter, option, index):
         painter.save()
         
-        # 获取数据
-        data = index.data()
-        
-        # 尝试从数据中获取背景色，如果没有则使用默认灰色
-        try:
-            context_colors = getattr(data, 'colors', None)
-            color_pair = context_colors if context_colors else self.default_colors
-        except:
-            color_pair = self.default_colors
+        # 特殊处理添加按钮项
+        if index.data() == "+":
+            self.paint_add_button(painter, option)
+            painter.restore()
+            return
+
+        # 正常项目的绘制
+        rect = option.rect
+        colors = index.data(Qt.ItemDataRole.UserRole) or self.default_colors
         
         # 绘制背景
-        rect = option.rect
         gradient = QLinearGradient(
             QPointF(rect.topLeft()),
             QPointF(rect.bottomRight())
         )
-        gradient.setColorAt(0, QColor(*color_pair[0]))
-        gradient.setColorAt(1, QColor(*color_pair[1]))
-        
-        # 填充背景
+        gradient.setColorAt(0, QColor(*colors[0]))
+        gradient.setColorAt(1, QColor(*colors[1]))
         painter.fillRect(rect, gradient)
         
         # 获取数据
@@ -41,7 +49,7 @@ class ContextItemDelegate(QStyledItemDelegate):
         
         # 绘制内容
         content_rect = QRect(rect)
-        content_rect.adjust(10, 10, -10, -10)
+        content_rect.adjust(10, 10, -40, -10)  # 右侧留出删除按钮的空间
         
         # 绘制名称
         name_font = QFont()
@@ -71,11 +79,54 @@ class ContextItemDelegate(QStyledItemDelegate):
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, QColor(51, 153, 255, 50))
             
+        # 绘制删除按钮
+        delete_rect = QRect(
+            rect.right() - 34,
+            rect.center().y() - 12,
+            24,
+            24
+        )
+        self.delete_icon.paint(painter, delete_rect)
+
         # 绘制底部分割线
         painter.setPen(QColor(200, 200, 200))
         painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
-        
+
         painter.restore()
+
+    def paint_add_button(self, painter, option):
+        rect = option.rect
+        # 绘制浅色背景
+        painter.fillRect(rect, QColor(245, 245, 245))
+        
+        # 绘制加号图标
+        icon_rect = QRect(
+            rect.center().x() - 12,
+            rect.center().y() - 12,
+            24,
+            24
+        )
+        self.add_icon.paint(painter, icon_rect)
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == event.Type.MouseButtonRelease:
+            if index.data() == "+":
+                # 处理添加按钮点击
+                self.handle_add_context()
+                return True
+            
+            # 检查是否点击了删除按钮
+            delete_rect = QRect(
+                option.rect.right() - 34,
+                option.rect.center().y() - 12,
+                24,
+                24
+            )
+            if delete_rect.contains(event.pos()):
+                self.handle_delete_context(index)
+                return True
+        
+        return super().editorEvent(event, model, option, index)
 
     def sizeHint(self, option, index):
         return QSize(option.rect.width(), 100)

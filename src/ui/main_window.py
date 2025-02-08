@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         self.context_list.setSpacing(0)  # 移除间距
         self.context_list.setViewMode(QListWidget.ViewMode.ListMode)  # 改为列表模式
         self.context_list.setMovement(QListWidget.Movement.Static)
-        self.context_list.setItemDelegate(ContextItemDelegate(self.context_list))
+        self.context_list.setItemDelegate(ContextItemDelegate(self.context_list, self.handle_delete_context, self.handle_add_context))
         self.context_list.setStyleSheet("""
             QListWidget {
                 border: none;
@@ -79,14 +79,17 @@ class MainWindow(QMainWindow):
         # """)
         
         # 上下文管理按钮
-        context_buttons_layout = QHBoxLayout()
-        self.add_context_btn = QPushButton("Add")
-        self.delete_context_btn = QPushButton("Delete")
-        context_buttons_layout.addWidget(self.add_context_btn)
-        context_buttons_layout.addWidget(self.delete_context_btn)
+        # ... 前面的代码保持不变 ...
+        
+        # 移除原有的按钮布局
+        # context_buttons_layout = QHBoxLayout()
+        # self.add_context_btn = QPushButton("Add")
+        # self.delete_context_btn = QPushButton("Delete")
+        # context_buttons_layout.addWidget(self.add_context_btn)
+        # context_buttons_layout.addWidget(self.delete_context_btn)
         
         context_layout.addWidget(self.context_list)
-        context_layout.addLayout(context_buttons_layout)
+        # context_layout.addLayout(context_buttons_layout)  # 移除这行
         context_group.setLayout(context_layout)
         
         # 右侧操作和展示区域
@@ -144,8 +147,8 @@ class MainWindow(QMainWindow):
         
         # 连接信号
         self.connect_btn.clicked.connect(self.handle_connect)
-        self.add_context_btn.clicked.connect(self.handle_add_context)
-        self.delete_context_btn.clicked.connect(self.handle_delete_context)
+        # self.add_context_btn.clicked.connect(self.handle_add_context)      # Remove this line
+        # self.delete_context_btn.clicked.connect(self.handle_delete_context)  # Remove this line
         
         # 添加 Memcached 客户端
         self.memcached_client = MemcachedClient()
@@ -232,7 +235,13 @@ class MainWindow(QMainWindow):
         ]
         
         for i in range(self.context_list.count()):
-            item_text = self.context_list.item(i).text()
+            item = self.context_list.item(i)
+            item_text = item.text()
+            
+            # Skip the "+" item
+            if item_text == "+":
+                continue
+                
             name = item_text.split(" (")[0]
             host_port = item_text.split(" (")[1].rstrip(")")
             host, port = host_port.split(":")
@@ -260,11 +269,13 @@ class MainWindow(QMainWindow):
                     contexts = json.load(f)
                     for context in contexts:
                         item = QListWidgetItem(f"{context['name']} ({context['host']}:{context['port']})")
-                        # 将颜色信息存储到 item 的 data 中
                         item.setData(Qt.ItemDataRole.UserRole, context.get('colors'))
                         self.context_list.addItem(item)
             except Exception as e:
                 self.status_bar.showMessage(f"加载配置失败: {str(e)}")
+        
+        # 添加"添加"按钮项
+        self.context_list.addItem("+")
     
     def handle_add_context(self):
         """处理添加上下文"""
