@@ -1,11 +1,21 @@
-## Memcached GUI
+## Memcached
 
-This is a simple GUI for Memcached. It is built using Python and PyQt6.
+This is a golang package for Memcached. It is a simple and easy to use package.
 
-### GUI Features
+### Features
 
-- [ ] Multiple Contexts management allows you to manage multiple Memcached clusters.
-- [ ] Multiple Memcached servers instances in one context.
-- [ ] Cross-platform support.
-- [ ] Visual communication process.
-- [ ] Get/Set operations support.
+- [ ] Complete Memcached meta text protocol
+- [ ] Integrated serialization and deserialization function
+- [ ] Cluster support, multiple hash algorithm support, include: crc32, murmur3, redezvous and also custom hash algorithm.
+
+### Installation
+
+```bash
+go get github.com/yeqown/memcached
+```
+
+### Usage
+
+```go
+TODO:
+```
