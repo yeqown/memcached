@@ -13,7 +13,7 @@ func NewRendezvous(nodes []string) *Rendezvous {
 }
 
 func (h *Rendezvous) Hash(key []byte) uint64 {
-	maxScore := math.MinInt64
+	maxScore := int64(math.MinInt64)
 	var selected uint64
 
 	// 计算每个节点的得分
@@ -28,7 +28,7 @@ func (h *Rendezvous) Hash(key []byte) uint64 {
 	return selected
 }
 
-func (h *Rendezvous) score(key, node []byte) float64 {
+func (h *Rendezvous) score(key, node []byte) int64 {
 	hash := NewMurmur3(0).Hash(append(key, node...))
-	return -math.Log(float64(hash) / float64(math.MaxUint64))
+	return int64(-math.Log(float64(hash) / float64(math.MaxUint64)))
 }

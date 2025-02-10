@@ -1,16 +1,27 @@
 package memcached
 
 import (
+	"context"
+	"sync"
 	"time"
+	"bytes"
+	"io"
 
-	"github.com/yeqown/memcached/conn"
-	"github.com/yeqown/memcached/hash"
-	"github.com/yeqown/memcached/protocol"
+	"github.com/pkg/errors"
 )
 
+// Item represents a key-value pair to be got or stored.
+type Item struct {
+	Key   string
+	Value []byte
+	Flags uint32
+}
+
 type normalTextProtocolClient interface {
-	Set(key string, value any, expiry int64) error
-	Get(key string, value any) error
+	Set(key, value string, flags, expiry uint32) error
+	Touch(key string, expiry uint32) error
+	Get(key string) (*Item, error)
+	Gets(keys ...string) ([]*Item, error)
 }
 
 type metaTextProtocolClient interface {
@@ -20,210 +31,219 @@ type metaTextProtocolClient interface {
 
 // Client represents a memcached client API set.
 type Client interface {
+	io.Closer
 	normalTextProtocolClient
-	metaTextProtocolClient
+	// metaTextProtocolClient
 
 	Version() (string, error)
 }
 
-type ClientOption func(*basicClient)
+var (
+	_ Client = (*client)(nil)
+)
 
-type basicClient struct {
-	nodes         []*conn.Node
-	hasher        hash.HashFunc
-	timeout       time.Duration
-	maxConns      int
-	maxRetries    int
-	retryInterval time.Duration
+type client struct {
+	options *clientOptions
+
+	// addrs represents the list of memcached addresses.
+	// Each one of them means a memcached server instance.
+	addrs []*Addr
+
+	// picker represents the picker strategy.
+	// It is used to pick a memcached server instance to execute a command.
+	picker Picker
+
+	// conns represents the all connections to the memcached server instances.
+	// TODO(@yeqown): using connection pool instead of a map to store the connections.
+	connsLock sync.RWMutex
+	conns     map[*Addr]conn
 }
 
-func (c *basicClient) Set(key string, value codecValue, expiry int64) error {
-	data, err := value.Marshal()
+func New(addr string, opts ...ClientOption) (Client, error) {
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return newClientWithContext(timeoutCtx, addr, opts...)
+}
+
+func newClientWithContext(ctx context.Context, addr string, opts ...ClientOption) (Client, error) {
+	options := newClientOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	addrs, err := options.resolver.Resolve(addr)
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "failed to resolve address")
 	}
 
-	node, err := c.getNode(key)
-	if err != nil {
-		return err
+	if len(addrs) == 0 {
+		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
 	}
+	picker := options.pickBuilder.Build(addrs)
 
-	conn, err := node.GetConn()
-	if err != nil {
-		return err
-	}
-	defer node.PutConn(conn)
+	return &client{
+		options: options,
+		addrs:   addrs,
+		picker:  picker,
 
-	cmd := &protocol.Command{
-		Name:   protocol.CmdSet,
-		Key:    key,
-		Data:   data,
-		Length: len(data),
-		Expiry: expiry,
-	}
+		connsLock: sync.RWMutex{},
+		conns:     make(map[*Addr]conn, 4),
+	}, nil
+}
 
-	cmdBytes, err := protocol.BuildCommand(cmd)
-	if err != nil {
-		return err
-	}
+func (c *client) Close() error {
+	c.connsLock.Lock()
+	defer c.connsLock.Unlock()
 
-	if err := conn.Write(cmdBytes); err != nil {
-		node.SetAvailable(false)
-		return err
-	}
-
-	resp, err := conn.Read('\n')
-	if err != nil {
-		node.SetAvailable(false)
-		return err
-	}
-
-	parsedResp, err := protocol.ParseResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	if parsedResp.Status != protocol.StatusStored {
-		return protocol.ErrServerError
+	for _, conn := range c.conns {
+		if err := conn.Close(); err != nil {
+			return errors.Wrap(err, "failed to close connection")
+		}
 	}
 
 	return nil
 }
 
-func WithHasher(hasher hash.HashFunc) ClientOption {
-	return func(c *basicClient) {
-		c.hasher = hasher
+func (c *client) pickConn(cmd, key string) (conn, error) {
+	addr, err := c.picker.Pick(cmd, key)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to pick a connection")
 	}
+
+	conn, err := c.getConn(addr)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get a connection")
+	}
+
+	return conn, nil
 }
 
-func WithMaxConns(maxConns int) ClientOption {
-	return func(c *basicClient) {
-		c.maxConns = maxConns
+// getConn returns a connection to the given address.
+// TODO(@yeqown): support connection pool
+func (c *client) getConn(addr *Addr) (conn, error) {
+	c.connsLock.RLock()
+	conn, ok := c.conns[addr]
+	if ok {
+		c.connsLock.RUnlock()
+		return conn, nil
 	}
+	c.connsLock.RUnlock()
+
+	// otherwise, create a new connection
+	conn, err := newConn(addr)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a new connection")
+	}
+
+	// add to the map
+	c.connsLock.Lock()
+	c.conns[addr] = conn
+	c.connsLock.Unlock()
+
+	return conn, nil
 }
 
-func New(addrs []string, options ...ClientOption) *basicClient {
-	c := &basicClient{
-		timeout:  time.Second * 3,
-		maxConns: 10,
+func (c *client) doRequest(req *request, resp *response) error {
+	conn, err := c.pickConn("version", "")
+	if err != nil {
+		return errors.Wrap(err, "failed to pick a connection")
 	}
 
-	for _, opt := range options {
-		opt(c)
+	_ = conn.setReadTimeout(c.options.readTimeout)
+	if err = req.send(conn); err != nil {
+		return errors.Wrap(err, "failed to write command")
 	}
 
-	// 初始化节点
-	c.nodes = make([]*conn.Node, len(addrs))
-	for i, addr := range addrs {
-		c.nodes[i] = conn.NewNode(addr, 1, c.maxConns, c.timeout)
-	}
-
-	// 默认使用 CRC32 哈希
-	if c.hasher == nil {
-		c.hasher = hash.NewCRC32()
-	}
-
-	return c
+	_ = conn.setWriteTimeout(c.options.writeTimeout)
+	return resp.recv(conn)
 }
 
-func (c *basicClient) getNode(key string) (*conn.Node, error) {
-	if len(c.nodes) == 0 {
-		return nil, protocol.ErrServerError
+func (c *client) Version() (string, error) {
+	req := buildVersionCommand()
+	resp := buildResponse1(1)
+	if err := c.doRequest(req, resp); err != nil {
+		return "", errors.Wrap(err, "do request")
 	}
 
-	hash := c.hasher.Hash([]byte(key))
-	index := int(hash % uint64(len(c.nodes)))
-	node := c.nodes[index]
-
-	if !node.IsAvailable() {
-		return nil, protocol.ErrServerError
+	// parse version number from response
+	// VERSION 1.6.14
+	if !bytes.HasPrefix(resp.raw, _VersionBytes) {
+		return "", errors.Wrap(ErrMalformedResponse, string(resp.raw))
 	}
 
-	return node, nil
+	return string(cleanLine(resp.raw[8:])), nil
 }
 
-func (c *basicClient) Get(key string, value codecValue) error {
-	node, err := c.getNode(key)
-	if err != nil {
-		return err
+func (c *client) Set(key, value string, flags, expiry uint32) error {
+	req := buildStorageCommand("set", key, []byte(value), 0, expiry, false)
+	resp := buildResponse1(1)
+	if err := c.doRequest(req, resp); err != nil {
+		return errors.Wrap(err, "do request")
 	}
 
-	conn, err := node.GetConn()
-	if err != nil {
-		return err
-	}
-	defer node.PutConn(conn)
-
-	cmd := &protocol.Command{
-		Name: protocol.CmdGet,
-		Key:  key,
+	if resp.err != nil {
+		return resp.err
 	}
 
-	cmdBytes, err := protocol.BuildCommand(cmd)
-	if err != nil {
-		return err
-	}
-
-	if err := conn.Write(cmdBytes); err != nil {
-		return err
-	}
-
-	resp, err := conn.Read('\n')
-	if err != nil {
-		return err
-	}
-
-	parsedResp, err := protocol.ParseResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	if parsedResp.Status == protocol.StatusNotFound {
-		return protocol.ErrNotFound
-	}
-
-	return value.Unmarshal(parsedResp.Data)
-}
-
-func (c *basicClient) Delete(key string) error {
-	node, err := c.getNode(key)
-	if err != nil {
-		return err
-	}
-
-	conn, err := node.GetConn()
-	if err != nil {
-		return err
-	}
-	defer node.PutConn(conn)
-
-	cmd := &protocol.Command{
-		Name: protocol.CmdDelete,
-		Key:  key,
-	}
-
-	cmdBytes, err := protocol.BuildCommand(cmd)
-	if err != nil {
-		return err
-	}
-
-	if err := conn.Write(cmdBytes); err != nil {
-		return err
-	}
-
-	resp, err := conn.Read('\n')
-	if err != nil {
-		return err
-	}
-
-	parsedResp, err := protocol.ParseResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	if parsedResp.Status == protocol.StatusNotFound {
-		return protocol.ErrNotFound
+	// No error encountered, expect STORED\r\n
+	if !bytes.Equal(resp.raw, _StoredCRLFBytes) {
+		return errors.Wrap(ErrMalformedResponse, string(resp.raw))
 	}
 
 	return nil
+}
+
+func (c *client) Touch(key string, expiry uint32) error {
+	req := buildTouchCommand(key, expiry, true)
+	resp := buildResponse1(1)
+	if err := c.doRequest(req, resp); err != nil {
+		return errors.Wrap(err, "do request")
+	}
+
+	return resp.err
+}
+
+// Get gets the value of the given key.
+func (c *client) Get(key string) (*Item, error) {
+	req := buildGetCommand(key)
+	resp := buildResponse1(3)
+	if err := c.doRequest(req, resp); err != nil {
+		return nil, errors.Wrap(err, "do request")
+	}
+
+	// parse response
+	items, err := parseItems(resp.raw)
+	if err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+	if len(items) == 0 {
+		return nil, errors.Wrap(ErrNotFound, "no items found")
+	}
+
+	return items[0], nil
+}
+
+// Gets the values of the given keys.
+//
+// BUT you must know that the cluster mode of memcached DOES NOT support this command,
+// since keys are possible stored in different memcached instances.
+// Be careful when using this command unless you are sure that
+// all keys are stored in the same memcached instance.
+func (c *client) Gets(keys ...string) ([]*Item, error) {
+	req := buildGetsCommand(keys...)
+	resp := buildResponse2(_EndCRLFBytes)
+	if err := c.doRequest(req, resp); err != nil {
+		return nil, errors.Wrap(err, "do request")
+	}
+
+	// parse response
+	items, err := parseItems(resp.raw)
+	if err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+	if len(items) == 0 {
+		return nil, errors.Wrap(ErrNotFound, "no items found")
+	}
+
+	return items, nil
 }

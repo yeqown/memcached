@@ -1,0 +1,7 @@
+go 1.22.8
+
+use (
+	./example
+	./cmd/memcached-cli
+	.
+)
