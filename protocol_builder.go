@@ -90,7 +90,7 @@ func (b *protocolBuilder) build() []byte {
 	return result
 }
 
-func cleanLine(line []byte) []byte {
+func trimCRLF(line []byte) []byte {
 	return bytes.TrimSuffix(line, _CRLFBytes)
 }
 

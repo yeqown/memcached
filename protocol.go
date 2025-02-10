@@ -21,7 +21,8 @@ func (req *request) send(rr conn) (err error) {
 type responseEndIndicator uint8
 
 const (
-	endIndicatorLimitedLines responseEndIndicator = iota
+	endIndicatorNoReply responseEndIndicator = iota
+	endIndicatorLimitedLines
 	endIndicatorSpecificEndLine
 )
 
@@ -47,6 +48,8 @@ type response struct {
 
 func (resp *response) recv(rr conn) error {
 	switch resp.endIndicator {
+	case endIndicatorNoReply:
+		return nil
 	case endIndicatorLimitedLines:
 		return resp.read1(rr)
 	case endIndicatorSpecificEndLine:
@@ -98,6 +101,16 @@ func (resp *response) read2(rr conn) error {
 	}
 
 	return nil
+}
+
+func buildNoReplyResponse() *response {
+	return &response{
+		endIndicator: endIndicatorNoReply,
+		limitedLines: 0,
+		specEndLine:  nil,
+		raw:          nil,
+		err:          nil,
+	}
 }
 
 // TODO(@yeqown): reuse response and request objects
@@ -267,14 +280,14 @@ func buildGetsCommand(keys ...string) *request {
 	}
 }
 
-// parseItems parses the response from memcached server.
+// parseValueItems parses the response from memcached server.
 // VALUE <key> <flags> <bytes> <cas unique>\r\n
 // <data block>\r\n
 // VALUE <key> <flags> <bytes> <cas unique>\r\n
 // <data block>\r\n
 // ...
 // END\r\n
-func parseItems(raw []byte) ([]*Item, error) {
+func parseValueItems(raw []byte) ([]*Item, error) {
 	var items []*Item
 	lines := bytes.Split(raw, _CRLFBytes)
 
@@ -314,7 +327,7 @@ func parseItems(raw []byte) ([]*Item, error) {
 
 			item := &Item{
 				Key:   key,
-				Value: cleanLine(data),
+				Value: trimCRLF(data),
 				Flags: uint32(flags),
 			}
 			items = append(items, item)

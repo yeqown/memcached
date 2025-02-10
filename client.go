@@ -1,11 +1,11 @@
 package memcached
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"sync"
 	"time"
-	"bytes"
-	"io"
 
 	"github.com/pkg/errors"
 )
@@ -171,12 +171,18 @@ func (c *client) Version() (string, error) {
 		return "", errors.Wrap(ErrMalformedResponse, string(resp.raw))
 	}
 
-	return string(cleanLine(resp.raw[8:])), nil
+	return string(trimCRLF(resp.raw[8:])), nil
 }
 
 func (c *client) Set(key, value string, flags, expiry uint32) error {
-	req := buildStorageCommand("set", key, []byte(value), 0, expiry, false)
-	resp := buildResponse1(1)
+	req := buildStorageCommand("set", key, []byte(value), flags, expiry, c.options.noReply)
+	var resp *response
+	if c.options.noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildResponse1(1)
+	}
+
 	if err := c.doRequest(req, resp); err != nil {
 		return errors.Wrap(err, "do request")
 	}
@@ -194,7 +200,7 @@ func (c *client) Set(key, value string, flags, expiry uint32) error {
 }
 
 func (c *client) Touch(key string, expiry uint32) error {
-	req := buildTouchCommand(key, expiry, true)
+	req := buildTouchCommand(key, expiry, c.options.noReply)
 	resp := buildResponse1(1)
 	if err := c.doRequest(req, resp); err != nil {
 		return errors.Wrap(err, "do request")
@@ -212,7 +218,7 @@ func (c *client) Get(key string) (*Item, error) {
 	}
 
 	// parse response
-	items, err := parseItems(resp.raw)
+	items, err := parseValueItems(resp.raw)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
 	}
@@ -237,7 +243,7 @@ func (c *client) Gets(keys ...string) ([]*Item, error) {
 	}
 
 	// parse response
-	items, err := parseItems(resp.raw)
+	items, err := parseValueItems(resp.raw)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
 	}

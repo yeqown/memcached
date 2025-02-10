@@ -21,6 +21,9 @@ type clientOptions struct {
 	// writeTimeout is the timeout for writing to the connection.
 	// Default is 5 seconds.
 	writeTimeout time.Duration
+
+	// noReply is the flag to indicate whether the client should wait for the response.
+	noReply bool
 }
 
 func newClientOptions() *clientOptions {
@@ -89,5 +92,12 @@ func WithWriteTimeout(timeout time.Duration) ClientOption {
 		}
 
 		o.writeTimeout = timeout
+	}
+}
+
+// WithNoReply sets the flag to indicate whether the client should wait for the response.
+func WithNoReply() ClientOption {
+	return func(o *clientOptions) {
+		o.noReply = true
 	}
 }
