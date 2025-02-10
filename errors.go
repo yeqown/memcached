@@ -11,6 +11,8 @@ var (
 	ErrNotFound           = errors.New("not found")
 	ErrExists             = errors.New("exists")
 	ErrNotStored          = errors.New("not stored")
-	ErrMalformedResponse  = errors.New("malformed response")
-	ErrUnknownIndicator   = errors.New("unknown indicator")
+
+	ErrMalformedResponse = errors.New("malformed response")
+	ErrUnknownIndicator  = errors.New("unknown indicator")
+	ErrInvalidAddress    = errors.New("invalid address")
 )

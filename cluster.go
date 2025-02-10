@@ -2,15 +2,12 @@ package memcached
 
 import (
 	"hash/crc32"
+	"net/url"
 	"strings"
 
 	"github.com/pkg/errors"
 
 	"github.com/yeqown/memcached/hash"
-)
-
-var (
-	ErrInvalidAddress = errors.New("invalid address")
 )
 
 // Resolver is responsible for resolving a given address
@@ -56,6 +53,10 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 			continue
 		}
 
+		if _, err := url.Parse(address); err != nil {
+			return nil, errors.Wrap(err, "invalid address: "+address)
+		}
+
 		result = append(result, NewAddr("tcp", address, idx))
 	}
 
@@ -68,8 +69,7 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 
 // The crc32HashPicker is the default implementation of Picker.
 // It will pick an Addr by using the crc32 hash algorithm.
-type crc32HashPicker struct {
-}
+type crc32HashPicker struct{}
 
 func (p *crc32HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
 	n := len(addrs)
