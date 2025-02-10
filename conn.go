@@ -3,6 +3,7 @@ package memcached
 import (
 	"bufio"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
@@ -12,15 +13,31 @@ type Addr struct {
 	Network string // Network representation of the address
 	Address string // Address representation of the address
 
+	// Priority of the address in the cluster. It is used to pick the address
+	// in rendezvous hashing picker. The higher the priority means the node would
+	// win the competition while hash score is the same.
+	//
+	// By default, the priority is set by the order of the address in the cluster, the first address
+	// has the lowest priority, the last address has the highest.
+	//
+	// If you want to customize resolver, be careful to set the priority, make sure the priority
+	// is unique.
+	Priority int
+
 	metadata map[string]any
 }
 
-func NewAddr(network, address string) *Addr {
+func NewAddr(network, address string, priority int) *Addr {
 	return &Addr{
 		Network:  network,
 		Address:  address,
+		Priority: priority,
 		metadata: make(map[string]any, 2),
 	}
+}
+
+func (a *Addr) shortcut() []byte {
+	return []byte(a.Network + "-" + a.Address + strconv.Itoa(a.Priority))
 }
 
 func (a *Addr) GetMetadata(mdKey string) any {

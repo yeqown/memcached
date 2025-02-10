@@ -2,8 +2,9 @@ package memcached
 
 import (
 	"bytes"
-	"github.com/pkg/errors"
 	"strconv"
+
+	"github.com/pkg/errors"
 )
 
 type request struct {
@@ -157,16 +158,18 @@ func forecastCommonFaultLine(line []byte) error {
 }
 
 // buildStorageCommand constructs storage class command, including:
-//  set/add/replace/append/prepend, etc.
+//
+//	set/add/replace/append/prepend, etc.
+//
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
 func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) *request {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
+		AddString(key).           // key
+		AddUint(uint64(flags)).   // flags
 		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value)) // bytes
+		AddInt(len(value))        // bytes
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -208,11 +211,11 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) *request {
 // cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(key string, value []byte, flags, expTime, casUnique uint32, noReply bool) *request {
 	b := newProtocolBuilder().
-		AddString("cas"). // command
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
-		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value)). // bytes
+		AddString("cas").          // command
+		AddString(key).            // key
+		AddUint(uint64(flags)).    // flags
+		AddUint(uint64(expTime)).  // exptime
+		AddInt(len(value)).        // bytes
 		AddUint(uint64(casUnique)) // cas unique
 
 	if noReply {

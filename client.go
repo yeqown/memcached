@@ -105,7 +105,7 @@ func (c *client) Close() error {
 }
 
 func (c *client) pickConn(cmd, key string) (conn, error) {
-	addr, err := c.picker.Pick(cmd, key)
+	addr, err := c.picker.Pick(c.addrs, cmd, key)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to pick a connection")
 	}
