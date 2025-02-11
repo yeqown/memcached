@@ -13,7 +13,7 @@ type request struct {
 	raw []byte
 }
 
-func (req *request) send(rr conn) (err error) {
+func (req *request) send(rr memcachedConn) (err error) {
 	_, err = rr.Write(req.raw)
 	return err
 }
@@ -21,17 +21,24 @@ func (req *request) send(rr conn) (err error) {
 type responseEndIndicator uint8
 
 const (
+	// endIndicatorNoReply indicates the response is no reply
+	// and the client should not wait for the response.
 	endIndicatorNoReply responseEndIndicator = iota
+	// endIndicatorLimitedLines indicates the response is limited lines,
+	// the client should read line from response with limited lines with delimiter '\n'.
 	endIndicatorLimitedLines
+	// endIndicatorSpecificEndLine indicates the response is specific end line,
+	// the client should read lines from response until the specific end line.
+	// The delimiter is '\n'.
 	endIndicatorSpecificEndLine
 )
 
 // response represents a structural response from memcached server.
 type response struct {
+	// endIndicator indicates the parser how to read the whole bytes from the
+	// connection receiving buffer.
 	endIndicator responseEndIndicator
-
-	// limitedLines is the number of limitedLines in response, it helps to read
-	// from the connection.
+	// limitedLines is the number of lines to read from the connection.
 	// If limitedLines equals 0, it means the response is not ready to be read
 	// from the connection. 1 means the response is
 	// ready to be read from the connection.
@@ -46,7 +53,7 @@ type response struct {
 	err error
 }
 
-func (resp *response) recv(rr conn) error {
+func (resp *response) recv(rr memcachedConn) error {
 	switch resp.endIndicator {
 	case endIndicatorNoReply:
 		return nil
@@ -60,7 +67,7 @@ func (resp *response) recv(rr conn) error {
 }
 
 // read1 reads the response from the connection with limited lines.
-func (resp *response) read1(rr conn) error {
+func (resp *response) read1(rr memcachedConn) error {
 	read := 0
 	for read < int(resp.limitedLines) {
 		line, err := rr.Read('\n')
@@ -82,7 +89,7 @@ func (resp *response) read1(rr conn) error {
 }
 
 // read2 reads the response from the connection with specific end line.
-func (resp *response) read2(rr conn) error {
+func (resp *response) read2(rr memcachedConn) error {
 	for {
 		line, err := rr.Read('\n')
 		if err != nil {

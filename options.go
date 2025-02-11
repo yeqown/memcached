@@ -12,15 +12,29 @@ type clientOptions struct {
 
 	// dialTimeout is the timeout for dialing a connection to the memcached server
 	// instance. Default is 5 seconds.
+	// (Connection Timeout)
 	dialTimeout time.Duration
-
 	// readTimeout is the timeout for reading from the connection.
 	// Default is 5 seconds.
+	// (Connection Timeout)
 	readTimeout time.Duration
-
 	// writeTimeout is the timeout for writing to the connection.
 	// Default is 5 seconds.
+	// (Connection Timeout)
 	writeTimeout time.Duration
+
+	// maxConns is the max connections in the pool.
+	// Default is 100.
+	maxConns int
+	// maxIdleConns is the max idle connections in the pool.
+	// Default is 10.
+	maxIdleConns int
+	// maxLifetime is the max lifetime for a connection, 0 means no lifetime limit.
+	// Default is 0.
+	maxLifetime time.Duration
+	// maxIdleTimeout is the max idle timeout for a connection, 0 means no idle timeout.
+	// Default is 0.
+	maxIdleTimeout time.Duration
 
 	// noReply is the flag to indicate whether the client should wait for the response.
 	noReply bool
@@ -92,6 +106,38 @@ func WithWriteTimeout(timeout time.Duration) ClientOption {
 		}
 
 		o.writeTimeout = timeout
+	}
+}
+
+func WithMaxConns(n int) ClientOption {
+	return func(o *clientOptions) {
+		if n <= 0 {
+			n = 100
+		}
+
+		o.maxConns = n
+	}
+}
+
+func WithMaxIdleConns(n int) ClientOption {
+	return func(o *clientOptions) {
+		if n <= 0 {
+			n = 10
+		}
+
+		o.maxIdleConns = n
+	}
+}
+
+func WithMaxLifetime(d time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		o.maxLifetime = d
+	}
+}
+
+func WithMaxIdleTimeout(d time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		o.maxIdleTimeout = d
 	}
 }
 
