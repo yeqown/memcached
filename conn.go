@@ -57,8 +57,8 @@ func (a *Addr) Addr() string {
 	return a.Address
 }
 
-func (a *Addr) dial(ctx context.Context) (net.Conn, error) {
-	return (&net.Dialer{}).DialContext(ctx, a.Network, a.Address)
+func (a *Addr) dial(ctx context.Context, dialTimeout time.Duration) (net.Conn, error) {
+	return (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, a.Network, a.Address)
 }
 
 // memcachedConn wraps a net.Conn and provides a way to read and write data
@@ -107,20 +107,20 @@ type conn struct {
 	wr *bufio.Writer
 }
 
-func newConn(addr *Addr) (*conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func newConn(addr *Addr, dialTimeout time.Duration) (*conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
-	return newConnContext(ctx, addr)
+	return newConnContext(ctx, addr, dialTimeout)
 }
 
 // newConnWithContext dials a TCP connection
-func newConnContext(ctx context.Context, addr *Addr) (*conn, error) {
-	rawConn, err := addr.dial(ctx)
+func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) (*conn, error) {
+	rawConn, err := addr.dial(ctx, dialTimeout)
 	if err != nil {
 		return nil, errors.Wrap(err, "dialContext")
 	}
 
-	conn := &conn{
+	cn := &conn{
 		createdAt:  nowFunc(),
 		returnedAt: nowFunc(),
 
@@ -133,7 +133,7 @@ func newConnContext(ctx context.Context, addr *Addr) (*conn, error) {
 		wr: bufio.NewWriter(rawConn),
 	}
 
-	return conn, nil
+	return cn, nil
 }
 
 func (c *conn) setReadTimeout(timeout time.Duration) error {

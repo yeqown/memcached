@@ -46,7 +46,7 @@ func (c *client) Version(ctx context.Context) (string, error) {
 	req := buildVersionCommand()
 	resp := buildResponse1(1)
 	if err := c.doRequest(ctx, req, resp); err != nil {
-		return "", errors.Wrap(err, "do request")
+		return "", errors.Wrap(err, "request")
 	}
 
 	// parse version number from response
@@ -68,7 +68,7 @@ func (c *client) Set(ctx context.Context, key, value string, flags, expiry uint3
 	}
 
 	if err := c.doRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "do request")
+		return errors.Wrap(err, "request failed")
 	}
 
 	if resp.err != nil {
@@ -87,7 +87,7 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
 	req := buildTouchCommand(key, expiry, c.options.noReply)
 	resp := buildResponse1(1)
 	if err := c.doRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "do request")
+		return errors.Wrap(err, "request failed")
 	}
 
 	return resp.err
@@ -98,7 +98,7 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	req := buildGetCommand(key)
 	resp := buildResponse1(3)
 	if err := c.doRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "do request")
+		return nil, errors.Wrap(err, "request failed")
 	}
 
 	// parse response
@@ -123,7 +123,7 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	req := buildGetsCommand(keys...)
 	resp := buildResponse2(_EndCRLFBytes)
 	if err := c.doRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "do request")
+		return nil, errors.Wrap(err, "request failed")
 	}
 
 	// parse response

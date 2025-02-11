@@ -33,8 +33,8 @@ type client struct {
 	// It is used to pick a memcached server instance to execute a command.
 	picker Picker
 
-	mu    sync.Mutex // guards following
-	conns map[*Addr]*connPool
+	mu        sync.Mutex // guards following
+	connPools map[*Addr]*connPool
 }
 
 func New(addr string, opts ...ClientOption) (Client, error) {
@@ -43,7 +43,7 @@ func New(addr string, opts ...ClientOption) (Client, error) {
 	return newClientWithContext(timeoutCtx, addr, opts...)
 }
 
-func newClientWithContext(ctx context.Context, addr string, opts ...ClientOption) (Client, error) {
+func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) (Client, error) {
 	options := newClientOptions()
 	for _, opt := range opts {
 		opt(options)
@@ -51,7 +51,7 @@ func newClientWithContext(ctx context.Context, addr string, opts ...ClientOption
 
 	addrs, err := options.resolver.Resolve(addr)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to resolve address")
+		return nil, errors.Wrap(err, "resolve failed")
 	}
 
 	if len(addrs) == 0 {
@@ -64,8 +64,8 @@ func newClientWithContext(ctx context.Context, addr string, opts ...ClientOption
 		addrs:   addrs,
 		picker:  picker,
 
-		mu:    sync.Mutex{},
-		conns: make(map[*Addr]*connPool, 4),
+		mu:        sync.Mutex{},
+		connPools: make(map[*Addr]*connPool, 4),
 	}, nil
 }
 
@@ -73,9 +73,9 @@ func (c *client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, conn := range c.conns {
-		if err := conn.close(); err != nil {
-			return errors.Wrap(err, "failed to close connection")
+	for _, pool := range c.connPools {
+		if err := pool.close(); err != nil {
+			return errors.Wrap(err, "Close")
 		}
 	}
 
@@ -85,12 +85,12 @@ func (c *client) Close() error {
 func (c *client) pickConn(ctx context.Context, cmd, key string) (memcachedConn, error) {
 	addr, err := c.picker.Pick(c.addrs, cmd, key)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to pick a connection")
+		return nil, errors.Wrap(err, "pick node failed")
 	}
 
 	cn, err := c.allocConn(ctx, addr)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get a connection")
+		return nil, errors.Wrap(err, "alloc connection failed")
 	}
 
 	return cn, nil
@@ -99,14 +99,14 @@ func (c *client) pickConn(ctx context.Context, cmd, key string) (memcachedConn, 
 // allocConn returns a true connection from the pool.
 func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
 	c.mu.Lock()
-	pool, ok := c.conns[addr]
+	pool, ok := c.connPools[addr]
 	if ok {
 		c.mu.Unlock()
 		return pool.get(ctx)
 	}
 
 	wrapNewConn := func(ctx2 context.Context) (memcachedConn, error) {
-		return newConnContext(ctx2, addr)
+		return newConnContext(ctx2, addr, c.options.dialTimeout)
 	}
 
 	// could not find pool for the given addr, create a new one
@@ -115,7 +115,7 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 		c.options.maxLifetime, c.options.maxIdleTimeout,
 		wrapNewConn,
 	)
-	c.conns[addr] = pool
+	c.connPools[addr] = pool
 	c.mu.Unlock()
 
 	return pool.get(ctx)
@@ -124,12 +124,12 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 func (c *client) doRequest(ctx context.Context, req *request, resp *response) error {
 	cn, err := c.pickConn(ctx, "version", "")
 	if err != nil {
-		return errors.Wrap(err, "failed to pick a connection")
+		return errors.Wrap(err, "pickConn failed")
 	}
 
 	_ = cn.setReadTimeout(c.options.readTimeout)
 	if err = req.send(cn); err != nil {
-		return errors.Wrap(err, "failed to write command")
+		return errors.Wrap(err, "send failed")
 	}
 
 	_ = cn.setWriteTimeout(c.options.writeTimeout)

@@ -45,9 +45,16 @@ func newClientOptions() *clientOptions {
 		pickBuilder: crc32HashPickBuilder{},
 		resolver:    defaultResolver{},
 
-		dialTimeout:  5 * time.Second,
+		dialTimeout:  3 * time.Second,
 		readTimeout:  5 * time.Second,
 		writeTimeout: 5 * time.Second,
+
+		maxConns:       100,
+		maxIdleConns:   10,
+		maxLifetime:    0,
+		maxIdleTimeout: 0,
+
+		noReply: false,
 	}
 }
 

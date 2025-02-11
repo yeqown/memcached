@@ -65,7 +65,7 @@ func (m *MockConn) setReadTimeout(timeout time.Duration) error { return nil }
 
 func (m *MockConn) setWriteTimeout(timeout time.Duration) error { return nil }
 
-func TestNewConnPool(t *testing.T) {
+func Test_connPool_new(t *testing.T) {
 	tests := []struct {
 		name           string
 		maxIdle        int

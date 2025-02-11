@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"time"
+
 	"github.com/yeqown/memcached"
 )
 
@@ -11,20 +14,23 @@ func main() {
 		panic(err)
 	}
 
-	version, err := client.Version()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
+
+	version, err := client.Version(ctx)
 	if err != nil {
 		panic(err)
 	}
 	println("Version: ", version)
 
-	if err = client.Set("key", "value", 0, 0); err != nil {
+	if err = client.Set(ctx, "key", "value", 0, 0); err != nil {
 		panic(err)
 	}
-	if err = client.Set("key2", "value2", 0, 0); err != nil {
+	if err = client.Set(ctx, "key2", "value2", 0, 0); err != nil {
 		panic(err)
 	}
 
-	items, err := client.Gets("key", "key2")
+	items, err := client.Gets(ctx, "key", "key2")
 	if err != nil {
 		panic(err)
 	}
