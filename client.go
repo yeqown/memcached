@@ -15,8 +15,6 @@ type Client interface {
 
 	basicTextProtocolCommander
 	metaTextProtocolCommander
-
-	Version(ctx context.Context) (string, error)
 }
 
 var (

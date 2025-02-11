@@ -9,6 +9,26 @@ import (
 
 // TODO(@yeqown): reuse response and request objects in following building functions.
 
+//
+func buildAuthCommand(username, password string) (*request, *response) {
+	raw := newProtocolBuilder().
+		AddString("auth").
+		AddString(username).
+		AddString(password).
+		AddCRLF().
+		build()
+
+	req := &request{
+		cmd: []byte("auth"),
+		key: nil,
+		raw: raw,
+	}
+
+	resp := buildLimitedLineResponse(1)
+
+	return req, resp
+}
+
 func buildVersionCommand() *request {
 	return &request{
 		cmd: []byte("version"),
@@ -26,10 +46,10 @@ func buildVersionCommand() *request {
 func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key).           // key
-		AddUint(uint64(flags)).   // flags
+		AddString(key). // key
+		AddUint(uint64(flags)). // flags
 		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value))        // bytes
+		AddInt(len(value)) // bytes
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -117,11 +137,11 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 func buildCasCommand(
 	key string, value []byte, flags, expTime uint32, casUnique uint64, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString("cas").          // command
-		AddString(key).            // key
-		AddUint(uint64(flags)).    // flags
-		AddUint(uint64(expTime)).  // exptime
-		AddInt(len(value)).        // bytes
+		AddString("cas"). // command
+		AddString(key). // key
+		AddUint(uint64(flags)). // flags
+		AddUint(uint64(expTime)). // exptime
+		AddInt(len(value)). // bytes
 		AddUint(uint64(casUnique)) // cas unique
 
 	if noReply {
@@ -149,43 +169,48 @@ func buildCasCommand(
 	return req, resp
 }
 
-// buildGetCommand constructs get command.
-// get <key>\r\n
-func buildGetCommand(key string) (*request, *response) {
-	raw := newProtocolBuilder().
-		AddString("get").
-		AddString(key).
-		AddCRLF().
-		build()
+// buildGetsCommand constructs gets command.
+// get/gets <key>*\r\n
+func buildGetsCommand(command string, keys ...string) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString(command)
+
+	for _, key := range keys {
+		b.AddString(key)
+	}
+	b.AddCRLF()
 
 	req := &request{
-		cmd: []byte("get"),
-		key: []byte(key),
-		raw: raw,
+		cmd: []byte(command),
+		key: nil,
+		raw: b.build(),
 	}
 
-	resp := buildLimitedLineResponse(3)
+	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
 }
 
-// buildGetsCommand constructs gets command.
-// gets <key>*\r\n
-func buildGetsCommand(keys ...string) (*request, *response) {
-	raw := newProtocolBuilder().
-		AddString("gets")
+// buildGetAndTouchCommand constructs get and touch command.
+// gat/gats <key> <exptime>\r\n
+func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString(command)
 
 	for _, key := range keys {
-		raw.AddString(key)
+		b.AddString(key)
 	}
+
+	b.AddUint(uint64(expiry)).
+		AddCRLF()
 
 	req := &request{
-		cmd: []byte("gets"),
-		key: nil,
-		raw: raw.AddCRLF().build(),
+		cmd: []byte(command),
+		key: []byte(keys[0]),
+		raw: b.build(),
 	}
 
-	resp := buildSpecEndLineResponse(_EndCRLFBytes)
+	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
 }
@@ -197,9 +222,8 @@ func buildGetsCommand(keys ...string) (*request, *response) {
 // <data block>\r\n
 // ...
 // END\r\n
-func parseValueItems(raw []byte) ([]*Item, error) {
+func parseValueItems(lines [][]byte) ([]*Item, error) {
 	var items []*Item
-	lines := bytes.Split(raw, _CRLFBytes)
 
 	var (
 		flags, _bytes uint64
@@ -208,7 +232,7 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 	)
 
 	for i := 0; i < len(lines)-1; i++ {
-		line := lines[i]
+		line := trimCRLF(lines[i])
 		flags, _bytes, casUniq = 0, 0, 0
 
 		if bytes.HasPrefix(line, _ValueBytes) {
@@ -241,10 +265,10 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 
 			// Read the data block
 			i++
-			if i >= len(lines)-1 {
+			if i >= len(lines) {
 				return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
 			}
-			data := lines[i]
+			data := trimCRLF(lines[i])
 
 			if uint64(len(data)) != _bytes {
 				return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
@@ -261,4 +285,44 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 	}
 
 	return items, nil
+}
+
+// incr/decr <key> <value> [noreply]\r\n
+func buildArithmeticCommand(command, key string, delta uint64, noReply bool) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString(command).
+		AddString(key).
+		AddUint(delta)
+
+	if noReply {
+		b.AddBytes(_NoReplyBytes)
+	}
+
+	raw := b.AddCRLF().build()
+
+	req := &request{
+		cmd: []byte(command),
+		key: []byte(key),
+		raw: raw,
+	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
+}
+
+// parseArithmeticResponse handles the response with incr/decr command.
+// <value>\r\n
+func parseArithmetic(line []byte) (uint64, error) {
+	if len(line) == 0 {
+		// noReply mode enabled
+		return 0, nil
+	}
+
+	return strconv.ParseUint(string(trimCRLF(line)), 10, 64)
 }

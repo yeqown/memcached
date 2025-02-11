@@ -169,7 +169,10 @@ type response struct {
 	// from the connection.
 	specEndLine []byte
 
-	raw []byte
+	// rawLines is the raw bytes of the response, it has been divided by '\n'.
+	// .e.g. "VALUE key 0 5\r\nvalue\r\nEND\r\n" will be divided into
+	// ["VALUE key 0 5\r\n", "value\r\n", "END\r\n"].
+	rawLines [][]byte
 }
 
 func (resp *response) recv(rr memcachedConn) error {
@@ -200,7 +203,7 @@ func (resp *response) read1(rr memcachedConn) error {
 			}
 		}
 
-		resp.raw = append(resp.raw, line...)
+		resp.rawLines = append(resp.rawLines, line)
 		read++
 	}
 
@@ -210,11 +213,13 @@ func (resp *response) read1(rr memcachedConn) error {
 // read2 reads the response from the connection with specific end line.
 func (resp *response) read2(rr memcachedConn) error {
 	for {
+		// FIXME(@yeqown): read line would cost too much capacity.
 		line, err := rr.Read('\n')
 		if err != nil {
 			return errors.Wrap(err, "doRequest read")
 		}
 
+		// TODO(@yeqown): end line be appended to rawLines?
 		if bytes.Equal(line, resp.specEndLine) {
 			break
 		}
@@ -223,7 +228,7 @@ func (resp *response) read2(rr memcachedConn) error {
 			return err
 		}
 
-		resp.raw = append(resp.raw, line...)
+		resp.rawLines = append(resp.rawLines, line)
 	}
 
 	return nil
@@ -231,20 +236,25 @@ func (resp *response) read2(rr memcachedConn) error {
 
 // expect checks the response from the server is expected or not.
 // if the response is not expected, it returns error.
-func (resp *response) expect(lines []byte) error {
+//
+// The response is expected if the response is equal to the line.
+func (resp *response) expect(line []byte) error {
 	if resp.endIndicator == endIndicatorNoReply {
 		return nil
 	}
+	if len(resp.rawLines) != 1 {
+		return errors.Wrap(ErrMalformedResponse, "expect only 1 line, but got "+strconv.Itoa(len(resp.rawLines)))
+	}
 
-	if bytes.Equal(resp.raw, lines) {
+	if bytes.Equal(resp.rawLines[0], line) {
 		return nil
 	}
 
 	message := "unexpected response: "
-	if len(resp.raw) <= 256 {
-		return errors.New(message + string(resp.raw))
+	if len(resp.rawLines[0]) <= 256 {
+		return errors.New(message + string(resp.rawLines[0]))
 	}
-	return errors.New(message + string(resp.raw[:256]))
+	return errors.New(message + string(resp.rawLines[0]))
 }
 
 func buildNoReplyResponse() *response {
@@ -252,7 +262,7 @@ func buildNoReplyResponse() *response {
 		endIndicator: endIndicatorNoReply,
 		limitedLines: 0,
 		specEndLine:  nil,
-		raw:          nil,
+		rawLines:     nil,
 	}
 }
 
@@ -261,15 +271,19 @@ func buildLimitedLineResponse(lines uint8) *response {
 		endIndicator: endIndicatorLimitedLines,
 		limitedLines: lines,
 		specEndLine:  nil,
-		raw:          nil,
+		rawLines:     make([][]byte, 0, lines),
 	}
 }
 
-func buildSpecEndLineResponse(endLine []byte) *response {
+func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
+	if predictLines <= 0 {
+		predictLines = 8
+	}
+
 	return &response{
 		endIndicator: endIndicatorSpecificEndLine,
 		limitedLines: 0,
 		specEndLine:  endLine,
-		raw:          nil,
+		rawLines:     make([][]byte, 0, predictLines),
 	}
 }

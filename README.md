@@ -66,20 +66,30 @@ func main() {
 
 Now, we have implemented some commands, and we will implement more commands in the future.
 
-| Command | Status | Usage | Description |
-| --- |--------| --- | --- |
-| Set | ✅      | `Set(key string, value []byte, expire int32) error` | Set a key-value pair to memcached |
-| Delete | ✅     | `Delete(key string) error` | Delete a key-value pair from memcached |
-| Add | 🚧      | `Add(key string, value []byte, expire int32) error` | Add a key-value pair to memcached |
-| Replace | 🚧      | `Replace(key string, value []byte, expire int32) error` | Replace a key-value pair to memcached |
-| Append | 🚧      | `Append(key string, value []byte) error` | Append a value to the key |
-| Prepend | 🚧      | `Prepend(key string, value []byte) error` | Prepend a value to the key |
-| Cas | ✅      | `Cas(key string, value []byte, cas uint64, expire int32) error` | Compare and set a key-value pair to memcached |
-| Gets | ✅      | `Gets(key string) ([]byte, error)` | Get a value by key from memcached with cas value |
-| Get | ✅      | `Get(key string) ([]byte, error)` | Get a value by key from memcached |
-| Increment | 🚧      | `Increment(key string, delta uint64) (uint64, error)` | Increment a key's value |
-| Decrement | 🚧      | `Decrement(key string, delta uint64) (uint64, error)` | Decrement a key's value |
-| Touch | ✅      | `Touch(key string, expire int32) error` | Touch a key's expire time |
-| Meta Get | 🚧      | `MetaGet(key string) (Meta, error)` | Get a key's meta information |
-| Meta Set | 🚧      | `MetaSet(key string, meta Meta) error` | Set a key's meta information |
-| Version | ✅      | `Version() (string, error)` | Get memcached server version |
+| Command    | Status | API Usage                                                       | Description |
+|------------|--------|-----------------------------------------------------------------| --- |
+| Auth       | 🚧     | `Auth(username, password string) error`                         | Auth to memcached server |
+| ----       | -----  | STORAGE COMMANDS                                                |---|
+| Set        | ✅      | `Set(key string, value []byte, expire int32) error`             | Set a key-value pair to memcached |
+| Add        | ✅     | `Add(key string, value []byte, expire int32) error`             | Add a key-value pair to memcached |
+| Replace    | ✅     | `Replace(key string, value []byte, expire int32) error`         | Replace a key-value pair to memcached |
+| Append     | ✅     | `Append(key string, value []byte) error`                        | Append a value to the key |
+| Prepend    | ✅     | `Prepend(key string, value []byte) error`                       | Prepend a value to the key |
+| Cas        | ✅      | `Cas(key string, value []byte, cas uint64, expire int32) error` | Compare and set a key-value pair to memcached |
+| ----       | -----  | RETRIEVAL COMMANDS                                              |---|
+| Gets       | ✅      | `Gets(key string) ([]byte, error)`                              | Get a value by key from memcached with cas value |
+| Get        | ✅      | `Get(key string) ([]byte, error)`                               | Get a value by key from memcached |
+| GetAndTouch | 🚧     | `GetAndTouch(key string, expire int32) ([]byte, error)`         | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouches | 🚧     | `GetAndTouchs(key string, expire int32) ([]byte, error)`        | Get a value by key from memcached and touch the key's expire time |
+| -----      | -----  | OTHER COMMANDS                                                  |---|
+| Delete     | ✅      | `Delete(key string) error`                                      | Delete a key-value pair from memcached |
+| Incr       | ✅     | `Increment(key string, delta uint64) (uint64, error)`           | Increment a key's value |
+| Decr       | ✅     | `Decrement(key string, delta uint64) (uint64, error)`           | Decrement a key's value |
+| Touch      | ✅      | `Touch(key string, expire int32) error`                         | Touch a key's expire time |
+| MetaGet    | 🚧     | `MetaGet(key string) (Meta, error)`                             | Get a key's meta information |
+| MetaSet    | 🚧     | `MetaSet(key string, meta Meta) error`                          | Set a key's meta information |
+| MetaDelete | 🚧     | `MetaDelete(key string) error`                                  | Delete a key's meta information |
+| MetaArithmetic | 🚧     | `MetaArithmetic(key string, delta int64) (uint64, error)`       | Arithmetic a key's meta information |
+| MetaDebug  | 🚧     | `MetaDebug(key string) (string, error)`                         | Debug a key's meta information |
+| MetaNoop   | 🚧     | `MetaNoop(key string) error`                                    | Noop a key's meta information |
+| Version    | ✅      | `Version() (string, error)`                                     | Get memcached server version |
