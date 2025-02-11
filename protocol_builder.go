@@ -24,12 +24,15 @@ var (
 	_CRLFBytes    = []byte("\r\n")
 	_NoReplyBytes = []byte("noreply")
 
-	_ValueBytes      = []byte("VALUE")
-	_EndBytes        = []byte("END")
-	_EndCRLFBytes    = []byte("END\r\n")
-	_StoredBytes     = []byte("STORED")
-	_StoredCRLFBytes = []byte("STORED\r\n")
-	_VersionBytes    = []byte("VERSION")
+	_ValueBytes       = []byte("VALUE")
+	_EndBytes         = []byte("END")
+	_EndCRLFBytes     = []byte("END\r\n")
+	_StoredBytes      = []byte("STORED")
+	_StoredCRLFBytes  = []byte("STORED\r\n")
+	_DeletedBytes     = []byte("DELETED")
+	_DeletedCRLFBytes = []byte("DELETED\r\n")
+	_TouchedCRLFBytes = []byte("TOUCHED\r\n")
+	_VersionBytes     = []byte("VERSION")
 )
 
 type protocolBuilder struct {

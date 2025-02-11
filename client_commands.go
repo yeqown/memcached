@@ -34,7 +34,7 @@ type basicTextProtocolCommander interface {
 	Delete commands: delete
 	*/
 
-	// Delete(ctx context.Context, key string) error
+	Delete(ctx context.Context, key string) error
 }
 
 type metaTextProtocolCommander interface {
@@ -44,7 +44,7 @@ type metaTextProtocolCommander interface {
 
 func (c *client) Version(ctx context.Context) (string, error) {
 	req := buildVersionCommand()
-	resp := buildResponse1(1)
+	resp := buildLimitedLineResponse(1)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return "", errors.Wrap(err, "request")
 	}
@@ -59,44 +59,50 @@ func (c *client) Version(ctx context.Context) (string, error) {
 }
 
 func (c *client) Set(ctx context.Context, key, value string, flags, expiry uint32) error {
-	req := buildStorageCommand("set", key, []byte(value), flags, expiry, c.options.noReply)
-	var resp *response
-	if c.options.noReply {
-		resp = buildNoReplyResponse()
-	} else {
-		resp = buildResponse1(1)
-	}
-
+	req, resp := buildStorageCommand("set", key, []byte(value), flags, expiry, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 
-	if resp.err != nil {
-		return resp.err
-	}
-
-	// No error encountered, expect STORED\r\n
-	if !bytes.Equal(resp.raw, _StoredCRLFBytes) {
-		return errors.Wrap(ErrMalformedResponse, string(resp.raw))
+	// expect STORED\r\n
+	if err := resp.expect(_StoredCRLFBytes); err != nil {
+		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
 	return nil
 }
 
-func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
-	req := buildTouchCommand(key, expiry, c.options.noReply)
-	resp := buildResponse1(1)
+func (c *client) Delete(ctx context.Context, key string) error {
+	req, resp := buildDeleteCommand(key, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 
-	return resp.err
+	// expect DELETED\r\n
+	if err := resp.expect(_DeletedCRLFBytes); err != nil {
+		return errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return nil
+}
+
+func (c *client) Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error {
+	req, resp := buildCasCommand(key, []byte(value), flags, expiry, cas, c.options.noReply)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+
+	// expect STORED\r\n
+	if err := resp.expect(_StoredCRLFBytes); err != nil {
+		return errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return nil
 }
 
 // Get gets the value of the given key.
 func (c *client) Get(ctx context.Context, key string) (*Item, error) {
-	req := buildGetCommand(key)
-	resp := buildResponse1(3)
+	req, resp := buildGetCommand(key)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -120,8 +126,7 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 // Be careful when using this command unless you are sure that
 // all keys are stored in the same memcached instance.
 func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
-	req := buildGetsCommand(keys...)
-	resp := buildResponse2(_EndCRLFBytes)
+	req, resp := buildGetsCommand(keys...)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -136,4 +141,18 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	}
 
 	return items, nil
+}
+
+func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
+	req, resp := buildTouchCommand(key, expiry, c.options.noReply)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+
+	// expect TOUCHED\r\n
+	if err := resp.expect(_TouchedCRLFBytes); err != nil {
+		return errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return nil
 }

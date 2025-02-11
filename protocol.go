@@ -48,9 +48,6 @@ type response struct {
 	specEndLine []byte
 
 	raw []byte
-
-	// parsed response
-	err error
 }
 
 func (resp *response) recv(rr memcachedConn) error {
@@ -110,34 +107,49 @@ func (resp *response) read2(rr memcachedConn) error {
 	return nil
 }
 
+// expect checks the response from the server is expected or not.
+// if the response is not expected, it returns error.
+func (resp *response) expect(lines []byte) error {
+	if resp.endIndicator == endIndicatorNoReply {
+		return nil
+	}
+
+	if bytes.Equal(resp.raw, lines) {
+		return nil
+	}
+
+	message := "unexpected response: "
+	if len(resp.raw) <= 256 {
+		return errors.New(message + string(resp.raw))
+	}
+	return errors.New(message + string(resp.raw[:256]))
+}
+
 func buildNoReplyResponse() *response {
 	return &response{
 		endIndicator: endIndicatorNoReply,
 		limitedLines: 0,
 		specEndLine:  nil,
 		raw:          nil,
-		err:          nil,
 	}
 }
 
 // TODO(@yeqown): reuse response and request objects
-func buildResponse1(lines uint8) *response {
+func buildLimitedLineResponse(lines uint8) *response {
 	return &response{
 		endIndicator: endIndicatorLimitedLines,
 		limitedLines: lines,
 		specEndLine:  nil,
 		raw:          nil,
-		err:          nil,
 	}
 }
 
-func buildResponse2(endLine []byte) *response {
+func buildSpecEndLineResponse(endLine []byte) *response {
 	return &response{
 		endIndicator: endIndicatorSpecificEndLine,
 		limitedLines: 0,
 		specEndLine:  endLine,
 		raw:          nil,
-		err:          nil,
 	}
 }
 
@@ -183,7 +195,7 @@ func forecastCommonFaultLine(line []byte) error {
 //
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
-func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) *request {
+func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
 		AddString(key).           // key
@@ -200,15 +212,51 @@ func buildStorageCommand(command, key string, value []byte, flags, expTime uint3
 		AddCRLF().
 		build()
 
-	return &request{
+	req := &request{
 		cmd: []byte(command),
 		key: []byte(key),
 		raw: raw,
 	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
+}
+
+// delete <key> [noreply]\r\n
+func buildDeleteCommand(key string, noReply bool) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString("delete").
+		AddString(key)
+
+	if noReply {
+		b.AddBytes(_NoReplyBytes)
+	}
+
+	req := &request{
+		cmd: []byte("delete"),
+		key: []byte(key),
+		raw: b.AddCRLF().
+			build(),
+	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
 }
 
 // touch <key> <exptime> [noreply]\r\n
-func buildTouchCommand(key string, expTime uint32, noReply bool) *request {
+func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("touch").
 		AddString(key).
@@ -221,15 +269,25 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) *request {
 	raw := b.AddCRLF().
 		build()
 
-	return &request{
+	req := &request{
 		cmd: []byte("touch"),
 		key: []byte(key),
 		raw: raw,
 	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
 }
 
 // cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
-func buildCasCommand(key string, value []byte, flags, expTime, casUnique uint32, noReply bool) *request {
+func buildCasCommand(
+	key string, value []byte, flags, expTime uint32, casUnique uint64, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("cas").          // command
 		AddString(key).            // key
@@ -247,32 +305,45 @@ func buildCasCommand(key string, value []byte, flags, expTime, casUnique uint32,
 		AddCRLF().
 		build()
 
-	return &request{
+	req := &request{
 		cmd: []byte("cas"),
 		key: []byte(key),
 		raw: raw,
 	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
 }
 
 // buildGetCommand constructs get command.
 // get <key>\r\n
-func buildGetCommand(key string) *request {
+func buildGetCommand(key string) (*request, *response) {
 	raw := newProtocolBuilder().
 		AddString("get").
 		AddString(key).
 		AddCRLF().
 		build()
 
-	return &request{
+	req := &request{
 		cmd: []byte("get"),
 		key: []byte(key),
 		raw: raw,
 	}
+
+	resp := buildLimitedLineResponse(3)
+
+	return req, resp
 }
 
 // buildGetsCommand constructs gets command.
 // gets <key>*\r\n
-func buildGetsCommand(keys ...string) *request {
+func buildGetsCommand(keys ...string) (*request, *response) {
 	raw := newProtocolBuilder().
 		AddString("gets")
 
@@ -280,11 +351,15 @@ func buildGetsCommand(keys ...string) *request {
 		raw.AddString(key)
 	}
 
-	return &request{
+	req := &request{
 		cmd: []byte("gets"),
 		key: nil,
 		raw: raw.AddCRLF().build(),
 	}
+
+	resp := buildSpecEndLineResponse(_EndCRLFBytes)
+
+	return req, resp
 }
 
 // parseValueItems parses the response from memcached server.
