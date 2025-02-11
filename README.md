@@ -79,7 +79,7 @@ Now, we have implemented some commands, and we will implement more commands in t
 | Get | ✅      | `Get(key string) ([]byte, error)` | Get a value by key from memcached |
 | Increment | 🚧      | `Increment(key string, delta uint64) (uint64, error)` | Increment a key's value |
 | Decrement | 🚧      | `Decrement(key string, delta uint64) (uint64, error)` | Decrement a key's value |
-| Touch | 🚧      | `Touch(key string, expire int32) error` | Touch a key's expire time |
+| Touch | ✅      | `Touch(key string, expire int32) error` | Touch a key's expire time |
 | Meta Get | 🚧      | `MetaGet(key string) (Meta, error)` | Get a key's meta information |
 | Meta Set | 🚧      | `MetaSet(key string, meta Meta) error` | Set a key's meta information |
 | Version | ✅      | `Version() (string, error)` | Get memcached server version |

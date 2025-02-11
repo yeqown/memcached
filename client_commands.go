@@ -23,20 +23,49 @@ type basicTextProtocolCommander interface {
 	Storage commands: set, add, replace, append, prepend, cas
 	*/
 
+	// Set is used to store the given key-value pair.
+	//
+	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// the server stores along with the data and sends back when the item is retrieved.
+	//
+	// expiry is the TTL of the key in seconds.
 	Set(ctx context.Context, key, value string, flags, expiry uint32) error
+	// Touch is used to update the expiration time of an existing item
+	// without fetching it.
+	//
+	// expiry is the TTL of the key in seconds.
 	Touch(ctx context.Context, key string, expiry uint32) error
+	// Cas is used to update the value of an existing item and also check-and-set operation.
+	//
+	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// the server stores along with the data and sends back when the item is retrieved.
+	//
+	// expiry is the TTL of the key in seconds.
 	Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error
+
 	/**
 	Retrieval commands: get and gets
 	*/
 
+	// Get gets the value of the given key.
+	//
+	// This command would not return the <cas unique> value, using `Gets` instead.
 	Get(ctx context.Context, key string) (*Item, error)
+	// Gets the values of the given keys.
+	//
+	// BUT you must know that the cluster mode of memcached DOES NOT support this command,
+	// since keys are possible stored in different memcached instances.
+	// Be careful when using this command unless you are sure that
+	// all keys are stored in the same memcached instance.
+	//
+	// Gets will return the <cas unique> value which is used to check-and-set operation.
 	Gets(ctx context.Context, keys ...string) ([]*Item, error)
 
 	/**
 	Delete commands: delete
 	*/
 
+	// Delete is used to delete the given key.
 	Delete(ctx context.Context, key string) error
 }
 
@@ -69,6 +98,13 @@ func (c *client) Version(ctx context.Context) (string, error) {
 	return string(trimCRLF(resp.raw[8:])), nil
 }
 
+/**
+ * BASIC text commands:
+	storage:   set, add, replace, append, prepend, cas
+	retrieval: get, gets
+	deletion:  delete
+*/
+
 func (c *client) Set(ctx context.Context, key, value string, flags, expiry uint32) error {
 	req, resp := buildStorageCommand("set", key, []byte(value), flags, expiry, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
@@ -77,20 +113,6 @@ func (c *client) Set(ctx context.Context, key, value string, flags, expiry uint3
 
 	// expect STORED\r\n
 	if err := resp.expect(_StoredCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
-	}
-
-	return nil
-}
-
-func (c *client) Delete(ctx context.Context, key string) error {
-	req, resp := buildDeleteCommand(key, c.options.noReply)
-	if err := c.doRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
-	}
-
-	// expect DELETED\r\n
-	if err := resp.expect(_DeletedCRLFBytes); err != nil {
 		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
@@ -111,7 +133,20 @@ func (c *client) Cas(ctx context.Context, key, value string, flags, expiry uint3
 	return nil
 }
 
-// Get gets the value of the given key.
+func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
+	req, resp := buildTouchCommand(key, expiry, c.options.noReply)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+
+	// expect TOUCHED\r\n
+	if err := resp.expect(_TouchedCRLFBytes); err != nil {
+		return errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return nil
+}
+
 func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	req, resp := buildGetCommand(key)
 	if err := c.doRequest(ctx, req, resp); err != nil {
@@ -130,12 +165,6 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	return items[0], nil
 }
 
-// Gets the values of the given keys.
-//
-// BUT you must know that the cluster mode of memcached DOES NOT support this command,
-// since keys are possible stored in different memcached instances.
-// Be careful when using this command unless you are sure that
-// all keys are stored in the same memcached instance.
 func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	req, resp := buildGetsCommand(keys...)
 	if err := c.doRequest(ctx, req, resp); err != nil {
@@ -154,16 +183,28 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	return items, nil
 }
 
-func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
-	req, resp := buildTouchCommand(key, expiry, c.options.noReply)
+func (c *client) Delete(ctx context.Context, key string) error {
+	req, resp := buildDeleteCommand(key, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 
-	// expect TOUCHED\r\n
-	if err := resp.expect(_TouchedCRLFBytes); err != nil {
+	// expect DELETED\r\n
+	if err := resp.expect(_DeletedCRLFBytes); err != nil {
 		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
 	return nil
+}
+
+/**
+ * META text commands: meta set(ms), meta get(mg), meta delete(md), meta arithmetic(ma), meta no-op(mn)
+ */
+
+func (c *client) MetaSet(ctx context.Context, key string) error {
+	panic("implement me")
+}
+
+func (c *client) MetaGet(ctx context.Context, key string) (*Item, error) {
+	panic("implement me")
 }

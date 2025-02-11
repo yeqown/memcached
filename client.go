@@ -12,8 +12,9 @@ import (
 // Client represents a memcached client API set.
 type Client interface {
 	io.Closer
+
 	basicTextProtocolCommander
-	// metaTextProtocolCommander
+	metaTextProtocolCommander
 
 	Version(ctx context.Context) (string, error)
 }

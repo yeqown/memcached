@@ -3,20 +3,9 @@ package memcached
 import (
 	"bytes"
 	"strconv"
-)
 
-// The protocolBuilder is used to build a protocol message.
-// We can use it build request command fastly with chaining method like this:
-//
-// newProtocolBuilder().
-//   AddString("set").AddString("key").AddInt(0).AddInt(0).AddInt(5).NewLine().
-//   AddString("value").build()
-//
-// The result is:
-//
-// set key 0 0 5\r\n
-// value\r\n
-//
+	"github.com/pkg/errors"
+)
 
 var (
 	_SpaceBytes   = []byte{' '}
@@ -35,6 +24,45 @@ var (
 	_VersionBytes     = []byte("VERSION")
 )
 
+// forecastCommonFaultLine forecasts the error line from the response line.
+// ERROR\r\n
+// CLIENT_ERROR <message>\r\n
+// SERVER_ERROR <message>\r\n
+// NOT_FOUND\r\n
+// EXISTS\r\n
+// NOT_STORED\r\n
+func forecastCommonFaultLine(line []byte) error {
+	switch {
+	case bytes.Equal(line, []byte("ERROR\r\n")):
+		return ErrNonexistentCommand
+	case bytes.HasPrefix(line, []byte("CLIENT_ERROR")):
+		message := string(line[12 : len(line)-2])
+		return errors.Wrap(ErrClientError, message)
+	case bytes.HasPrefix(line, []byte("SERVER_ERROR")):
+		message := string(line[12 : len(line)-2])
+		return errors.Wrap(ErrServerError, message)
+	case bytes.Equal(line, []byte("NOT_FOUND\r\n")):
+		return ErrNotFound
+	case bytes.Equal(line, []byte("EXISTS\r\n")):
+		return ErrExists
+	case bytes.Equal(line, []byte("NOT_STORED\r\n")):
+		return ErrNotStored
+	}
+
+	return nil
+}
+
+// The protocolBuilder is used to build a protocol message.
+// We can use it build request command quickly with chaining method like this:
+//
+// newProtocolBuilder().
+// AddString("set").AddString("key").AddInt(0).AddInt(0).AddInt(5).NewLine().
+// AddString("value").build()
+//
+// The result is:
+//
+// set key 0 0 5\r\n
+// value\r\n
 type protocolBuilder struct {
 	buf bytes.Buffer
 }
@@ -99,4 +127,149 @@ func trimCRLF(line []byte) []byte {
 
 func withCRLF(bs []byte) []byte {
 	return append(bs, _CRLFBytes...)
+}
+
+type request struct {
+	cmd []byte // command name
+	key []byte // key is nil if the command DOES NOT need key
+	raw []byte
+}
+
+func (req *request) send(rr memcachedConn) (err error) {
+	_, err = rr.Write(req.raw)
+	return err
+}
+
+type responseEndIndicator uint8
+
+const (
+	// endIndicatorNoReply indicates the response is no reply
+	// and the client should not wait for the response.
+	endIndicatorNoReply responseEndIndicator = iota
+	// endIndicatorLimitedLines indicates the response is limited lines,
+	// the client should read line from response with limited lines with delimiter '\n'.
+	endIndicatorLimitedLines
+	// endIndicatorSpecificEndLine indicates the response is specific end line,
+	// the client should read lines from response until the specific end line.
+	// The delimiter is '\n'.
+	endIndicatorSpecificEndLine
+)
+
+// response represents a structural response from memcached server.
+type response struct {
+	// endIndicator indicates the parser how to read the whole bytes from the
+	// connection receiving buffer.
+	endIndicator responseEndIndicator
+	// limitedLines is the number of lines to read from the connection.
+	// If limitedLines equals 0, it means the response is not ready to be read
+	// from the connection. 1 means the response is
+	// ready to be read from the connection.
+	limitedLines uint8
+	// specEndLine is the specific end line of the response, it helps to read
+	// from the connection.
+	specEndLine []byte
+
+	raw []byte
+}
+
+func (resp *response) recv(rr memcachedConn) error {
+	switch resp.endIndicator {
+	case endIndicatorNoReply:
+		return nil
+	case endIndicatorLimitedLines:
+		return resp.read1(rr)
+	case endIndicatorSpecificEndLine:
+		return resp.read2(rr)
+	}
+
+	return ErrUnknownIndicator
+}
+
+// read1 reads the response from the connection with limited lines.
+func (resp *response) read1(rr memcachedConn) error {
+	read := 0
+	for read < int(resp.limitedLines) {
+		line, err := rr.Read('\n')
+		if err != nil {
+			return errors.Wrap(err, "doRequest read")
+		}
+
+		if read == 0 {
+			if err = forecastCommonFaultLine(line); err != nil {
+				return err
+			}
+		}
+
+		resp.raw = append(resp.raw, line...)
+		read++
+	}
+
+	return nil
+}
+
+// read2 reads the response from the connection with specific end line.
+func (resp *response) read2(rr memcachedConn) error {
+	for {
+		line, err := rr.Read('\n')
+		if err != nil {
+			return errors.Wrap(err, "doRequest read")
+		}
+
+		if bytes.Equal(line, resp.specEndLine) {
+			break
+		}
+
+		if err = forecastCommonFaultLine(line); err != nil {
+			return err
+		}
+
+		resp.raw = append(resp.raw, line...)
+	}
+
+	return nil
+}
+
+// expect checks the response from the server is expected or not.
+// if the response is not expected, it returns error.
+func (resp *response) expect(lines []byte) error {
+	if resp.endIndicator == endIndicatorNoReply {
+		return nil
+	}
+
+	if bytes.Equal(resp.raw, lines) {
+		return nil
+	}
+
+	message := "unexpected response: "
+	if len(resp.raw) <= 256 {
+		return errors.New(message + string(resp.raw))
+	}
+	return errors.New(message + string(resp.raw[:256]))
+}
+
+func buildNoReplyResponse() *response {
+	return &response{
+		endIndicator: endIndicatorNoReply,
+		limitedLines: 0,
+		specEndLine:  nil,
+		raw:          nil,
+	}
+}
+
+func buildLimitedLineResponse(lines uint8) *response {
+	return &response{
+		endIndicator: endIndicatorLimitedLines,
+		limitedLines: lines,
+		specEndLine:  nil,
+		raw:          nil,
+	}
+}
+
+func buildSpecEndLineResponse(endLine []byte) *response {
+	return &response{
+		endIndicator: endIndicatorSpecificEndLine,
+		limitedLines: 0,
+		specEndLine:  endLine,
+		raw:          nil,
+	}
 }
