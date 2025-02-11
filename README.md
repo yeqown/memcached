@@ -7,18 +7,59 @@ This is a golang package for Memcached. It is a simple and easy to use package.
 - [ ] Completed Memcached text protocol, includes meta text protocol.
 - [ ] Integrated serialization and deserialization function
 - [x] Cluster support, multiple hash algorithm support, include: crc32, murmur3, redezvous and also custom hash algorithm.
-- [x] Connection pool support
+- [x] Fully connection pool features support.
 
 ### Installation
 
 ```bash
-go get github.com/yeqown/memcached
+go get github.com/yeqown/memcached@latest
 ```
 
 ### Usage
 
+There is a simple example to show how to use this package. More examples could be found in the [example](./example) directory.
+
 ```go
-TODO:
+func main() {
+	// 1. build client
+	// addrs is a string, if you have multiple memcached servers, you can use comma to separate them.
+	// e.g. "localhost:11211,localhost:11212,localhost:11213"
+	addrs := "localhost:11211"
+	
+	// client support options, you can set the options to client.
+	// e.g. memcached.New(addrs, memcached.WithDialTimeout(5*time.Second))
+	client, err := memcached.New(addrs)
+	if err != nil {
+		panic(err)
+	}
+	
+	// 2. use client
+	// now, you can use the client API to finish your work.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	version, err := client.Version(ctx)
+	if err != nil {
+		panic(err)
+	}
+	println("Version: ", version)
+	
+	if err = client.Set(ctx, "key", "value", 0, 0); err != nil {
+		panic(err)
+	}
+	if err = client.Set(ctx, "key2", "value2", 0, 0); err != nil {
+		panic(err)
+	}
+
+	items, err := client.Gets(ctx, "key", "key2")
+	if err != nil {
+		panic(err)
+	}
+
+	for _, item := range items {
+		println("key: ", item.Key, " value: ", string(item.Value))
+	}
+}
 ```
 
 ### Support Commands

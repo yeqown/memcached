@@ -12,6 +12,9 @@ type Item struct {
 	Key   string
 	Value []byte
 	Flags uint32
+	// CASUnique is a unique value that is used to check-and-set operation.
+	// It ONLY returns when you use `Gets` command.
+	CASUnique uint64
 }
 
 type basicTextProtocolCommander interface {
@@ -22,7 +25,7 @@ type basicTextProtocolCommander interface {
 
 	Set(ctx context.Context, key, value string, flags, expiry uint32) error
 	Touch(ctx context.Context, key string, expiry uint32) error
-
+	Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error
 	/**
 	Retrieval commands: get and gets
 	*/
@@ -38,8 +41,16 @@ type basicTextProtocolCommander interface {
 }
 
 type metaTextProtocolCommander interface {
+	// TODO: add and implement more meta commands
+
 	MetaSet(ctx context.Context, key string) error
 	MetaGet(ctx context.Context, key string) (*Item, error)
+}
+
+type statisticsTextProtocolCommander interface {
+	// TODO: add more statistics commands
+
+	Stats(ctx context.Context, args ...string) (map[string]string, error)
 }
 
 func (c *client) Version(ctx context.Context) (string, error) {

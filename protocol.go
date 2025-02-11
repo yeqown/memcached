@@ -373,8 +373,16 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 	var items []*Item
 	lines := bytes.Split(raw, _CRLFBytes)
 
+	var (
+		flags, _bytes uint64
+		casUniq       uint64
+		err           error
+	)
+
 	for i := 0; i < len(lines)-1; i++ {
 		line := lines[i]
+		flags, _bytes, casUniq = 0, 0, 0
+
 		if bytes.HasPrefix(line, _ValueBytes) {
 			parts := bytes.Split(line, _SpaceBytes)
 			if len(parts) < 4 {
@@ -384,14 +392,21 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 			key := string(parts[1])
 			bytesFlags := parts[2]
 			bytesLen := parts[3]
+			if len(parts) == 5 {
+				casUniqBytes := parts[4]
+				casUniq, err = strconv.ParseUint(string(casUniqBytes), 10, 64)
+				if err != nil {
+					return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
+				}
+			}
 
-			flags, err := strconv.Atoi(string(bytesFlags))
+			flags, err = strconv.ParseUint(string(bytesFlags), 10, 32)
 			if err != nil {
 				return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
 			}
 
 			// Convert bytesLen to integer
-			length, err := strconv.Atoi(string(bytesLen))
+			_bytes, err = strconv.ParseUint(string(bytesLen), 10, 64)
 			if err != nil {
 				return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
 			}
@@ -403,14 +418,15 @@ func parseValueItems(raw []byte) ([]*Item, error) {
 			}
 			data := lines[i]
 
-			if len(data) != length {
+			if uint64(len(data)) != _bytes {
 				return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 			}
 
 			item := &Item{
-				Key:   key,
-				Value: trimCRLF(data),
-				Flags: uint32(flags),
+				Key:       key,
+				Value:     trimCRLF(data),
+				Flags:     uint32(flags),
+				CASUnique: casUniq,
 			}
 			items = append(items, item)
 		}
