@@ -214,10 +214,7 @@ func Test_connPool_get_timeout_case2(t *testing.T) {
 }
 
 func Test_connPool_get_oversize(t *testing.T) {
-
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
 
 	// run out of max connections
 	wg := sync.WaitGroup{}
@@ -225,6 +222,9 @@ func Test_connPool_get_oversize(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 			cn, err := pool.get(ctx)
 			assert.Nil(t, err)
 			assert.NotNil(t, cn)
@@ -239,7 +239,7 @@ func Test_connPool_get_oversize(t *testing.T) {
 
 	// numOpen connections reached maxConn, now get again
 	// should return error (get timeout).
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	cn, err := pool.get(ctx)
 	assert.Error(t, err)
