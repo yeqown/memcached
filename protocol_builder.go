@@ -22,6 +22,8 @@ var (
 	_DeletedCRLFBytes = []byte("DELETED\r\n")
 	_TouchedCRLFBytes = []byte("TOUCHED\r\n")
 	_VersionBytes     = []byte("VERSION")
+
+	_MetaEndCRLFBytes = []byte("EN\r\n")
 )
 
 // forecastCommonFaultLine forecasts the error line from the response line.

@@ -17,6 +17,15 @@ type Item struct {
 	CASUnique uint64
 }
 
+// MetaItem represents a key-value pair with meta information.
+type MetaItem struct {
+	Key   string
+	Value []byte
+
+	// Flags is the flags of the value.
+	// TODO(@yeqown): define flags here.
+}
+
 type basicTextProtocolCommander interface {
 	/**
 	Authentication commands: auth
@@ -126,10 +135,10 @@ type basicTextProtocolCommander interface {
 }
 
 type metaTextProtocolCommander interface {
-	// TODO: add and implement more meta commands
+	// TODO(@yeqown): add and implement more meta commands
 
-	MetaSet(ctx context.Context, key string) error
-	MetaGet(ctx context.Context, key string) (*Item, error)
+	MetaSet(ctx context.Context, key string, value []byte, options ...MetaSetOption) (*MetaItem, error)
+	MetaGet(ctx context.Context, key string, options ...MetaGetOption) (*MetaItem, error)
 }
 
 type statisticsTextProtocolCommander interface {
@@ -371,12 +380,35 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
  * meta set(ms), meta get(mg), meta delete(md), meta arithmetic(ma), meta no-op(mn)
  */
 
-func (c *client) MetaSet(ctx context.Context, key string) error {
-	_, _ = ctx, key
-	panic("implement me")
+func (c *client) MetaSet(ctx context.Context, key string, value []byte, msOptions ...MetaSetOption) (*MetaItem, error) {
+	msFlags := &metaSetFlags{}
+	for _, applyFn := range msOptions {
+		applyFn(msFlags)
+	}
+
+	req, resp := buildMetaSetCommand(key, value, msFlags)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	// expect HD flags\r\n
+	// TODO: handle meta set response
+	panic("not implemented")
+
 }
 
-func (c *client) MetaGet(ctx context.Context, key string) (*Item, error) {
-	_, _ = ctx, key
-	panic("implement me")
+func (c *client) MetaGet(ctx context.Context, key string, mgOptions ...MetaGetOption) (*MetaItem, error) {
+	mgFlags := &metaGetFlags{}
+	for _, applyFn := range mgOptions {
+		applyFn(mgFlags)
+	}
+
+	req, resp := buildMetaGetCommand(key, mgFlags)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	// TODO: handle mete get response
+	panic("not implemented")
+
 }

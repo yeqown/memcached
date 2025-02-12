@@ -351,3 +351,115 @@ func parseArithmetic(line []byte) (uint64, error) {
 
 	return strconv.ParseUint(string(trimCRLF(line)), 10, 64)
 }
+
+type metaSetFlags struct {
+	b bool   // b: interpret key as base64 encoded binary value (see metaget)
+	c bool   // c: return CAS value if successfully stored.
+	C uint64 // C(token): compare CAS value when storing item
+	E uint64 // E(token): use token as new CAS value (see meta get for detail)
+	F uint32 // F(token): set client flags to token (32 bit unsigned numeric)
+	I bool   // I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
+	k bool   // k: return key as a token
+	O uint64 // O(token): opaque value, consumes a token and copies back with response
+	q bool   // q: use noreply semantics for return codes
+	s bool   // s: return the size of the stored item on success (ie; new size on append)
+	T uint64 // T(token): Time-To-Live for item, see "Expiration" above.
+	M uint64 // M(token): mode switch to change behavior to add, replace, append, prepend
+	N uint64 // N(token): if in append mode, auto vivify on miss with supplied TTL
+}
+
+// MetaSetOption is the option to set flags for meta set command.
+type MetaSetOption func(*metaSetFlags)
+
+// ms <key> <datalen> <flags>*\r\n
+// <data block>\r\n
+func buildMetaSetCommand(key string, value []byte, flags *metaSetFlags) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString("ms").
+		AddString(key).
+		AddInt(len(value))
+
+	// TODO(@yeqown): add flags into command
+	if flags != nil {
+		_ = flags
+	}
+
+	raw := b.AddCRLF().
+		AddBytes(value).
+		AddCRLF().
+		build()
+
+	req := &request{
+		cmd: []byte("ms"),
+		key: []byte(key),
+		raw: raw,
+	}
+
+	resp := buildLimitedLineResponse(1)
+
+	return req, resp
+}
+
+// These flags can modify the item:
+// - E(token): use token as new CAS value if item is modified
+// - N(token): vivify on miss, takes TTL as a argument
+// - R(token): if remaining TTL is less than token, win for recache
+// - T(token): update remaining TTL
+//
+// These extra flags can be added to the response:
+// - W: client has "won" the recache flag
+// - X: item is stale
+// - Z: item has already sent a winning flag
+type metaGetFlags struct {
+	b bool   // b: interpret key as base64 encoded binary value
+	c bool   // c: return item cas token
+	f bool   // f: return client flags token
+	h bool   // h: return whether item has been hit before as a 0 or 1
+	k bool   // k: return key as a token
+	l bool   // l: return time since item was last accessed in seconds
+	O uint64 // O(token): opaque value, consumes a token and copies back with response
+	q bool   // q: use noreply semantics for return codes.
+	s bool   // s: return item size token
+	t bool   // t: return item TTL remaining in seconds (-1 for unlimited)
+	u bool   // u: don't bump the item in the LRU
+	v bool   // v: return item value in <data block>
+
+	// These flags can modify the item:
+	E uint64 // E(token): use token as new CAS value if item is modified
+	N uint64 // N(token): vivify on miss, takes TTL as a argument
+	R uint64 // R(token): if remaining TTL is less than token, win for recache
+	T uint64 // T(token): update remaining TTL
+
+	// These extra flags can be added to the response:
+	W bool // W: client has "won" the recache flag
+	X bool // X: item is stale
+	Z bool // Z: item has already sent a winning flag
+}
+
+// MetaGetOption is the option to set flags for meta get command.
+type MetaGetOption func(*metaGetFlags)
+
+// mg <key> <flags>*\r\n
+func buildMetaGetCommand(key string, flags *metaGetFlags) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString("mg").
+		AddString(key)
+
+	// TODO(@yeqown): add flags into command
+	if flags != nil {
+		_ = flags
+	}
+
+	raw := b.AddCRLF().
+		build()
+
+	req := &request{
+		cmd: []byte("mg"),
+		key: []byte(key),
+		raw: raw,
+	}
+
+	resp := buildSpecEndLineResponse(_MetaEndCRLFBytes, 1)
+
+	return req, resp
+}
