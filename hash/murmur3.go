@@ -1,3 +1,4 @@
+// Package hash provides hash functions.
 package hash
 
 const (
@@ -5,14 +6,17 @@ const (
 	c2 = uint64(0x4cf5ad432745937f)
 )
 
+// Murmur3 implements the Murmur3 digest 64 algorithm.
 type Murmur3 struct {
 	seed uint64
 }
 
+// NewMurmur3 creates a new Murmur3 hash function with the given seed.
 func NewMurmur3(seed uint64) *Murmur3 {
 	return &Murmur3{seed: seed}
 }
 
+// Hash returns the Murmur3 hash of the given key.
 func (h *Murmur3) Hash(key []byte) uint64 {
 	length := len(key)
 	hash := h.seed

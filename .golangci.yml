@@ -1,12 +1,19 @@
+linters-settings:
+  revive:
+    disable:
+      - exported
+
 linters:
   enable:
     - gofmt
-    - golint
+    - revive
     - govet
     - errcheck
     - staticcheck
     - gosimple
     - ineffassign
+  disable:
+    - unused
 
 run:
   deadline: 5m

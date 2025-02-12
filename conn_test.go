@@ -11,32 +11,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// MockConn is an implementation of the memcachedConn interface for testing purposes.
-type MockConn struct {
+var (
+	_ memcachedConn = (*mockConn)(nil)
+)
+
+// mockConn is an implementation of the memcachedConn interface for testing purposes.
+type mockConn struct {
 	createdAt  time.Time
 	returnedAt time.Time
 }
 
-var (
-	_ memcachedConn = (*MockConn)(nil)
-)
-
-func NewMockConn() *MockConn {
-	return &MockConn{
+func newMockConn() *mockConn {
+	return &mockConn{
 		createdAt:  time.Now(),
 		returnedAt: time.Now(),
 	}
 }
 
-func (m *MockConn) Read(delim byte) (line []byte, err error) { return nil, nil }
+func (m *mockConn) Read(_ byte) (line []byte, err error) { return nil, nil }
 
-func (m *MockConn) Write(p []byte) (n int, err error) { return 0, nil }
+func (m *mockConn) Write(_ []byte) (n int, err error) { return 0, nil }
 
-func (m *MockConn) Close() error { return nil }
+func (m *mockConn) Close() error { return nil }
 
-func (m *MockConn) RemoteAddr() net.Addr { return nil }
+func (m *mockConn) RemoteAddr() net.Addr { return nil }
 
-func (m *MockConn) expired(since time.Time) (time.Duration, bool) {
+func (m *mockConn) expired(since time.Time) (time.Duration, bool) {
 	now := nowFunc()
 	past := now.Sub(m.createdAt)
 	if since.IsZero() {
@@ -46,7 +46,7 @@ func (m *MockConn) expired(since time.Time) (time.Duration, bool) {
 	return past, m.createdAt.Before(since)
 }
 
-func (m *MockConn) idle(since time.Time) (time.Duration, bool) {
+func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
 	if since.IsZero() {
 		return m.returnedAt.Sub(since), false
 	}
@@ -59,11 +59,15 @@ func (m *MockConn) idle(since time.Time) (time.Duration, bool) {
 	return m.returnedAt.Sub(since), false
 }
 
-func (m *MockConn) returnTo() { m.returnedAt = time.Now() }
+func (m *mockConn) returnTo() { m.returnedAt = time.Now() }
 
-func (m *MockConn) setReadTimeout(timeout time.Duration) error { return nil }
+func (m *mockConn) setReadTimeout(timeout time.Duration) error { _ = timeout; return nil }
 
-func (m *MockConn) setWriteTimeout(timeout time.Duration) error { return nil }
+func (m *mockConn) setWriteTimeout(timeout time.Duration) error { _ = timeout; return nil }
+
+func createConn(_ context.Context) (memcachedConn, error) {
+	return newMockConn(), nil
+}
 
 func Test_connPool_new(t *testing.T) {
 	tests := []struct {
@@ -102,11 +106,6 @@ func Test_connPool_new(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockConn := NewMockConn()
-			createConn := func(ctx context.Context) (memcachedConn, error) {
-				return mockConn, nil
-			}
-
 			pool := newConnPool(tt.maxIdle, tt.maxConn, tt.maxLifeTime, tt.maxIdleTimeout, createConn)
 
 			// 验证基本属性
@@ -126,11 +125,6 @@ func Test_connPool_new(t *testing.T) {
 }
 
 func Test_connPool_get_put(t *testing.T) {
-	mockConn := NewMockConn()
-
-	createConn := func(ctx context.Context) (memcachedConn, error) {
-		return mockConn, nil
-	}
 
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -161,14 +155,10 @@ func Test_connPool_get_put(t *testing.T) {
 	assert.Equal(t, 5, len(pool.conns))
 }
 
-func Test_connPool_put_maxLifeTime(t *testing.T) {
-
-}
-
 // Test_connPool_get_timeout_case1 mocking the case that the createConn function
 // takes longer than the context timeout to return a connection.
 func Test_connPool_get_timeout_case1(t *testing.T) {
-	mockConn := NewMockConn()
+
 	createConn := func(ctx context.Context) (memcachedConn, error) {
 		delay := time.NewTimer(200 * time.Millisecond)
 		select {
@@ -177,7 +167,7 @@ func Test_connPool_get_timeout_case1(t *testing.T) {
 		case <-delay.C:
 			// mocking the connection creation process takes 200ms
 		}
-		return mockConn, nil
+		return newMockConn(), nil
 	}
 
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
@@ -196,10 +186,6 @@ func Test_connPool_get_timeout_case1(t *testing.T) {
 // are occupied, we must wait for a connection to be put back to the pool but
 // no connection is put back before (get) context timeout deadline.
 func Test_connPool_get_timeout_case2(t *testing.T) {
-	mockConn := NewMockConn()
-	createConn := func(ctx context.Context) (memcachedConn, error) {
-		return mockConn, nil
-	}
 
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -228,10 +214,6 @@ func Test_connPool_get_timeout_case2(t *testing.T) {
 }
 
 func Test_connPool_get_oversize(t *testing.T) {
-	mockConn := NewMockConn()
-	createConn := func(ctx context.Context) (memcachedConn, error) {
-		return mockConn, nil
-	}
 
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -281,10 +263,6 @@ func Test_connPool_get_oversize(t *testing.T) {
 // Test_connPool_cleanup_maxIdle tests the case that connection sits in
 // idle list for more than maxIdleTimeout, it should be closed.
 func Test_connPool_cleanup_maxIdle(t *testing.T) {
-	mockConn := NewMockConn()
-	createConn := func(ctx context.Context) (memcachedConn, error) {
-		return mockConn, nil
-	}
 
 	// maxLifeTime = 3600s
 	// maxIdleTimeout = 1s
@@ -337,10 +315,6 @@ func Test_connPool_cleanup_maxIdle(t *testing.T) {
 // Test_connPool_cleanup_maxLife tests the case that connection sits in
 // idle list for more than maxLifeTime, it should be closed.
 func Test_connPool_cleanup_maxLife(t *testing.T) {
-	mockConn := NewMockConn()
-	createConn := func(ctx context.Context) (memcachedConn, error) {
-		return mockConn, nil
-	}
 
 	// maxLifeTime = 1s
 	// maxIdleTimeout = 3600s

@@ -372,9 +372,11 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
  */
 
 func (c *client) MetaSet(ctx context.Context, key string) error {
+	_, _ = ctx, key
 	panic("implement me")
 }
 
 func (c *client) MetaGet(ctx context.Context, key string) (*Item, error) {
+	_, _ = ctx, key
 	panic("implement me")
 }

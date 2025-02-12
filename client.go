@@ -36,6 +36,16 @@ type client struct {
 	connPools map[*Addr]*connPool
 }
 
+// New creates a new memcached client with the given address and options.
+//
+// The client contains a connection pool to manage the connections to
+// one memcached instance. And it can manage multiple memcached instances with
+// cluster mode.
+//
+// The Cluster mode means that the client can connect to multiple memcached instances
+// and automatically pick a memcached instance to execute a command, of course,
+// the client make sure that the same key will be executed on the same memcached instance.
+// Be careful, there are some `keys` command does not obey this rule, such as `gets`, `gats`.
 func New(addr string, opts ...ClientOption) (Client, error) {
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

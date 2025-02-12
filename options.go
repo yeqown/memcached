@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// ClientOption is the option set pattern for the client.
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
@@ -106,6 +107,7 @@ func WithReadTimeout(timeout time.Duration) ClientOption {
 	}
 }
 
+// WithWriteTimeout sets the write timeout for the client.
 func WithWriteTimeout(timeout time.Duration) ClientOption {
 	return func(o *clientOptions) {
 		if timeout <= 0 {
@@ -116,6 +118,7 @@ func WithWriteTimeout(timeout time.Duration) ClientOption {
 	}
 }
 
+// WithMaxConns sets the max connections in the pool.
 func WithMaxConns(n int) ClientOption {
 	return func(o *clientOptions) {
 		if n <= 0 {
@@ -126,6 +129,7 @@ func WithMaxConns(n int) ClientOption {
 	}
 }
 
+// WithMaxIdleConns sets the max idle connections in the pool.
 func WithMaxIdleConns(n int) ClientOption {
 	return func(o *clientOptions) {
 		if n <= 0 {
@@ -136,12 +140,14 @@ func WithMaxIdleConns(n int) ClientOption {
 	}
 }
 
+// WithMaxLifetime sets the max lifetime for a connection, 0 means no lifetime limit.
 func WithMaxLifetime(d time.Duration) ClientOption {
 	return func(o *clientOptions) {
 		o.maxLifetime = d
 	}
 }
 
+// WithMaxIdleTimeout sets the max idle timeout for a connection, 0 means no idle timeout.
 func WithMaxIdleTimeout(d time.Duration) ClientOption {
 	return func(o *clientOptions) {
 		o.maxIdleTimeout = d

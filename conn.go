@@ -14,6 +14,7 @@ import (
 
 var nowFunc = time.Now
 
+// Addr represents a memcached server address.
 type Addr struct {
 	Network string // Network representation of the address
 	Address string // Address representation of the address
@@ -32,6 +33,7 @@ type Addr struct {
 	metadata map[string]any
 }
 
+// NewAddr creates a new Addr with the given network, address and priority.
 func NewAddr(network, address string, priority int) *Addr {
 	return &Addr{
 		Network:  network,
@@ -45,16 +47,14 @@ func (a *Addr) shortcut() []byte {
 	return []byte(a.Network + "-" + a.Address + strconv.Itoa(a.Priority))
 }
 
+// GetMetadata returns the metadata value by the given key.
 func (a *Addr) GetMetadata(mdKey string) any {
 	return a.metadata[mdKey]
 }
 
+// Add adds the metadata key-value pair to the Addr.
 func (a *Addr) Add(mdKey string, mdValue any) {
 	a.metadata[mdKey] = mdValue
-}
-
-func (a *Addr) Addr() string {
-	return a.Address
 }
 
 func (a *Addr) dial(ctx context.Context, dialTimeout time.Duration) (net.Conn, error) {

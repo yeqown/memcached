@@ -9,7 +9,6 @@ import (
 
 // TODO(@yeqown): reuse response and request objects in following building functions.
 
-//
 func buildAuthCommand(username, password string) (*request, *response) {
 	raw := newProtocolBuilder().
 		AddString("auth").
@@ -46,10 +45,10 @@ func buildVersionCommand() *request {
 func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
+		AddString(key).           // key
+		AddUint(uint64(flags)).   // flags
 		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value)) // bytes
+		AddInt(len(value))        // bytes
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -137,11 +136,11 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 func buildCasCommand(
 	key string, value []byte, flags, expTime uint32, casUnique uint64, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString("cas"). // command
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
-		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value)). // bytes
+		AddString("cas").          // command
+		AddString(key).            // key
+		AddUint(uint64(flags)).    // flags
+		AddUint(uint64(expTime)).  // exptime
+		AddInt(len(value)).        // bytes
 		AddUint(uint64(casUnique)) // cas unique
 
 	if noReply {
@@ -250,7 +249,7 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 
 	for i := 0; i < rn; i++ {
 		line := trimCRLF(lines[i])
-		flags, _bytes, casUniq = 0, 0, 0
+		casUniq = 0
 
 		if bytes.HasPrefix(line, _ValueBytes) {
 			parts := bytes.Split(line, _SpaceBytes)

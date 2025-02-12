@@ -86,6 +86,7 @@ func (p *crc32HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
 
 type crc32HashPickBuilder struct{}
 
+// NewCr32HashPickBuilder returns a crc32 hash picker builder.
 func NewCr32HashPickBuilder() Builder {
 	return crc32HashPickBuilder{}
 }
@@ -116,6 +117,7 @@ type murmur3HashPickBuilder struct {
 	seed uint64
 }
 
+// NewMurmur3HashPickBuilder creates a new Builder with the given seed.
 func NewMurmur3HashPickBuilder(seed uint64) Builder {
 	return murmur3HashPickBuilder{
 		seed: seed,
@@ -190,6 +192,7 @@ func NewRendezvousHashPickBuilder(seed uint64) Builder {
 	}
 }
 
+// NewRendezvousHashPickBuilderWithHash creates a new Builder with the given hash function.
 func NewRendezvousHashPickBuilderWithHash(hash func(key []byte) uint64) Builder {
 	return rendezvousHashPickBuilder{
 		hash: hash,
