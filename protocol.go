@@ -221,17 +221,34 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 // VALUE <key> <flags> <bytes> <cas unique>\r\n
 // <data block>\r\n
 // ...
-// END\r\n
-func parseValueItems(lines [][]byte) ([]*Item, error) {
+//
+// WITHOUT "END\r\n"
+func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 	var items []*Item
 
+	n := len(lines)
+	if withoutEndLine && n%2 != 0 {
+		// n must be even
+		return nil, errors.Wrap(ErrMalformedResponse, "want times of 2 lines, got "+strconv.Itoa(n))
+	}
+	if !withoutEndLine && n%2 == 0 {
+		// n must be odd
+		return nil, errors.Wrap(ErrMalformedResponse, "want odd lines, got "+strconv.Itoa(n))
+	}
+
 	var (
+		rn            = n
 		flags, _bytes uint64
 		casUniq       uint64
 		err           error
 	)
 
-	for i := 0; i < len(lines)-1; i++ {
+	if !withoutEndLine {
+		// avoid iterate the last line "END\r\n"
+		rn = n - 1
+	}
+
+	for i := 0; i < rn; i++ {
 		line := trimCRLF(lines[i])
 		flags, _bytes, casUniq = 0, 0, 0
 

@@ -219,8 +219,9 @@ func (resp *response) read2(rr memcachedConn) error {
 			return errors.Wrap(err, "doRequest read")
 		}
 
-		// TODO(@yeqown): end line be appended to rawLines?
+		// FIXED(@yeqown): The end line also should be added to the rawLines.
 		if bytes.Equal(line, resp.specEndLine) {
+			resp.rawLines = append(resp.rawLines, line)
 			break
 		}
 

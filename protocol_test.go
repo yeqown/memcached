@@ -8,7 +8,8 @@ import (
 
 func Test_parseValueItems(t *testing.T) {
 	type args struct {
-		lines [][]byte
+		lines          [][]byte
+		withoutEndLine bool
 	}
 	tests := []struct {
 		name    string
@@ -26,6 +27,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("value2\r\n"),
 					[]byte("END\r\n"),
 				},
+				withoutEndLine: false,
 			},
 			want: []*Item{
 				{
@@ -49,6 +51,34 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("value2\r\n"),
 					[]byte("END\r\n"),
 				},
+				withoutEndLine: false,
+			},
+			want: []*Item{
+				{
+					Key:       "key",
+					Value:     []byte("value"),
+					Flags:     123,
+					CASUnique: 1,
+				},
+				{
+					Key:       "key2",
+					Value:     []byte("value2"),
+					Flags:     123,
+					CASUnique: 2,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "without end line",
+			args: args{
+				lines: [][]byte{
+					[]byte("VALUE key 123 5 1\r\n"),
+					[]byte("value\r\n"),
+					[]byte("VALUE key2 123 6 2\r\n"),
+					[]byte("value2\r\n"),
+				},
+				withoutEndLine: true,
 			},
 			want: []*Item{
 				{
@@ -74,6 +104,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("value\r\n"),
 					[]byte("END\r\n"),
 				},
+				withoutEndLine: false,
 			},
 			want:    nil,
 			wantErr: true,
@@ -84,6 +115,7 @@ func Test_parseValueItems(t *testing.T) {
 				lines: [][]byte{
 					[]byte("VALUE key 0 5\r\n"),
 				},
+				withoutEndLine: true,
 			},
 			want:    nil,
 			wantErr: true, // missing data block
@@ -91,7 +123,7 @@ func Test_parseValueItems(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseValueItems(tt.args.lines)
+			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
