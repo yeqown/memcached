@@ -7,25 +7,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Item represents a key-value pair to be got or stored.
-type Item struct {
-	Key   string
-	Value []byte
-	Flags uint32
-	// CASUnique is a unique value that is used to check-and-set operation.
-	// It ONLY returns when you use `Gets` command.
-	CASUnique uint64
-}
-
-// MetaItem represents a key-value pair with meta information.
-type MetaItem struct {
-	Key   string
-	Value []byte
-
-	// Flags is the flags of the value.
-	// TODO(@yeqown): define flags here.
-}
-
 type basicTextProtocolCommander interface {
 	/**
 	Authentication commands: auth
@@ -137,8 +118,8 @@ type basicTextProtocolCommander interface {
 type metaTextProtocolCommander interface {
 	// TODO(@yeqown): add and implement more meta commands
 
-	MetaSet(ctx context.Context, key string, value []byte, options ...MetaSetOption) (*MetaItem, error)
-	MetaGet(ctx context.Context, key string, options ...MetaGetOption) (*MetaItem, error)
+	MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)
+	MetaGet(ctx context.Context, key []byte, options ...MetaGetOption) (*MetaItem, error)
 }
 
 type statisticsTextProtocolCommander interface {
@@ -380,7 +361,11 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
  * meta set(ms), meta get(mg), meta delete(md), meta arithmetic(ma), meta no-op(mn)
  */
 
-func (c *client) MetaSet(ctx context.Context, key string, value []byte, msOptions ...MetaSetOption) (*MetaItem, error) {
+func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...MetaSetOption) (*MetaItem, error) {
+	if len(key) == 0 {
+		return nil, ErrEmptyKey
+	}
+
 	msFlags := &metaSetFlags{}
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
@@ -391,13 +376,22 @@ func (c *client) MetaSet(ctx context.Context, key string, value []byte, msOption
 		return nil, errors.Wrap(err, "request failed")
 	}
 
-	// expect HD flags\r\n
-	// TODO: handle meta set response
-	panic("not implemented")
+	item := &MetaItem{
+		Key: key,
+	}
+	err := parseMetaItem(resp.rawLines, item, msFlags.q)
+	if err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
 
+	return item, nil
 }
 
-func (c *client) MetaGet(ctx context.Context, key string, mgOptions ...MetaGetOption) (*MetaItem, error) {
+func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOption) (*MetaItem, error) {
+	if len(key) == 0 {
+		return nil, ErrEmptyKey
+	}
+
 	mgFlags := &metaGetFlags{}
 	for _, applyFn := range mgOptions {
 		applyFn(mgFlags)
@@ -408,7 +402,12 @@ func (c *client) MetaGet(ctx context.Context, key string, mgOptions ...MetaGetOp
 		return nil, errors.Wrap(err, "request failed")
 	}
 
-	// TODO: handle mete get response
-	panic("not implemented")
+	item := &MetaItem{
+		Key: key,
+	}
+	if err := parseMetaItem(resp.rawLines, item, mgFlags.q); err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
 
+	return item, nil
 }

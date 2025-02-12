@@ -34,13 +34,13 @@ func main() {
 	fmt.Printf("before cas, key: %s, value: %+v\n", item.Key, item)
 
 	// cas
-	err = client.Cas(ctx, key, "value2", 123, 10, item.CASUnique)
+	err = client.Cas(ctx, key, "value2", 123, 10, item.CAS)
 	if err != nil {
 		panic(err)
 	}
 
 	// cas again, this should fail:
-	err = client.Cas(ctx, key, "value3", 123, 10, item.CASUnique)
+	err = client.Cas(ctx, key, "value3", 123, 10, item.CAS)
 	if err != nil {
 		fmt.Printf("cas failed: %v\n", err)
 	}

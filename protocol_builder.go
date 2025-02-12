@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"bytes"
+	"encoding/base64"
 	"strconv"
 
 	"github.com/pkg/errors"
@@ -106,6 +107,40 @@ func (b *protocolBuilder) AddCRLF() *protocolBuilder {
 	}
 
 	b.buf.Write(_CRLFBytes)
+	return b
+}
+
+// AddFlagBool adds a flag with string value to the protocol message.
+// e.g. AddFlagBool("k", true) will append "k" to the protocol message.
+func (b *protocolBuilder) AddFlagBool(flag string, v bool) *protocolBuilder {
+	if !v {
+		return b
+	}
+
+	b.buf.WriteString(flag)
+	b.buf.WriteByte(_SpaceByte)
+	return b
+}
+
+// AddFlagUint adds a flag with uint64 value to the protocol message.
+// e.g. AddFlagUint("c", 1) will append "c1 " to the protocol message.
+func (b *protocolBuilder) AddFlagUint(flag string, tok uint64) *protocolBuilder {
+	if tok == 0 {
+		return b
+	}
+
+	b.buf.WriteString(flag + strconv.FormatUint(tok, 10))
+	b.buf.WriteByte(_SpaceByte)
+	return b
+}
+
+func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
+	if tok == "" {
+		return b
+	}
+
+	b.buf.WriteString(flag + tok)
+	b.buf.WriteByte(_SpaceByte)
 	return b
 }
 
@@ -289,4 +324,20 @@ func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
 		specEndLine:  endLine,
 		rawLines:     make([][]byte, 0, predictLines),
 	}
+}
+
+func base64Encode(src []byte) []byte {
+	dst := make([]byte, base64.StdEncoding.EncodedLen(len(src)))
+	base64.StdEncoding.Encode(dst, src)
+	return dst
+}
+
+func base64Decode(src []byte) ([]byte, error) {
+	dst := make([]byte, base64.StdEncoding.DecodedLen(len(src)))
+	n, err := base64.StdEncoding.Decode(dst, src)
+	if err != nil {
+		return nil, err
+	}
+
+	return dst[:n], nil
 }

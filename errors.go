@@ -27,4 +27,6 @@ var (
 	// ErrInvalidAddress represents an invalid address error.
 	// It is returned when the given address is invalid.
 	ErrInvalidAddress = errors.New("invalid address")
+	// ErrEmptyKey represents an invalid key error.
+	ErrEmptyKey = errors.New("invalid key")
 )
