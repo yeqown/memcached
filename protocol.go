@@ -214,14 +214,16 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 	return req, resp
 }
 
-// parseValueItems parses the response from memcached server.
+// parseValueItems parses the response from memcached server, the response
+// is a list of items, each item is a key-value pair.
+//
+// For example:
 // VALUE <key> <flags> <bytes> <cas unique>\r\n
 // <data block>\r\n
 // VALUE <key> <flags> <bytes> <cas unique>\r\n
 // <data block>\r\n
 // ...
-//
-// WITHOUT "END\r\n"
+// END\r\n
 func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 	var items []*Item
 
@@ -236,10 +238,10 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 	}
 
 	var (
-		rn            = n
-		flags, _bytes uint64
-		casUniq       uint64
-		err           error
+		rn             = n
+		flags, dataLen uint64
+		cas            uint64
+		err            error
 	)
 
 	if !withoutEndLine {
@@ -247,57 +249,64 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 		rn = n - 1
 	}
 
-	for i := 0; i < rn; i++ {
+	const (
+		keyIndex     = 1
+		flagsIndex   = 2
+		dataLenIndex = 3
+		casIndex     = 4
+
+		withCasLen = 5
+	)
+
+	for i := 0; i < rn; i += 2 {
 		line := trimCRLF(lines[i])
-		casUniq = 0
+		cas = 0
 
-		if bytes.HasPrefix(line, _ValueBytes) {
-			parts := bytes.Split(line, _SpaceBytes)
-			if len(parts) < 4 {
-				return nil, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
-			}
-
-			key := string(parts[1])
-			bytesFlags := parts[2]
-			bytesLen := parts[3]
-			if len(parts) == 5 {
-				casUniqBytes := parts[4]
-				casUniq, err = strconv.ParseUint(string(casUniqBytes), 10, 64)
-				if err != nil {
-					return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
-				}
-			}
-
-			flags, err = strconv.ParseUint(string(bytesFlags), 10, 32)
-			if err != nil {
-				return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
-			}
-
-			// Convert bytesLen to integer
-			_bytes, err = strconv.ParseUint(string(bytesLen), 10, 64)
-			if err != nil {
-				return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
-			}
-
-			// Read the data block
-			i++
-			if i >= len(lines) {
-				return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
-			}
-			data := trimCRLF(lines[i])
-
-			if uint64(len(data)) != _bytes {
-				return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
-			}
-
-			item := &Item{
-				Key:       key,
-				Value:     trimCRLF(data),
-				Flags:     uint32(flags),
-				CASUnique: casUniq,
-			}
-			items = append(items, item)
+		if !bytes.HasPrefix(line, _ValueBytes) {
+			continue
 		}
+
+		parts := bytes.Split(line, _SpaceBytes)
+		if len(parts) < 4 {
+			return nil, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+		}
+
+		flagsBytes := parts[flagsIndex]
+		dataLenBytes := parts[dataLenIndex]
+		// Parse flags and data length
+		flags, err = strconv.ParseUint(string(flagsBytes), 10, 32)
+		if err != nil {
+			return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
+		}
+		dataLen, err = strconv.ParseUint(string(dataLenBytes), 10, 64)
+		if err != nil {
+			return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
+		}
+		// Parse cas unique if exists
+		if len(parts) == withCasLen {
+			casBytes := parts[casIndex]
+			cas, err = strconv.ParseUint(string(casBytes), 10, 64)
+			if err != nil {
+				return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
+			}
+		}
+
+		// Read the data block
+		if i+1 >= n {
+			return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
+		}
+		data := trimCRLF(lines[i+1])
+		if len(data) != int(dataLen) {
+			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
+		}
+
+		item := &Item{
+			Key:       string(parts[keyIndex]),
+			Value:     data,
+			Flags:     uint32(flags),
+			CASUnique: cas,
+		}
+		items = append(items, item)
 	}
 
 	return items, nil
