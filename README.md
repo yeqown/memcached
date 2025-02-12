@@ -79,8 +79,8 @@ Now, we have implemented some commands, and we will implement more commands in t
 | ----       | -----  | RETRIEVAL COMMANDS                                              |---|
 | Gets       | ✅      | `Gets(key string) ([]byte, error)`                              | Get a value by key from memcached with cas value |
 | Get        | ✅      | `Get(key string) ([]byte, error)`                               | Get a value by key from memcached |
-| GetAndTouch | 🚧     | `GetAndTouch(key string, expire int32) ([]byte, error)`         | Get a value by key from memcached and touch the key's expire time |
-| GetAndTouches | 🚧     | `GetAndTouchs(key string, expire int32) ([]byte, error)`        | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouch | ✅     | `GetAndTouch(key string, expire int32) ([]byte, error)`         | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouches | ✅     | `GetAndTouchs(key string, expire int32) ([]byte, error)`        | Get a value by key from memcached and touch the key's expire time |
 | -----      | -----  | OTHER COMMANDS                                                  |---|
 | Delete     | ✅      | `Delete(key string) error`                                      | Delete a key-value pair from memcached |
 | Incr       | ✅     | `Increment(key string, delta uint64) (uint64, error)`           | Increment a key's value |
