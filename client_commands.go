@@ -18,35 +18,35 @@ type basicTextProtocolCommander interface {
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Set(ctx context.Context, key, value string, flags, expiry uint32) error
+	Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error
 	// Add is used to store the given key-value pair if the key does not exist.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Add(ctx context.Context, key, value string, flags, expiry uint32) error
+	Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error
 	// Replace is used to update the value of an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Replace(ctx context.Context, key, value string, flags, expiry uint32) error
+	Replace(ctx context.Context, key string, value []byte, flags, expiry uint32) error
 	// Append is used to append the value to an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Append(ctx context.Context, key, value string, flags, expiry uint32) error
+	Append(ctx context.Context, key string, value []byte, flags, expiry uint32) error
 	// Prepend is used to prepend the value to an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Prepend(ctx context.Context, key, value string, flags, expiry uint32) error
+	Prepend(ctx context.Context, key string, value []byte, flags, expiry uint32) error
 
 	// Cas is used to update the value of an existing item and also check-and-set operation.
 	//
@@ -54,7 +54,7 @@ type basicTextProtocolCommander interface {
 	// the server stores along with the data and sends back when the item is retrieved.
 	//
 	// expiry is the TTL of the key in seconds.
-	Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error
+	Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error
 
 	/**
 	Retrieval commands: get and gets
@@ -182,8 +182,8 @@ func (c *client) Auth(ctx context.Context, username, password string) error {
  * Storage commands: set, add, replace, append, prepend, cas
  */
 
-func (c *client) storageCommand(ctx context.Context, command, key, value string, flags, expiry uint32) error {
-	req, resp := buildStorageCommand(command, key, []byte(value), flags, expiry, c.options.noReply)
+func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flags, expiry uint32) error {
+	req, resp := buildStorageCommand(command, key, value, flags, expiry, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -196,27 +196,27 @@ func (c *client) storageCommand(ctx context.Context, command, key, value string,
 	return nil
 }
 
-func (c *client) Set(ctx context.Context, key, value string, flags, expiry uint32) error {
+func (c *client) Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
 	return c.storageCommand(ctx, "set", key, value, flags, expiry)
 }
 
-func (c *client) Add(ctx context.Context, key, value string, flags, expiry uint32) error {
+func (c *client) Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
 	return c.storageCommand(ctx, "add", key, value, flags, expiry)
 }
 
-func (c *client) Replace(ctx context.Context, key, value string, flags, expiry uint32) error {
+func (c *client) Replace(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
 	return c.storageCommand(ctx, "replace", key, value, flags, expiry)
 }
 
-func (c *client) Append(ctx context.Context, key, value string, flags, expiry uint32) error {
+func (c *client) Append(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
 	return c.storageCommand(ctx, "append", key, value, flags, expiry)
 }
 
-func (c *client) Prepend(ctx context.Context, key, value string, flags, expiry uint32) error {
+func (c *client) Prepend(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
 	return c.storageCommand(ctx, "prepend", key, value, flags, expiry)
 }
 
-func (c *client) Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error {
+func (c *client) Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error {
 	req, resp := buildCasCommand(key, []byte(value), flags, expiry, cas, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")

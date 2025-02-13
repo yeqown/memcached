@@ -85,33 +85,33 @@ func main() {
 
 Now, we have implemented some commands, and we will implement more commands in the future.
 
-| Command        | Status | API Usage                                                                                                           | Description                                                       |
-|----------------|--------|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| Auth           | 🚧     | `Auth(ctx context.Context, username, password string) error`                                                        | Auth to memcached server                                          |
-| ----           | -----  | STORAGE COMMANDS                                                                                                    | ---                                                               |
-| Set            | ✅      | `Set(ctx context.Context, key, value string, flags, expiry uint32) error`                                           | Set a key-value pair to memcached                                 |
-| Add            | ✅      | `Add(ctx context.Context, key, value string, flags, expiry uint32) error`                                           | Add a key-value pair to memcached                                 |
-| Replace        | ✅      | `Replace(ctx context.Context, key, value string, flags, expiry uint32) error`                                       | Replace a key-value pair to memcached                             |
-| Append         | ✅      | `Append(ctx context.Context, key, value string, flags, expiry uint32) error`                                        | Append a value to the key                                         |
-| Prepend        | ✅      | `Prepend(ctx context.Context, key, value string, flags, expiry uint32) error`                                       | Prepend a value to the key                                        |
-| Cas            | ✅      | `Cas(ctx context.Context, key, value string, flags, expiry uint32, cas uint64) error`                               | Compare and set a key-value pair to memcached                     |
-| ----           | -----  | RETRIEVAL COMMANDS                                                                                                  | ---                                                               |
-| Gets           | ✅      | `Gets(ctx context.Context, keys ...string) ([]*Item, error)`                                                        | Get a value by key from memcached with cas value                  |
-| Get            | ✅      | `Get(ctx context.Context, key string) (*Item, error)`                                                               | Get a value by key from memcached                                 |
-| GetAndTouch    | ✅      | `GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error)`                                        | Get a value by key from memcached and touch the key's expire time |
-| GetAndTouches  | ✅      | `GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error)`                                | Get a value by key from memcached and touch the key's expire time |
-| -----          | -----  | OTHER COMMANDS                                                                                                      | ---                                                               |
-| Delete         | ✅      | `Delete(ctx context.Context, key string) error`                                                                     | Delete a key-value pair from memcached                            |
-| Incr           | ✅      | `Incr(ctx context.Context, key string, delta uint64) (uint64, error)`                                               | Increment a key's value                                           |
-| Decr           | ✅      | `Decr(ctx context.Context, key string, delta uint64) (uint64, error)`                                               | Decrement a key's value                                           |
-| Touch          | ✅      | `Touch(ctx context.Context, key string, expiry uint32) error`                                                       | Touch a key's expire time                                         |
-| MetaGet        | ✅      | `MetaGet(ctx context.Context, key []byte, options ...MetaGetOption) (*MetaItem, error)`                             | Get a key's meta information                                      |
-| MetaSet        | ✅      | `MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)`                      | Set a key's meta information                                      |
-| MetaDelete     | ✅      | `MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)`                       | Delete a key's meta information                                   |
+| Command        | Status | API Usage                                                                                                     | Description                                                       |
+|----------------|--------|---------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| Auth           | 🚧     | `Auth(ctx context.Context, username, password string) error`                                                  | Auth to memcached server                                          |
+| ----           | -----  | STORAGE COMMANDS                                                                                              | ---                                                               |
+| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                              | Set a key-value pair to memcached                                 |
+| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                              | Add a key-value pair to memcached                                 |
+| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                          | Replace a key-value pair to memcached                             |
+| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                           | Append a value to the key                                         |
+| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                          | Prepend a value to the key                                        |
+| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error`                  | Compare and set a key-value pair to memcached                     |
+| ----           | -----  | RETRIEVAL COMMANDS                                                                                            | ---                                                               |
+| Gets           | ✅      | `Gets(ctx context.Context, keys ...string) ([]*Item, error)`                                                  | Get a value by key from memcached with cas value                  |
+| Get            | ✅      | `Get(ctx context.Context, key string) (*Item, error)`                                                         | Get a value by key from memcached                                 |
+| GetAndTouch    | ✅      | `GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error)`                                  | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouches  | ✅      | `GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error)`                          | Get a value by key from memcached and touch the key's expire time |
+| -----          | -----  | OTHER COMMANDS                                                                                                | ---                                                               |
+| Delete         | ✅      | `Delete(ctx context.Context, key string) error`                                                               | Delete a key-value pair from memcached                            |
+| Incr           | ✅      | `Incr(ctx context.Context, key string, delta uint64) (uint64, error)`                                         | Increment a key's value                                           |
+| Decr           | ✅      | `Decr(ctx context.Context, key string, delta uint64) (uint64, error)`                                         | Decrement a key's value                                           |
+| Touch          | ✅      | `Touch(ctx context.Context, key string, expiry uint32) error`                                                 | Touch a key's expire time                                         |
+| MetaGet        | ✅      | `MetaGet(ctx context.Context, key []byte, options ...MetaGetOption) (*MetaItem, error)`                       | Get a key's meta information                                      |
+| MetaSet        | ✅      | `MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)`                | Set a key's meta information                                      |
+| MetaDelete     | ✅      | `MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)`                 | Delete a key's meta information                                   |
 | MetaArithmetic | ✅      | `MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)` | Arithmetic a key's meta information                               |
-| MetaDebug      | 🚧     | `MetaDebug(key string) (string, error)`                                                                             | Debug a key's meta information                                    |
-| MetaNoop       | 🚧     | `MetaNoop(key string) error`                                                                                        | Noop a key's meta information                                     |
-| Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                      | Get memcached server version                                      |
+| MetaDebug      | 🚧     | `MetaDebug(key string) (string, error)`                                                                       | Debug a key's meta information                                    |
+| MetaNoop       | 🚧     | `MetaNoop(key string) error`                                                                                  | Noop a key's meta information                                     |
+| Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                | Get memcached server version                                      |
 
 ### Development Guide
 

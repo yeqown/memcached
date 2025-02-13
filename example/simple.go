@@ -23,10 +23,10 @@ func main() {
 	}
 	println("Version: ", version)
 
-	if err = client.Set(ctx, "key", "value", 0, 0); err != nil {
+	if err = client.Set(ctx, "key", []byte("value"), 0, 0); err != nil {
 		panic(err)
 	}
-	if err = client.Set(ctx, "key2", "value2", 0, 0); err != nil {
+	if err = client.Set(ctx, "key2", []byte("value2"), 0, 0); err != nil {
 		panic(err)
 	}
 
