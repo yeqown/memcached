@@ -391,7 +391,9 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	}
 
 	item := &MetaItem{
-		Key: key,
+		Key:   key,
+		TTL:   int64(msFlags.T),
+		Flags: msFlags.F,
 	}
 	err := parseMetaItem(resp.rawLines, item, msFlags.q)
 	if err != nil {

@@ -21,6 +21,15 @@ type Item struct {
 	CAS uint64
 }
 
+func (i Item) String() string {
+	return "Item{" +
+		"Key:" + i.Key +
+		" Value:" + string(i.Value) +
+		" Flags:" + strconv.FormatUint(uint64(i.Flags), 10) +
+		" CAS:" + strconv.FormatUint(i.CAS, 10) +
+		"}"
+}
+
 // MetaItem represents a key-value pair with meta information.
 type MetaItem struct {
 	Key   []byte
@@ -48,6 +57,20 @@ type MetaItem struct {
 	// HitBefore is the flag to return whether item has been hit before as a 0 or 1.
 	// use MetaGetFlagReturnHitBefore() to get this value.
 	HitBefore bool
+}
+
+func (m MetaItem) String() string {
+	return "MetaItem{" +
+		"Key:" + string(m.Key) +
+		" Value:" + string(m.Value) +
+		" CAS:" + strconv.FormatUint(m.CAS, 10) +
+		" Flags:" + strconv.FormatUint(uint64(m.Flags), 10) +
+		" TTL:" + strconv.FormatInt(m.TTL, 10) +
+		" LastAccessedTime:" + strconv.FormatInt(m.LastAccessedTime, 10) +
+		" Size:" + strconv.FormatUint(m.Size, 10) +
+		" Opaque:" + strconv.FormatUint(m.Opaque, 10) +
+		" HitBefore:" + strconv.FormatBool(m.HitBefore) +
+		"}"
 }
 
 func buildAuthCommand(username, password string) (*request, *response) {

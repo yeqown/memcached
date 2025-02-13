@@ -527,6 +527,7 @@ func buildMetaDeleteCommand(key []byte, flags *metaDeleteFlags) (*request, *resp
 	return req, resp
 }
 
+// MetaArithmeticOption is used to set options for MetaArithmetic command.
 type MetaArithmeticOption func(*metaArithmeticFlags)
 
 type metaArithmeticFlags struct {
