@@ -6,11 +6,12 @@ This is a golang package for Memcached. It is a simple and easy to use package.
 
 ### Features
 
-- [ ] Completed Memcached text protocol, includes meta text protocol.
+- [x] Completed Memcached text protocol, includes meta text protocol.
 - [ ] Integrated serialization and deserialization function
 - [x] Cluster support, multiple hash algorithm support, include: crc32, murmur3, redezvous and also custom hash algorithm.
 - [x] Fully connection pool features support.
 - [ ] CLI tool support.
+- [ ] SASL support.
 
 ### Installation
 
