@@ -115,8 +115,27 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 		return pool.get(ctx)
 	}
 
-	wrapNewConn := func(ctx2 context.Context) (memcachedConn, error) {
-		return newConnContext(ctx2, addr, c.options.dialTimeout)
+	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
+		switch addr.Network {
+		case "tcp", "tcp4", "tcp6":
+			cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
+		default:
+			// TODO(@yeqown): "udp", "unix" not supported yet
+			panic("not supported yet")
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "newConnContext failed")
+		}
+
+		// SASL auth if enabled
+		if !c.options.enableSASL {
+			if err = authSASL(cn, c.options.plainUsername, c.options.plainPassword); err != nil {
+				_ = cn.Close()
+				return nil, errors.Wrap(err, "auth in SASL failed")
+			}
+		}
+
+		return cn, nil
 	}
 
 	// could not find pool for the given addr, create a new one
@@ -129,6 +148,14 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 	c.mu.Unlock()
 
 	return pool.get(ctx)
+}
+
+// authSASL performs the Binary SASL authentication.
+// https://docs.memcached.org/protocols/binarysasl/
+func authSASL(conn memcachedConn, username, password string) error {
+	_, _, _ = conn, username, password
+	// TODO(@yeqown): implement the SASL auth
+	return nil
 }
 
 func (c *client) doRequest(ctx context.Context, req *request, resp *response) error {

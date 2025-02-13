@@ -39,6 +39,11 @@ type clientOptions struct {
 
 	// noReply is the flag to indicate whether the client should wait for the response.
 	noReply bool
+
+	// enableTLS means whether the client should use TLS to connect to the server.
+	enableSASL    bool
+	plainUsername string
+	plainPassword string
 }
 
 func newClientOptions() *clientOptions {
@@ -56,6 +61,10 @@ func newClientOptions() *clientOptions {
 		maxIdleTimeout: 0,
 
 		noReply: false,
+
+		enableSASL:    false,
+		plainUsername: "",
+		plainPassword: "",
 	}
 }
 
@@ -158,5 +167,14 @@ func WithMaxIdleTimeout(d time.Duration) ClientOption {
 func WithNoReply() ClientOption {
 	return func(o *clientOptions) {
 		o.noReply = true
+	}
+}
+
+// WithSASL sets the SASL authentication for the client.
+func WithSASL(username, password string) ClientOption {
+	return func(o *clientOptions) {
+		o.enableSASL = true
+		o.plainUsername = username
+		o.plainPassword = password
 	}
 }
