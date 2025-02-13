@@ -13,6 +13,7 @@ import (
 type Client interface {
 	io.Closer
 
+	binaryProtocolCommander
 	basicTextProtocolCommander
 	metaTextProtocolCommander
 }

@@ -9,13 +9,6 @@ import (
 
 type basicTextProtocolCommander interface {
 	/**
-	Authentication commands: auth
-	*/
-
-	// Auth is used to authenticate the client to the server.
-	Auth(ctx context.Context, username, password string) error
-
-	/**
 	Storage commands: set, add, replace, append, prepend, cas
 	*/
 
@@ -116,10 +109,31 @@ type basicTextProtocolCommander interface {
 }
 
 type metaTextProtocolCommander interface {
-	// TODO(@yeqown): add and implement more meta commands
-
+	// MetaSet is used to store the given key-value pair with metadata.
+	// All available options start with MetaSetFlagXXX, such as MetaSetFlagBinaryKey
+	// and MetaSetFlagReturnCAS.
 	MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)
+	// MetaGet is used to get the value of the given key with metadata.
+	// All available options start with MetaGetFlagXXX, such as MetaGetFlagReturnCAS
+	// and MetaGetFlagReturnClientFlags.
 	MetaGet(ctx context.Context, key []byte, options ...MetaGetOption) (*MetaItem, error)
+	// MetaDelete is used to delete the given key with metadata.
+	// All available options start with MetaDeleteFlagXXX, such as MetaDeleteFlagRemoveValueOnly
+	// and MetaDeleteFlagUpdateTTL.
+	MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)
+	// MetaArithmetic is used to increment or decrement the value of the given key with metadata.
+	// All available options start with MetaArithmeticFlagXXX, such as MetaArithmeticFlagReturnCAS
+	// and MetaArithmeticFlagReturnClientFlags.
+	MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)
+}
+
+type binaryProtocolCommander interface {
+	/**
+	Authentication commands: auth
+	*/
+
+	// Auth is used to authenticate the client to the server.
+	Auth(ctx context.Context, username, password string) error
 }
 
 type statisticsTextProtocolCommander interface {
@@ -406,6 +420,56 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 		Key: key,
 	}
 	if err := parseMetaItem(resp.rawLines, item, mgFlags.q); err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return item, nil
+}
+
+func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error) {
+	if len(key) == 0 {
+		return nil, ErrEmptyKey
+	}
+
+	mdFlags := &metaDeleteFlags{}
+	for _, applyFn := range options {
+		applyFn(mdFlags)
+	}
+
+	req, resp := buildMetaDeleteCommand(key, mdFlags)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	item := &MetaItem{
+		Key: key,
+	}
+	if err := parseMetaItem(resp.rawLines, item, mdFlags.q); err != nil {
+		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+	}
+
+	return item, nil
+}
+
+func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error) {
+	if len(key) == 0 {
+		return nil, ErrEmptyKey
+	}
+
+	maFlags := &metaArithmeticFlags{}
+	for _, applyFn := range options {
+		applyFn(maFlags)
+	}
+
+	req, resp := buildMetaArithmeticCommand(key, delta, maFlags)
+	if err := c.doRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	item := &MetaItem{
+		Key: key,
+	}
+	if err := parseMetaItem(resp.rawLines, item, maFlags.q); err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 

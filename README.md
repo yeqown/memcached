@@ -106,8 +106,8 @@ Now, we have implemented some commands, and we will implement more commands in t
 | Touch      | ✅      | `Touch(key string, expire int32) error`                         | Touch a key's expire time |
 | MetaGet    | ✅       | `MetaGet(key string) (Meta, error)`                             | Get a key's meta information |
 | MetaSet    | ✅     | `MetaSet(key string, meta Meta) error`                          | Set a key's meta information |
-| MetaDelete | 🚧     | `MetaDelete(key string) error`                                  | Delete a key's meta information |
-| MetaArithmetic | 🚧     | `MetaArithmetic(key string, delta int64) (uint64, error)`       | Arithmetic a key's meta information |
+| MetaDelete | ✅     | `MetaDelete(key string) error`                                  | Delete a key's meta information |
+| MetaArithmetic | ✅     | `MetaArithmetic(key string, delta int64) (uint64, error)`       | Arithmetic a key's meta information |
 | MetaDebug  | 🚧     | `MetaDebug(key string) (string, error)`                         | Debug a key's meta information |
 | MetaNoop   | 🚧     | `MetaNoop(key string) error`                                    | Noop a key's meta information |
 | Version    | ✅      | `Version() (string, error)`                                     | Get memcached server version |
