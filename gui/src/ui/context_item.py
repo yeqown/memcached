@@ -24,7 +24,7 @@ class ContextItemDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         painter.save()
-        
+
         # 特殊处理添加按钮项
         if index.data() == "+":
             self.paint_add_button(painter, option)
@@ -33,7 +33,7 @@ class ContextItemDelegate(QStyledItemDelegate):
 
         # 正常项目的绘制
         rect = option.rect
-        
+
         # 统一使用灰色背景
         gradient = QLinearGradient(
             QPointF(rect.topLeft()),
@@ -42,16 +42,16 @@ class ContextItemDelegate(QStyledItemDelegate):
         gradient.setColorAt(0, QColor(245, 245, 245))
         gradient.setColorAt(1, QColor(235, 235, 235))
         painter.fillRect(rect, gradient)
-        
+
         # 获取数据
         data = index.data()
         name = data.split(" (")[0]
         host_port = data.split(" (")[1].rstrip(")")
-        
+
         # 绘制内容
         content_rect = QRect(rect)
         content_rect.adjust(10, 10, -40, -10)
-        
+
         # 绘制名称（居中对齐，加大字号）
         name_font = QFont()
         name_font.setPointSize(18)  # 原来是 12，增加 1.5 倍
@@ -65,22 +65,22 @@ class ContextItemDelegate(QStyledItemDelegate):
 
         # 绘制服务器信息（左对齐，加大字号）
         info_font = QFont()
-        info_font.setPointSize(12) 
+        info_font.setPointSize(12)
         painter.setFont(info_font)
-        
+
         info_rect = QRect(content_rect)
         info_rect.setTop(name_rect.bottom() + 5)
         painter.drawText(info_rect, Qt.AlignmentFlag.AlignLeft, f"服务器: {host_port}")
-        
+
         # # 绘制服务器数量（左对齐）
         # count_rect = QRect(content_rect)
         # count_rect.setTop(info_rect.top() + 25)  # 稍微增加间距
         # painter.drawText(count_rect, Qt.AlignmentFlag.AlignLeft, "Servers: 1")
-        
+
         # 如果被选中，添加选中效果
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, QColor(51, 153, 255, 50))
-            
+
         # 绘制编辑按钮（在删除按钮左侧）
         edit_rect = QRect(
             rect.right() - 68,  # 34 * 2
@@ -109,7 +109,7 @@ class ContextItemDelegate(QStyledItemDelegate):
         rect = option.rect
         # 绘制浅色背景
         painter.fillRect(rect, QColor(245, 245, 245))
-        
+
         # 绘制加号图标
         icon_rect = QRect(
             rect.center().x() - 12,
@@ -124,7 +124,7 @@ class ContextItemDelegate(QStyledItemDelegate):
             if index.data() == "+":
                 self.handle_add_context()
                 return True
-            
+
             # 检查是否点击了编辑按钮
             edit_rect = QRect(
                 option.rect.right() - 68,
@@ -135,7 +135,7 @@ class ContextItemDelegate(QStyledItemDelegate):
             if edit_rect.contains(event.pos()):
                 self.handle_edit_context(index)
                 return True
-            
+
             # 检查是否点击了删除按钮
             delete_rect = QRect(
                 option.rect.right() - 34,
@@ -146,7 +146,7 @@ class ContextItemDelegate(QStyledItemDelegate):
             if delete_rect.contains(event.pos()):
                 self.handle_delete_context(index)
                 return True
-        
+
         return super().editorEvent(event, model, option, index)
 
     def sizeHint(self, option, index):

@@ -14,32 +14,32 @@ class ContextDialog(QDialog):
 
         # 创建主布局
         layout = QVBoxLayout(self)
-        
+
         # 创建表单布局
         form_layout = QFormLayout()
         layout.addLayout(form_layout)  # 将表单布局添加到主布局中
-        
+
         # 创建输入框
         self.name_input = QLineEdit()
         self.name_input.setMinimumWidth(400)
         self.name_input.setMinimumHeight(30)
-        
+
         self.host_input = QLineEdit()
         self.host_input.setMinimumWidth(400)
         self.host_input.setMinimumHeight(30)
-        
+
         self.port_input = QLineEdit()
         self.port_input.setMinimumWidth(400)
         self.port_input.setMinimumHeight(30)
-        
+
         # 使用表单布局添加输入框
         form_layout.addRow("名称:", self.name_input)
         form_layout.addRow("主机:", self.host_input)
         form_layout.addRow("端口:", self.port_input)
-        
+
         # 添加按钮到主布局
         button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
         button_box.accepted.connect(self.accept)

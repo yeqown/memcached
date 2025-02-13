@@ -3,7 +3,7 @@ from pymemcache.client.base import Client
 class MemcachedClient:
     def __init__(self):
         self.client = None
-    
+
     def connect(self, host='localhost', port=11211):
         try:
             self.client = Client((host, port))
@@ -12,7 +12,7 @@ class MemcachedClient:
             return True
         except Exception as e:
             return False, str(e)
-    
+
     def disconnect(self):
         if self.client:
             self.client.close()
