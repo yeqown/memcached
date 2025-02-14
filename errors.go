@@ -17,6 +17,9 @@ var (
 	ErrExists = errors.New("exists")
 	// ErrNotStored response by server "NOT_STORED"
 	ErrNotStored = errors.New("not stored")
+	// ErrAuthenticationUnSupported represents an authentication not supported error.
+	// no need to authenticate or the server does not support PLAIN mechanism.
+	ErrAuthenticationUnSupported = errors.New("authentication not supported")
 	// ErrAuthenticationFailed represents an authentication failed error.
 	ErrAuthenticationFailed = errors.New("authentication failed")
 	// ErrInvalidArgument represents an invalid arguments error.

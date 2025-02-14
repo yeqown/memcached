@@ -74,23 +74,24 @@ const (
 	_binaryMagicReq = 0x80
 	_binaryMagicRes = 0x81
 
-	_binaryStatusOK                   = 0x0000 // No error
-	_binaryStatusKeyNotFound          = 0x0001 // Key not found
-	_binaryStatusKeyExists            = 0x0002 // Key exists
-	_binaryStatusValueTooBig          = 0x0003 // Value too large
-	_binaryStatusInvalidArgs          = 0x0004 // Invalid arguments
-	_binaryStatusItemNotStored        = 0x0005 // Item not stored
-	_binaryStatusNonNumeric           = 0x0006 // Incr/Decr on non-numeric value
-	_binaryStatusVBucketBelong        = 0x0007 // The vbucket belongs to another server
-	_binaryStatusAuthError            = 0x0008 // Authentication error
-	_binaryStatusAuthContinue         = 0x0009 // Authentication continue
-	_binaryStatusAuthenticationFailed = 0x0020 // Authentication failed
-	_binaryStatusUnknownCmd           = 0x0081 // Unknown command
-	_binaryStatusOutOfMemory          = 0x0082 // Out of memory
-	_binaryStatusNotSupported         = 0x0083 // Not supported
-	_binaryStatusInternalError        = 0x0084 // Internal error
-	_binaryStatusBusy                 = 0x0085 // Busy
-	_binaryStatusTmpFailure           = 0x0086 // Temporary failure
+	_binaryStatusOK                     = 0x0000 // No error
+	_binaryStatusKeyNotFound            = 0x0001 // Key not found
+	_binaryStatusKeyExists              = 0x0002 // Key exists
+	_binaryStatusValueTooBig            = 0x0003 // Value too large
+	_binaryStatusInvalidArgs            = 0x0004 // Invalid arguments
+	_binaryStatusItemNotStored          = 0x0005 // Item not stored
+	_binaryStatusNonNumeric             = 0x0006 // Incr/Decr on non-numeric value
+	_binaryStatusVBucketBelong          = 0x0007 // The vbucket belongs to another server
+	_binaryStatusAuthError              = 0x0008 // Authentication error
+	_binaryStatusAuthContinue           = 0x0009 // Authentication continue
+	_binaryStatusAuthenticationFailed   = 0x0020 // Authentication failed
+	_binaryStatusAuthenticationContinue = 0x0021 // Authentication continue
+	_binaryStatusUnknownCmd             = 0x0081 // Unknown command
+	_binaryStatusOutOfMemory            = 0x0082 // Out of memory
+	_binaryStatusNotSupported           = 0x0083 // Not supported
+	_binaryStatusInternalError          = 0x0084 // Internal error
+	_binaryStatusBusy                   = 0x0085 // Busy
+	_binaryStatusTmpFailure             = 0x0086 // Temporary failure
 
 	/**
 	 * Opcodes possible in binary protocol:
@@ -98,8 +99,9 @@ const (
 	 * normal operation.
 	 */
 
-	_binaryOpcodeSASLAuth = 0x20 // SASL authentication
-	_binaryOpcodeSASLStep = 0x21 // SASL authentication continue
+	_binaryOpcodeSASLListMechanisms = 0x20 // List SASL authentication mechanisms
+	_binaryOpcodeSASLAuth           = 0x21 // SASL authentication
+	_binaryOpcodeSASLStep           = 0x22 // SASL authentication continue
 
 	/**
 	 * Data types in binary protocol
@@ -174,13 +176,25 @@ type binaryResponse struct {
 	value  []byte
 }
 
-func (br *binaryResponse) hasError() error {
-	switch br.status {
-	case _binaryStatusOK, _binaryStatusAuthContinue:
+func (br *binaryResponse) expect(status uint16) error {
+	if br.status == status {
 		return nil
+	}
+
+	switch br.status {
+	case _binaryStatusOK:
+		return nil
+	case _binaryStatusAuthContinue:
+		// SASL PLAIN DON'T need to continue
+		return ErrAuthenticationFailed
 	case _binaryStatusAuthError, _binaryStatusAuthenticationFailed:
 		return ErrAuthenticationFailed
 	case _binaryStatusUnknownCmd:
+		if br.opcode == _binaryOpcodeSASLListMechanisms ||
+			br.opcode == _binaryOpcodeSASLAuth ||
+			br.opcode == _binaryOpcodeSASLStep {
+			return ErrAuthenticationUnSupported
+		}
 		return ErrNonexistentCommand
 	case _binaryStatusNotSupported:
 		return ErrNotSupported
@@ -243,9 +257,28 @@ func (br *binaryResponse) read(rr io.Reader) error {
 	return nil
 }
 
-func buildAuthListMechanisms() (*binaryRequest, *binaryResponse) {
+func saslListMechanisms() (*binaryRequest, *binaryResponse) {
+	req := &binaryRequest{
+		opcode: _binaryOpcodeSASLListMechanisms,
+		// opaque: 0,
+		// cas:    0,
+		// extras: nil,
+		// key:    nil,
+		// value:  nil,
+	}
+
+	resp := &binaryResponse{}
+	return req, resp
+}
+
+func saslAuthRequestPlain(username, password string) (*binaryRequest, *binaryResponse) {
 	req := &binaryRequest{
 		opcode: _binaryOpcodeSASLAuth,
+		// opaque: 0,
+		// cas:    0,
+		// extras: nil,
+		key:   []byte("PLAIN"),
+		value: []byte("\x00" + username + "\x00" + password),
 	}
 
 	resp := &binaryResponse{}

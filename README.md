@@ -112,6 +112,7 @@ Now, we have implemented some commands, and we will implement more commands in t
 | MetaDebug      | 🚧     | `MetaDebug(key string) (string, error)`                                                                       | Debug a key's meta information                                    |
 | MetaNoop       | 🚧     | `MetaNoop(key string) error`                                                                                  | Noop a key's meta information                                     |
 | Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                | Get memcached server version                                      |
+| FlushAll       | ✅      | `FlushAll(ctx context.Context) error`                                                                          | Flush all keys in memcached server                                |
 
 ### Development Guide
 

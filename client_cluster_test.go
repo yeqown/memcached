@@ -119,7 +119,7 @@ func Test_rendezvousHash_Pick(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addr, err := picker.Pick(addrs, tt.args.cmd, tt.args.key)
+			addr, err := picker.Pick(addrs, []byte(tt.args.cmd), []byte(tt.args.key))
 			assert.NoError(t, err)
 			assert.NotNil(t, addr)
 			assert.Equal(t, tt.wantAddress, addr.Address)
@@ -134,7 +134,7 @@ func Test_rendezvousHash_Pick_stable(t *testing.T) {
 	builder := NewRendezvousHashPickBuilder(120)
 	picker := builder.Build(addrsBefore)
 
-	addr, err := picker.Pick(addrsBefore, "set", "key")
+	addr, err := picker.Pick(addrsBefore, []byte("set"), []byte("key"))
 	assert.NoError(t, err)
 	assert.NotNil(t, addr)
 	assert.Equal(t, addrsBefore[0], addr)
@@ -144,7 +144,7 @@ func Test_rendezvousHash_Pick_stable(t *testing.T) {
 	addrsAfter, err := newDefaultResolver().Resolve("localhost:11211,localhost:11213")
 	assert.NoError(t, err)
 
-	addr2, err := picker.Pick(addrsAfter, "set", "key")
+	addr2, err := picker.Pick(addrsAfter, []byte("set"), []byte("key"))
 	assert.NoError(t, err)
 	assert.NotNil(t, addr2)
 	assert.Equal(t, "localhost:11211", addr.Address)

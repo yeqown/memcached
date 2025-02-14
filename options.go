@@ -171,6 +171,7 @@ func WithNoReply() ClientOption {
 }
 
 // WithSASL sets the SASL authentication for the client.
+// @Deprecated: since SASL is supported over binary protocol, but binary protocol is deprecated.
 func WithSASL(username, password string) ClientOption {
 	return func(o *clientOptions) {
 		o.enableSASL = true

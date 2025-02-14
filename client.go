@@ -1,11 +1,13 @@
 package memcached
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"sync"
 	"time"
 
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 )
 
@@ -91,27 +93,16 @@ func (c *client) Close() error {
 	return nil
 }
 
-func (c *client) pickConn(ctx context.Context, cmd, key string) (memcachedConn, error) {
-	addr, err := c.picker.Pick(c.addrs, cmd, key)
-	if err != nil {
-		return nil, errors.Wrap(err, "pick node failed")
-	}
+type releaseConnFn func(memcachedConn) error
 
-	cn, err := c.allocConn(ctx, addr)
-	if err != nil {
-		return nil, errors.Wrap(err, "alloc connection failed")
-	}
-
-	return cn, nil
-}
-
-// allocConn returns a true connection from the pool.
-func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
+// getConn returns a true connection from the pool.
+func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, releaseConnFn, error) {
 	c.mu.Lock()
 	pool, ok := c.connPools[addr]
 	if ok {
 		c.mu.Unlock()
-		return pool.get(ctx)
+		cn, err := pool.get(ctx)
+		return cn, pool.put, err
 	}
 
 	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
@@ -127,10 +118,10 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 		}
 
 		// SASL auth if enabled
-		if !c.options.enableSASL {
+		if c.options.enableSASL {
 			if err = authSASL(cn, c.options.plainUsername, c.options.plainPassword); err != nil {
 				_ = cn.Close()
-				return nil, errors.Wrap(err, "auth in SASL failed")
+				return nil, err
 			}
 		}
 
@@ -146,14 +137,65 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 	c.connPools[addr] = pool
 	c.mu.Unlock()
 
-	return pool.get(ctx)
+	cn, err := pool.get(ctx)
+	return cn, pool.put, err
 }
 
-func (c *client) doRequest(ctx context.Context, req *request, resp *response) error {
-	cn, err := c.pickConn(ctx, "version", "")
-	if err != nil {
-		return errors.Wrap(err, "pickConn failed")
+func (c *client) broadcastRequest(ctx context.Context, req *request, resp *response) error {
+	wg := sync.WaitGroup{}
+
+	execute := func(cn memcachedConn) error {
+		_ = cn.setReadTimeout(c.options.readTimeout)
+		if err := req.send(cn); err != nil {
+			return errors.Wrap(err, "send failed")
+		}
+
+		_ = cn.setWriteTimeout(c.options.writeTimeout)
+		return resp.recv(cn)
 	}
+	errCh := make(chan error, len(c.addrs))
+
+	for _, addr := range c.addrs {
+		wg.Add(1)
+		addrCopy := addr
+		go func() {
+			defer wg.Done()
+
+			cn, returnToPool, err := c.getConn(ctx, addrCopy)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			defer func() { _ = returnToPool(cn) }()
+
+			if err = execute(cn); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var multiErr error
+	for err := range errCh {
+		multiErr = multierror.Append(multiErr, err)
+	}
+
+	return multiErr
+}
+
+func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
+	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
+	if err != nil {
+		return errors.Wrap(err, "pick node failed")
+	}
+
+	cn, returnToPool, err := c.getConn(ctx, addr)
+	if err != nil {
+		return errors.Wrap(err, "alloc connection failed")
+	}
+	defer func() { _ = returnToPool(cn) }()
 
 	_ = cn.setReadTimeout(c.options.readTimeout)
 	if err = req.send(cn); err != nil {
@@ -166,26 +208,42 @@ func (c *client) doRequest(ctx context.Context, req *request, resp *response) er
 
 // authSASL performs the Binary SASL authentication.
 // https://docs.memcached.org/protocols/binarysasl/
+// https://datatracker.ietf.org/doc/html/rfc4422
+//
+// https://en.wikipedia.org/wiki/Simple_Authentication_and_Security_Layer
+// SASL mechanism:
+// EXTERNAL, ANONYMOUS, PLAIN, OTP, SKEY, CRAM-MD5, DIGEST-MD5, SCRAM, NTLM, GS2-, GSSAPI and more.
+//
+// But here we only support PLAIN mechanism for now.
+// https://datatracker.ietf.org/doc/html/rfc4616
 func authSASL(conn memcachedConn, username, password string) error {
-	_ = username
-	_ = password
 	// 1. first of all, list mechanisms the server supports
-	req, resp := buildAuthListMechanisms()
+	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "send failed")
+		return errors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "recv failed")
+		return errors.Wrap(err, "authSASL recv")
 	}
-	if err := resp.hasError(); err != nil {
-		return errors.Wrap(err, "hasError failed")
+	if err := resp.expect(_binaryStatusOK); err != nil {
+		return errors.Wrap(err, "authSASL")
 	}
 
-	// TODO: more steps to do the SASL authentication
+	if !bytes.Contains(resp.value, []byte("PLAIN")) {
+		return errors.New("memcached server does not support PLAIN mechanism")
+	}
+
 	// 2. choose one mechanism and send the authentication request
-	// 3. server response with the status of the authentication
-	// 4. if success, the client can send the command to the server
-	// 5. if failed, the client should close the connection
+	req, resp = saslAuthRequestPlain(username, password)
+	if err := req.send(conn); err != nil {
+		return errors.Wrap(err, "authSASL send")
+	}
+	if err := resp.read(conn); err != nil {
+		return errors.Wrap(err, "authSASL recv")
+	}
+	if err := resp.expect(_binaryStatusOK); err != nil {
+		return errors.Wrap(err, "authSASL")
+	}
 
 	return nil
 }

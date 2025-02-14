@@ -15,11 +15,13 @@ const (
 )
 
 var (
-	_SpaceBytes   = []byte{' '}
-	_SpaceByte    = byte(' ')
-	_CRLFBytes    = []byte("\r\n")
-	_NoReplyBytes = []byte("noreply")
+	_SpaceBytes    = []byte{' '}
+	_SpaceByte     = byte(' ')
+	_CRLFBytes     = []byte("\r\n")
+	_NoReplyBytes  = []byte("noreply")
+	_QuitCRLFBytes = []byte("quit\r\n")
 
+	_OKCRLFBytes      = []byte("OK\r\n")
 	_ValueBytes       = []byte("VALUE")
 	_EndBytes         = []byte("END")
 	_EndCRLFBytes     = []byte("END\r\n")
@@ -237,7 +239,7 @@ func (resp *response) read1(rr memcachedConn) error {
 	for read < int(resp.limitedLines) {
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "doRequest read")
+			return errors.Wrap(err, "dispatchRequest read")
 		}
 
 		if read == 0 {
@@ -259,7 +261,7 @@ func (resp *response) read2(rr memcachedConn) error {
 		// FIXME(@yeqown): read line would cost too much capacity.
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "doRequest read")
+			return errors.Wrap(err, "dispatchRequest read")
 		}
 
 		// FIXED(@yeqown): The end line also should be added to the rawLines.

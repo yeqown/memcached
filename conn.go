@@ -183,6 +183,11 @@ func (c *conn) Close() error {
 	}
 
 	c.closed = true
+
+	// send quit command to the server
+	_ = c.raw.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+	_, _ = c.raw.Write(_QuitCRLFBytes)
+
 	return c.raw.Close()
 }
 
@@ -211,11 +216,6 @@ func (c *conn) idle(since time.Time) (time.Duration, bool) {
 
 func (c *conn) returnTo() {
 	c.returnedAt = nowFunc()
-}
-
-// RemoteAddr returns the remote network address
-func (c *conn) RemoteAddr() net.Addr {
-	return c.addr
 }
 
 // The connPool holds a pool of connections to one memcached server instance
@@ -320,7 +320,7 @@ func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
 
 		cn, err := p.createConn(ctx)
 		if err != nil {
-			return nil, errors.Wrap(err, "createConn")
+			return nil, err
 		}
 		p.numOpen.Add(1)
 

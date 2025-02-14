@@ -81,6 +81,23 @@ func buildVersionCommand() *request {
 	}
 }
 
+func buildFlushAllCommand(noReply bool) (*request, *response) {
+	req := &request{
+		cmd: []byte("flush_all"),
+		key: nil,
+		raw: []byte("flush_all\r\n"),
+	}
+
+	var resp *response
+	if noReply {
+		resp = buildNoReplyResponse()
+	} else {
+		resp = buildLimitedLineResponse(1)
+	}
+
+	return req, resp
+}
+
 // buildStorageCommand constructs storage class command, including:
 //
 //	set/add/replace/append/prepend, etc.

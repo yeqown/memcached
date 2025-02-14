@@ -23,7 +23,7 @@ type Resolver interface {
 // Picker is responsible for picking a given key to a specific Addr
 // while considering the cluster state.
 type Picker interface {
-	Pick(addr []*Addr, cmd, key string) (*Addr, error)
+	Pick(addr []*Addr, cmd, key []byte) (*Addr, error)
 }
 
 // Builder is responsible for building a Picker from a given list of Addr.
@@ -71,7 +71,7 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 // It will pick an Addr by using the crc32 hash algorithm.
 type crc32HashPicker struct{}
 
-func (p *crc32HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
+func (p *crc32HashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	n := len(addrs)
 	if n == 0 {
 		return nil, errors.Wrap(ErrInvalidAddress, "no available address")
@@ -80,7 +80,7 @@ func (p *crc32HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
 		return addrs[0], nil
 	}
 
-	sum := crc32.ChecksumIEEE([]byte(key))
+	sum := crc32.ChecksumIEEE(key)
 	return addrs[sum%uint32(n)], nil
 }
 
@@ -100,7 +100,7 @@ type murmur3HashPicker struct {
 	hash func([]byte) uint64
 }
 
-func (p *murmur3HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
+func (p *murmur3HashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	n := len(addrs)
 	if n == 0 {
 		return nil, errors.Wrap(ErrInvalidAddress, "no available address")
@@ -109,7 +109,7 @@ func (p *murmur3HashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
 		return addrs[0], nil
 	}
 
-	sum := p.hash([]byte(key))
+	sum := p.hash(key)
 	return addrs[sum%uint64(n)], nil
 }
 
@@ -151,7 +151,7 @@ type rendezvousHashPicker struct {
 	hash func([]byte) uint64
 }
 
-func (p *rendezvousHashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error) {
+func (p *rendezvousHashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	highest := uint64(0)
 	var winner int
 
@@ -176,8 +176,8 @@ func (p *rendezvousHashPicker) Pick(addrs []*Addr, _, key string) (*Addr, error)
 	return addrs[winner], nil
 }
 
-func (p *rendezvousHashPicker) score(addr *Addr, key string) uint64 {
-	_key := append(addr.shortcut(), []byte(key)...)
+func (p *rendezvousHashPicker) score(addr *Addr, key []byte) uint64 {
+	_key := append(addr.shortcut(), key...)
 	return p.hash(_key)
 }
 

@@ -28,7 +28,7 @@ func Test_binaryRequest_send(t *testing.T) {
 			},
 			wantError: false,
 			wantRaw: []byte{
-				0x80, 0x20, 0x0, 0x3, // magic(0x80), opcode(0x21), key length(0x3)
+				0x80, 0x21, 0x0, 0x3, // magic(0x80), opcode(0x21), key length(0x3)
 				0x5, 0x0, 0x0, 0x0, // extras length(0x5), data type(0x0), vbucket id(0x0)
 				0x0, 0x0, 0x0, 0xd, // total body length(0xd),
 				0x0, 0x0, 0x0, 0x7b, // opaque(0x7b) 123
@@ -84,7 +84,7 @@ func Test_binaryResponse_read(t *testing.T) {
 			},
 			wantErr: false,
 			want: &binaryResponse{
-				opcode:          _binaryOpcodeSASLAuth,
+				opcode:          _binaryOpcodeSASLListMechanisms,
 				keyLength:       3,
 				extrasLength:    5,
 				status:          _binaryStatusOK,

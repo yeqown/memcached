@@ -14,16 +14,19 @@ func main() {
 		panic(err)
 	}
 
+	key := string("noReply")
+	value := []byte("noReply")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 
-	err = client.Set(ctx, "noReply", "noReply", 0, 0)
+	err = client.Set(ctx, key, value, 0, 0)
 	if err != nil {
 		panic(err)
 	}
 
 	// no reply
-	err = client.Delete(ctx, "noReply")
+	err = client.Delete(ctx, key)
 	if err != nil {
 		panic(err)
 	}

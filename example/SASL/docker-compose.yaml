@@ -1,0 +1,26 @@
+services:
+  memcached:
+    image: memcached:latest
+    platform: linux/arm64
+    ports:
+      - "11211:11211"
+    user: root
+    command:
+      - 'sh'
+      - '-c'
+      - |
+        export DEBIAN_FRONTEND=noninteractive && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends sasl2-bin libsasl2-2 libsasl2-modules && \
+        mkdir -p /etc/sasl2 && \
+        echo "pwcheck_method: auxprop" > /etc/sasl2/memcached.conf && \
+        echo "auxprop_plugin: sasldb" >> /etc/sasl2/memcached.conf && \
+        echo "mech_list: plain" >> /etc/sasl2/memcached.conf && \
+        echo "log_level: 7" >> /etc/sasl2/memcached.conf && \
+        echo "password123" | saslpasswd2 -f /etc/sasldb2 -a memcached -c memcached -p && \
+        chown -R memcache:memcache /etc/sasl2 /etc/sasldb2 && \
+        chmod 600 /etc/sasldb2 && \
+        mkdir -p /var/run/saslauthd && \
+        saslauthd -a sasldb -n 2 && \
+        sleep 1 && \
+        memcached -S -u memcache -vv
