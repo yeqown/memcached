@@ -55,7 +55,7 @@ func (r *replCommander) completer(d prompt.Document) []prompt.Suggest {
 		{Text: "current", Description: "Show current context"},
 		// key-value operations
 		{Text: "get", Description: "Get value by key"},
-		{Text: "mget", Description: "Get multiple values by keys"},
+		{Text: "gets", Description: "Get multiple values by keys"},
 		{Text: "set", Description: "Set key to value"},
 		{Text: "delete", Description: "Delete key"},
 		{Text: "incr", Description: "Increment value"},
@@ -96,6 +96,8 @@ func (r *replCommander) executor(line string) {
 
 	case "get":
 		err = r.handleGet(ctx, args)
+	case "gets":
+		err = r.handleMGet(ctx, args)
 	case "set":
 		err = r.handleSet(ctx, args)
 	case "delete":
@@ -106,8 +108,6 @@ func (r *replCommander) executor(line string) {
 		err = r.handleDecr(ctx, args)
 	case "touch":
 		err = r.handleTouch(ctx, args)
-	case "mget":
-		err = r.handleMGet(ctx, args)
 
 	case "version":
 		err = r.handleVersion(ctx)
