@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"math"
 	"strconv"
@@ -180,8 +181,14 @@ type request struct {
 	raw []byte
 }
 
-func (req *request) send(rr memcachedConn) (err error) {
+func (req *request) send(ctx context.Context, rr memcachedConn) (err error) {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		_ = rr.setReadDeadline(&deadline)
+		defer func() { _ = rr.setReadDeadline(nil) }()
+	}
 	_, err = rr.Write(req.raw)
+
 	return err
 }
 
@@ -220,7 +227,13 @@ type response struct {
 	rawLines [][]byte
 }
 
-func (resp *response) recv(rr memcachedConn) error {
+func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		_ = rr.setWriteDeadline(&deadline)
+		defer func() { _ = rr.setWriteDeadline(nil) }()
+	}
+
 	switch resp.endIndicator {
 	case endIndicatorNoReply:
 		return nil

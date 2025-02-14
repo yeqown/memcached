@@ -80,8 +80,8 @@ type memcachedConn interface {
 	// returnTo returns the connection to the pool.
 	returnTo()
 
-	setReadTimeout(timeout time.Duration) error
-	setWriteTimeout(timeout time.Duration) error
+	setReadDeadline(d *time.Time) error
+	setWriteDeadline(d *time.Time) error
 }
 
 var (
@@ -136,12 +136,22 @@ func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) 
 	return cn, nil
 }
 
-func (c *conn) setReadTimeout(timeout time.Duration) error {
-	return c.raw.SetReadDeadline(time.Now().Add(timeout))
+var zeroTime = time.Time{}
+
+func (c *conn) setReadDeadline(d *time.Time) error {
+	if d == nil {
+		return c.raw.SetReadDeadline(zeroTime)
+	}
+
+	return c.raw.SetReadDeadline(*d)
 }
 
-func (c *conn) setWriteTimeout(timeout time.Duration) error {
-	return c.raw.SetWriteDeadline(time.Now().Add(timeout))
+func (c *conn) setWriteDeadline(d *time.Time) error {
+	if d == nil {
+		return c.raw.SetWriteDeadline(zeroTime)
+	}
+
+	return c.raw.SetWriteDeadline(*d)
 }
 
 func (c *conn) readLine(delim byte) ([]byte, error) {

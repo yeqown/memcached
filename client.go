@@ -142,16 +142,30 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, releas
 }
 
 func (c *client) broadcastRequest(ctx context.Context, req *request, resp *response) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	wg := sync.WaitGroup{}
 
 	execute := func(cn memcachedConn) error {
-		_ = cn.setReadTimeout(c.options.readTimeout)
-		if err := req.send(cn); err != nil {
+		readCtx, cancel := context.WithTimeout(ctx, c.options.readTimeout)
+		if err := req.send(readCtx, cn); err != nil {
+			cancel()
 			return errors.Wrap(err, "send failed")
 		}
+		cancel()
 
-		_ = cn.setWriteTimeout(c.options.writeTimeout)
-		return resp.recv(cn)
+		writeCtx, cancel := context.WithTimeout(ctx, c.options.writeTimeout)
+		if err := resp.recv(writeCtx, cn); err != nil {
+			cancel()
+			return errors.Wrap(err, "recv failed")
+		}
+		cancel()
+
+		return nil
 	}
 	errCh := make(chan error, len(c.addrs))
 
@@ -186,6 +200,12 @@ func (c *client) broadcastRequest(ctx context.Context, req *request, resp *respo
 }
 
 func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
 	if err != nil {
 		return errors.Wrap(err, "pick node failed")
@@ -197,13 +217,15 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 	}
 	defer func() { _ = returnToPool(cn) }()
 
-	_ = cn.setReadTimeout(c.options.readTimeout)
-	if err = req.send(cn); err != nil {
+	readCtx, cancel := context.WithTimeout(ctx, c.options.readTimeout)
+	defer cancel()
+	if err = req.send(readCtx, cn); err != nil {
 		return errors.Wrap(err, "send failed")
 	}
 
-	_ = cn.setWriteTimeout(c.options.writeTimeout)
-	return resp.recv(cn)
+	writeCtx, cancel := context.WithTimeout(ctx, c.options.writeTimeout)
+	defer cancel()
+	return resp.recv(writeCtx, cn)
 }
 
 // authSASL performs the Binary SASL authentication.

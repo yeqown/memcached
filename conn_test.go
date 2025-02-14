@@ -60,9 +60,9 @@ func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
 
 func (m *mockConn) returnTo() { m.returnedAt = time.Now() }
 
-func (m *mockConn) setReadTimeout(timeout time.Duration) error { _ = timeout; return nil }
+func (m *mockConn) setReadDeadline(d *time.Time) error { _ = d; return nil }
 
-func (m *mockConn) setWriteTimeout(timeout time.Duration) error { _ = timeout; return nil }
+func (m *mockConn) setWriteDeadline(d *time.Time) error { _ = d; return nil }
 
 func createConn(_ context.Context) (memcachedConn, error) {
 	return newMockConn(), nil
