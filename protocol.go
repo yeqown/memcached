@@ -73,25 +73,6 @@ func (m MetaItem) String() string {
 		"}"
 }
 
-func buildAuthCommand(username, password string) (*request, *response) {
-	raw := newProtocolBuilder().
-		AddString("auth").
-		AddString(username).
-		AddString(password).
-		AddCRLF().
-		build()
-
-	req := &request{
-		cmd: []byte("auth"),
-		key: nil,
-		raw: raw,
-	}
-
-	resp := buildLimitedLineResponse(1)
-
-	return req, resp
-}
-
 func buildVersionCommand() *request {
 	return &request{
 		cmd: []byte("version"),

@@ -3,6 +3,7 @@ package memcached
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -66,11 +67,10 @@ func (a *Addr) dial(ctx context.Context, dialTimeout time.Duration) (net.Conn, e
 // It also provides support for connection pool mechanism, including expired check,
 // idle check and refresh the last time the connection is put back to the pool.
 type memcachedConn interface {
-	Read(delim byte) (line []byte, err error)
-	Write(p []byte) (n int, err error)
-	Close() error
-	RemoteAddr() net.Addr
+	io.ReadWriteCloser
 
+	// readLine reads a line from the connection using the given delimiter.
+	readLine(delim byte) ([]byte, error)
 	// expired returns true if the connection is expired.
 	// it always returns the duration of time since the connection is created.
 	expired(since time.Time) (time.Duration, bool)
@@ -144,13 +144,21 @@ func (c *conn) setWriteTimeout(timeout time.Duration) error {
 	return c.raw.SetWriteDeadline(time.Now().Add(timeout))
 }
 
-// Read reads data from the connection
-func (c *conn) Read(delim byte) (line []byte, err error) {
+func (c *conn) readLine(delim byte) ([]byte, error) {
 	if c.closed {
 		return nil, errors.New("connection is closed")
 	}
 
-	return c.rr.ReadSlice(delim)
+	return c.rr.ReadBytes(delim)
+}
+
+// Read reads data from the connection
+func (c *conn) Read(p []byte) (n int, err error) {
+	if c.closed {
+		return 0, errors.New("connection is closed")
+	}
+
+	return c.rr.Read(p)
 }
 
 // Write writes data to the connection

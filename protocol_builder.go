@@ -3,9 +3,15 @@ package memcached
 import (
 	"bytes"
 	"encoding/base64"
+	"math"
 	"strconv"
 
 	"github.com/pkg/errors"
+)
+
+const (
+	maxKeySize   = math.MaxUint16
+	maxValueSize = math.MaxUint32
 )
 
 var (
@@ -229,7 +235,7 @@ func (resp *response) recv(rr memcachedConn) error {
 func (resp *response) read1(rr memcachedConn) error {
 	read := 0
 	for read < int(resp.limitedLines) {
-		line, err := rr.Read('\n')
+		line, err := rr.readLine('\n')
 		if err != nil {
 			return errors.Wrap(err, "doRequest read")
 		}
@@ -251,7 +257,7 @@ func (resp *response) read1(rr memcachedConn) error {
 func (resp *response) read2(rr memcachedConn) error {
 	for {
 		// FIXME(@yeqown): read line would cost too much capacity.
-		line, err := rr.Read('\n')
+		line, err := rr.readLine('\n')
 		if err != nil {
 			return errors.Wrap(err, "doRequest read")
 		}

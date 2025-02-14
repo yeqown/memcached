@@ -13,7 +13,6 @@ import (
 type Client interface {
 	io.Closer
 
-	binaryProtocolCommander
 	basicTextProtocolCommander
 	metaTextProtocolCommander
 }
@@ -150,14 +149,6 @@ func (c *client) allocConn(ctx context.Context, addr *Addr) (memcachedConn, erro
 	return pool.get(ctx)
 }
 
-// authSASL performs the Binary SASL authentication.
-// https://docs.memcached.org/protocols/binarysasl/
-func authSASL(conn memcachedConn, username, password string) error {
-	_, _, _ = conn, username, password
-	// TODO(@yeqown): implement the SASL auth
-	return nil
-}
-
 func (c *client) doRequest(ctx context.Context, req *request, resp *response) error {
 	cn, err := c.pickConn(ctx, "version", "")
 	if err != nil {
@@ -171,4 +162,30 @@ func (c *client) doRequest(ctx context.Context, req *request, resp *response) er
 
 	_ = cn.setWriteTimeout(c.options.writeTimeout)
 	return resp.recv(cn)
+}
+
+// authSASL performs the Binary SASL authentication.
+// https://docs.memcached.org/protocols/binarysasl/
+func authSASL(conn memcachedConn, username, password string) error {
+	_ = username
+	_ = password
+	// 1. first of all, list mechanisms the server supports
+	req, resp := buildAuthListMechanisms()
+	if err := req.send(conn); err != nil {
+		return errors.Wrap(err, "send failed")
+	}
+	if err := resp.read(conn); err != nil {
+		return errors.Wrap(err, "recv failed")
+	}
+	if err := resp.hasError(); err != nil {
+		return errors.Wrap(err, "hasError failed")
+	}
+
+	// TODO: more steps to do the SASL authentication
+	// 2. choose one mechanism and send the authentication request
+	// 3. server response with the status of the authentication
+	// 4. if success, the client can send the command to the server
+	// 5. if failed, the client should close the connection
+
+	return nil
 }

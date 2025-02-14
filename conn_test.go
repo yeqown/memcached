@@ -2,7 +2,6 @@ package memcached
 
 import (
 	"context"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -28,13 +27,13 @@ func newMockConn() *mockConn {
 	}
 }
 
-func (m *mockConn) Read(_ byte) (line []byte, err error) { return nil, nil }
+func (m *mockConn) Read(_ []byte) (b int, err error) { return 0, nil }
 
 func (m *mockConn) Write(_ []byte) (n int, err error) { return 0, nil }
 
 func (m *mockConn) Close() error { return nil }
 
-func (m *mockConn) RemoteAddr() net.Addr { return nil }
+func (m *mockConn) readLine(_ byte) ([]byte, error) { return nil, nil }
 
 func (m *mockConn) expired(since time.Time) (time.Duration, bool) {
 	now := nowFunc()

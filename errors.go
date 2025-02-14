@@ -17,6 +17,12 @@ var (
 	ErrExists = errors.New("exists")
 	// ErrNotStored response by server "NOT_STORED"
 	ErrNotStored = errors.New("not stored")
+	// ErrAuthenticationFailed represents an authentication failed error.
+	ErrAuthenticationFailed = errors.New("authentication failed")
+	// ErrInvalidArgument represents an invalid arguments error.
+	ErrInvalidArgument = errors.New("invalid arguments")
+	// ErrNotSupported represents a not supported error.
+	ErrNotSupported = errors.New("not supported")
 
 	// ErrMalformedResponse represents a malformed response error, it could be returned
 	// when the response is not expected. Debug the server response to see whether it is
@@ -27,6 +33,10 @@ var (
 	// ErrInvalidAddress represents an invalid address error.
 	// It is returned when the given address is invalid.
 	ErrInvalidAddress = errors.New("invalid address")
-	// ErrEmptyKey represents an invalid key error.
-	ErrEmptyKey = errors.New("invalid key")
+	// ErrInvalidKey represents an invalid key error.
+	ErrInvalidKey = errors.New("invalid key empty or too long(over than 2^16)")
+	// ErrInvalidValue represents an invalid value error.
+	ErrInvalidValue = errors.New("invalid value too long(over than 2^32)")
+	// ErrInvalidBinaryProtocol represents an invalid binary protocol error.
+	ErrInvalidBinaryProtocol = errors.New("invalid binary protocol")
 )

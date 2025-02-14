@@ -127,15 +127,6 @@ type metaTextProtocolCommander interface {
 	MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)
 }
 
-type binaryProtocolCommander interface {
-	/**
-	Authentication commands: auth
-	*/
-
-	// Auth is used to authenticate the client to the server.
-	Auth(ctx context.Context, username, password string) error
-}
-
 type statisticsTextProtocolCommander interface {
 	// TODO: add more statistics commands
 
@@ -160,29 +151,14 @@ func (c *client) Version(ctx context.Context) (string, error) {
 }
 
 /**
- * Authentication commands: auth
- */
-
-func (c *client) Auth(ctx context.Context, username, password string) error {
-	// TODO(@yeqown): test this API and figure out the SASL authentication mechanism.
-	req, resp := buildAuthCommand(username, password)
-	if err := c.doRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
-	}
-
-	// expect STORED\r\n
-	if err := resp.expect(_StoredCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
-	}
-
-	return nil
-}
-
-/**
  * Storage commands: set, add, replace, append, prepend, cas
  */
 
 func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flags, expiry uint32) error {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return err
+	}
+
 	req, resp := buildStorageCommand(command, key, value, flags, expiry, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
@@ -217,6 +193,10 @@ func (c *client) Prepend(ctx context.Context, key string, value []byte, flags, e
 }
 
 func (c *client) Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error {
+	if err := validateKeyAndValue([]byte(key), value); err != nil {
+		return err
+	}
+
 	req, resp := buildCasCommand(key, []byte(value), flags, expiry, cas, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
@@ -235,6 +215,10 @@ func (c *client) Cas(ctx context.Context, key string, value []byte, flags, expir
  */
 
 func (c *client) Get(ctx context.Context, key string) (*Item, error) {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return nil, err
+	}
+
 	req, resp := buildGetsCommand("get", key)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
@@ -253,6 +237,10 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 }
 
 func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
+	if len(keys) == 0 {
+		return []*Item{}, nil
+	}
+
 	req, resp := buildGetsCommand("gets", keys...)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
@@ -271,6 +259,10 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 }
 
 func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error) {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return nil, err
+	}
+
 	req, resp := buildGetAndTouchesCommand("gat", expiry, key)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
@@ -290,6 +282,10 @@ func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*I
 }
 
 func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error) {
+	if len(keys) == 0 {
+		return []*Item{}, nil
+	}
+
 	req, resp := buildGetAndTouchesCommand("gats", expiry, keys...)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
@@ -313,6 +309,10 @@ func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...strin
  */
 
 func (c *client) Delete(ctx context.Context, key string) error {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return err
+	}
+
 	req, resp := buildDeleteCommand(key, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
@@ -327,6 +327,10 @@ func (c *client) Delete(ctx context.Context, key string) error {
 }
 
 func (c *client) Incr(ctx context.Context, key string, delta uint64) (uint64, error) {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return 0, err
+	}
+
 	req, resp := buildArithmeticCommand("incr", key, delta, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return 0, errors.Wrap(err, "request failed")
@@ -342,6 +346,10 @@ func (c *client) Incr(ctx context.Context, key string, delta uint64) (uint64, er
 }
 
 func (c *client) Decr(ctx context.Context, key string, delta uint64) (uint64, error) {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return 0, err
+	}
+
 	req, resp := buildArithmeticCommand("decr", key, delta, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return 0, errors.Wrap(err, "request failed")
@@ -357,6 +365,10 @@ func (c *client) Decr(ctx context.Context, key string, delta uint64) (uint64, er
 }
 
 func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
+	if err := validateKeyAndValue([]byte(key), nil); err != nil {
+		return err
+	}
+
 	req, resp := buildTouchCommand(key, expiry, c.options.noReply)
 	if err := c.doRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
@@ -376,8 +388,8 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
  */
 
 func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...MetaSetOption) (*MetaItem, error) {
-	if len(key) == 0 {
-		return nil, ErrEmptyKey
+	if err := validateKeyAndValue(key, nil); err != nil {
+		return nil, err
 	}
 
 	msFlags := &metaSetFlags{}
@@ -404,8 +416,8 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 }
 
 func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOption) (*MetaItem, error) {
-	if len(key) == 0 {
-		return nil, ErrEmptyKey
+	if err := validateKeyAndValue(key, nil); err != nil {
+		return nil, err
 	}
 
 	mgFlags := &metaGetFlags{}
@@ -429,8 +441,8 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 }
 
 func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error) {
-	if len(key) == 0 {
-		return nil, ErrEmptyKey
+	if err := validateKeyAndValue(key, nil); err != nil {
+		return nil, err
 	}
 
 	mdFlags := &metaDeleteFlags{}
@@ -454,8 +466,8 @@ func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDele
 }
 
 func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error) {
-	if len(key) == 0 {
-		return nil, ErrEmptyKey
+	if err := validateKeyAndValue(key, nil); err != nil {
+		return nil, err
 	}
 
 	maFlags := &metaArithmeticFlags{}
@@ -476,4 +488,16 @@ func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, o
 	}
 
 	return item, nil
+}
+
+func validateKeyAndValue(key, value []byte) error {
+	if nKey := len(key); nKey == 0 || nKey > maxKeySize {
+		return ErrInvalidKey
+	}
+
+	if nValue := len(value); nValue > maxValueSize {
+		return ErrInvalidValue
+	}
+
+	return nil
 }
