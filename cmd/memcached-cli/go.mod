@@ -3,6 +3,7 @@ module github.com/yeqown/memcached/cmd/memcached-cli
 go 1.22.8
 
 require (
+	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/samber/lo v1.49.1
 	github.com/spf13/cobra v1.8.1

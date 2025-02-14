@@ -13,18 +13,21 @@ import (
 )
 
 type replCommander struct {
-	cm     *contextManager
+	cm      *contextManager
+	timeout time.Duration
+
 	client memcached.Client
 }
 
-func newInteractiveMode() (*replCommander, error) {
-	manager, err := newContextManager()
-	if err != nil {
-		return nil, err
+func newREPLCommander(manager *contextManager, timeout time.Duration) (*replCommander, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
 	}
 
 	return &replCommander{
-		cm: manager,
+		cm:      manager,
+		timeout: timeout,
+		client:  nil,
 	}, nil
 }
 
@@ -47,7 +50,7 @@ func (r *replCommander) ensureClient() error {
 	return nil
 }
 
-func (r *replCommander) completer(d prompt.Document) []prompt.Suggest {
+func (r *replCommander) commandCompleter(d prompt.Document) []prompt.Suggest {
 	suggestions := []prompt.Suggest{
 		// context operations
 		{Text: "use", Description: "Switch to a different context"},
@@ -68,10 +71,16 @@ func (r *replCommander) completer(d prompt.Document) []prompt.Suggest {
 		{Text: "quit", Description: "Exit the program"},
 	}
 
-	return prompt.FilterHasPrefix(suggestions, d.GetWordBeforeCursor(), true)
+	sub := d.GetWordBeforeCursor()
+
+	if sub == "" {
+		return []prompt.Suggest{}
+	}
+
+	return prompt.FilterHasPrefix(suggestions, sub, true)
 }
 
-func (r *replCommander) executor(line string) {
+func (r *replCommander) commandExecutor(line string) {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return
@@ -80,10 +89,8 @@ func (r *replCommander) executor(line string) {
 	args := strings.Fields(line)
 	cmd := args[0]
 
-	var (
-		err         error
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
-	)
+	var err error
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
 
 	switch cmd {
@@ -120,7 +127,7 @@ func (r *replCommander) executor(line string) {
 	}
 
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("Execution `%s` failed: %v\n", cmd, err)
 	}
 }
 
