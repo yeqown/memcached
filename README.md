@@ -25,6 +25,8 @@ Or you can install the CLI binary by running:
 go install github.com/yeqown/memcached/cmd/memcached-cli@latest
 ```
 
+More `memcached-cli` usage could be found in [CLI](./cmd/memcached-cli/README.md).
+
 ### Usage
 
 There is a simple example to show how to use this package. More examples could be found in the [example](./example) directory.
