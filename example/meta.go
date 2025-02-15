@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,7 +36,18 @@ func metaSetAndGet(client memcached.Client) {
 
 	key := []byte("example:meta:set")
 
-	item, err := client.MetaSet(ctx, key, []byte("bar"),
+	// get first
+	item, err := client.MetaGet(ctx, key)
+	if err != nil {
+		if !errors.Is(err, memcached.ErrNotFound) {
+			panic(err)
+		}
+		fmt.Println("'key' not found")
+	} else {
+		fmt.Printf("'key' found, item=%+v\n", item)
+	}
+
+	item, err = client.MetaSet(ctx, key, []byte("bar"),
 		memcached.MetaSetFlagReturnCAS(),      // return CAS value
 		memcached.MetaSetFlagBinaryKey(),      // binary encoded key
 		memcached.MetaSetFlagClientFlags(123), // client flags

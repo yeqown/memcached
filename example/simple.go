@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/yeqown/memcached"
@@ -22,6 +23,18 @@ func main() {
 		panic(err)
 	}
 	println("Version: ", version)
+
+	// get first
+	item, err := client.Get(ctx, "key")
+	if err != nil {
+		if !errors.Is(err, memcached.ErrNotFound) {
+			panic(err)
+		}
+
+		println("'key' not found")
+	} else {
+		println("key: ", item.Key, " value: ", string(item.Value))
+	}
 
 	if err = client.Set(ctx, "key", []byte("value"), 0, 0); err != nil {
 		panic(err)
