@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+
 	"strings"
 	"time"
 
-	"github.com/yeqown/memcached"
-
+	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
+	"github.com/yeqown/memcached"
 )
 
 /**
@@ -207,7 +208,7 @@ func newKVGetCommand() *cobra.Command {
 				memcached.MetaGetFlagReturnHitBefore(),
 			)
 			if err != nil {
-				return err
+				return ignoreMemcachedError(err)
 			}
 
 			printMetaItem(item)
@@ -233,7 +234,7 @@ func newKVSetCommand() *cobra.Command {
 
 			err = client.Set(cmd.Context(), args[0], []byte(args[1]), magicFlags, expiration)
 			if err != nil {
-				return err
+				return ignoreMemcachedError(err)
 			}
 
 			fmt.Printf("OK\n")
@@ -259,7 +260,7 @@ func newKVDeleteCommand() *cobra.Command {
 
 			err = client.Delete(cmd.Context(), args[0])
 			if err != nil {
-				return err
+				return ignoreMemcachedError(err)
 			}
 
 			fmt.Printf("OK\n")
@@ -296,7 +297,7 @@ func newKVGetsCommand() *cobra.Command {
 					memcached.MetaGetFlagReturnHitBefore(),
 				)
 				if err != nil {
-					fmt.Printf("Encounter an error while getting key %s: %v\n", key, err)
+					fmt.Printf("Encounter an error while getting key '%s': %v\n", key, errors.Cause(err))
 					continue
 				}
 
@@ -327,7 +328,7 @@ func newKVTouchCommand() *cobra.Command {
 			}
 
 			if err := client.Touch(cmd.Context(), args[0], uint32(expiration.Seconds())); err != nil {
-				return err
+				return ignoreMemcachedError(err)
 			}
 
 			fmt.Println("OK")
@@ -385,7 +386,7 @@ func newKVFlushAllCommand() *cobra.Command {
 
 		imme:
 			if err := client.FlushAll(cmd.Context()); err != nil {
-				return err
+				return ignoreMemcachedError(err)
 			}
 
 			fmt.Println("OK")
@@ -399,7 +400,7 @@ func newKVFlushAllCommand() *cobra.Command {
 
 func printMetaItems(items []*memcached.MetaItem) {
 	for idx, item := range items {
-		fmt.Printf("[%d]\n", idx)
+		fmt.Printf(" ================= The [%d] item =================\n", idx)
 		printMetaItem(item)
 	}
 }
@@ -447,4 +448,38 @@ func formatSeconds(seconds int, suffix, zeroString string) (readable string) {
 	}
 
 	return readable + " " + suffix
+}
+
+func ignoreMemcachedError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var memErrs = []error{
+		memcached.ErrNonexistentCommand,
+		memcached.ErrClientError,
+		memcached.ErrServerError,
+		memcached.ErrNotFound,
+		memcached.ErrExists,
+		memcached.ErrNotStored,
+		memcached.ErrAuthenticationUnSupported,
+		memcached.ErrAuthenticationFailed,
+		memcached.ErrInvalidArgument,
+		memcached.ErrNotSupported,
+		memcached.ErrMalformedResponse,
+		memcached.ErrUnknownIndicator,
+		memcached.ErrInvalidAddress,
+		memcached.ErrInvalidKey,
+		memcached.ErrInvalidValue,
+		memcached.ErrInvalidBinaryProtocol,
+	}
+
+	for _, memErr := range memErrs {
+		if errors.Is(err, memErr) {
+			fmt.Printf("Memcached Error: %v\n", errors.Cause(err))
+			return nil
+		}
+	}
+
+	return err
 }

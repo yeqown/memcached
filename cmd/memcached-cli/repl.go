@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/c-bata/go-prompt"
+	"github.com/pkg/errors"
 	"github.com/yeqown/memcached"
 )
 
@@ -173,7 +174,7 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 		memcached.MetaGetFlagReturnHitBefore(),
 	)
 	if err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	printMetaItem(item)
 	return nil
@@ -192,7 +193,7 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 	}
 
 	if err := r.getMemcachedClient().Set(ctx, args[1], []byte(args[2]), magicFlags, expiration); err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -204,7 +205,7 @@ func (r *replCommander) handleDelete(ctx context.Context, args []string) error {
 	}
 
 	if err := r.getMemcachedClient().Delete(ctx, args[1]); err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -223,7 +224,7 @@ func (r *replCommander) handleIncr(ctx context.Context, args []string) error {
 	}
 	newValue, err := r.getMemcachedClient().Incr(ctx, args[1], delta)
 	if err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	fmt.Printf("%d\n", newValue)
 	return nil
@@ -242,7 +243,7 @@ func (r *replCommander) handleDecr(ctx context.Context, args []string) error {
 	}
 	newValue, err := r.getMemcachedClient().Decr(ctx, args[1], delta)
 	if err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	fmt.Printf("%d\n", newValue)
 	return nil
@@ -258,7 +259,7 @@ func (r *replCommander) handleTouch(ctx context.Context, args []string) error {
 		return fmt.Errorf("invalid expiration format: %v", err)
 	}
 	if err := r.getMemcachedClient().Touch(ctx, args[1], uint32(expiration)); err != nil {
-		return err
+		return ignoreMemcachedError(err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -287,17 +288,14 @@ func (r *replCommander) handleMGet(ctx context.Context, args []string) error {
 			memcached.MetaGetFlagReturnHitBefore(),
 		)
 		if err != nil {
-			fmt.Printf("Encounter error while getting key %s: %v\n", key, err)
+			fmt.Printf("Encounter error while getting key '%s': %v\n", key, errors.Cause(err))
 			continue
 		}
 
 		items = append(items, item)
 	}
 
-	for idx, item := range items {
-		fmt.Printf("[%d]\n", idx)
-		printMetaItem(item)
-	}
+	printMetaItems(items)
 
 	return nil
 }
