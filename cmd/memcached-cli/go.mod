@@ -8,7 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.49.1
 	github.com/spf13/cobra v1.8.1
-	github.com/yeqown/memcached v1.1.1
+	github.com/yeqown/memcached v1.1.2
 )
 
 require (

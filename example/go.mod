@@ -2,8 +2,12 @@ module github.com/yeqown/memcached/example
 
 go 1.22.8
 
-require github.com/yeqown/memcached v0.0.0-20250209093033-d5ea2ebfbe9c
+require github.com/yeqown/memcached v1.1.2
 
-replace (
-	github.com/yeqown/memcached => ../
+require (
+	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 )
+
+replace github.com/yeqown/memcached => ../
