@@ -326,22 +326,34 @@ func newKVFlushAllCommand() *cobra.Command {
 				return err
 			}
 
-			left := delay
+			left := int(delay)
 			var ticker *time.Ticker
 			if delay <= 0 {
 				goto imme
 			}
 
 			ticker = time.NewTicker(time.Second)
-			for left > 0 {
+			defer ticker.Stop()
+
+			fmt.Print("Flush All delayed...\n") //
+			for left >= 0 {
 				select {
 				case <-ticker.C:
-					fmt.Printf("The flush command would be send in %d seconds...\n", delay)
+					progress := int(float64(int(delay)-left) / float64(delay) * 20)
+					if progress > 20 {
+						progress = 20
+					}
+					fmt.Printf("\r%s%s %d seconds left to execute, ctrl+C to cancel anyway",
+						strings.Repeat("█", progress),
+						strings.Repeat("░", 20-progress),
+						left)
 					left--
 				case <-cmd.Context().Done():
+					fmt.Println("\nOperation cancelled")
 					return cmd.Context().Err()
 				}
 			}
+			fmt.Println()
 
 		imme:
 			if err := client.FlushAll(cmd.Context()); err != nil {

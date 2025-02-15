@@ -288,7 +288,7 @@ func (r *replCommander) handleHelp() {
 	fmt.Println("  current           Show current context")
 
 	fmt.Println("  get <key>         Get value by key")
-	fmt.Println("  mget <key...>     Get multiple values by keys")
+	fmt.Println("  gets <key...>     Get multiple values by keys")
 	fmt.Println("  set <key> <value> Set key to value")
 	fmt.Println("  delete <key>      Delete key")
 	fmt.Println("  incr <key> [delta] Increment value")
