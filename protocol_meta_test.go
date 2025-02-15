@@ -104,6 +104,19 @@ func Test_parseMetaItem(t *testing.T) {
 			wantItem: nil,
 		},
 		{
+			name: "normal3: not found error flags",
+			args: args{
+				lines: [][]byte{
+					// ERROR
+					[]byte("EN kfoo\r\n"),
+				},
+				item:    &MetaItem{},
+				noReply: false,
+			},
+			wantErr:  true,
+			wantItem: nil,
+		},
+		{
 			name: "normal3: HD",
 			args: args{
 				lines: [][]byte{

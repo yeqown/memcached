@@ -59,6 +59,16 @@ func forecastCommonFaultLine(line []byte) error {
 		return ErrExists
 	case bytes.Equal(line, []byte("NOT_STORED\r\n")):
 		return ErrNotStored
+	//	meta ERROR lines
+	case bytes.HasPrefix(line, []byte("NF")):
+		return ErrNotFound
+	case bytes.HasPrefix(line, []byte("NS")):
+		return ErrNotStored
+	case bytes.HasPrefix(line, []byte("EX")):
+		return ErrExists
+	case bytes.HasPrefix(line, []byte("EN")):
+		return ErrNotFound
+
 	}
 
 	return nil
@@ -238,6 +248,10 @@ func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
 	case endIndicatorNoReply:
 		return nil
 	case endIndicatorLimitedLines:
+		// FIXME(@yeqown): read limited line would block waiting for the response
+		//  But there's no more lines to read, since error encountered.
+		// 	.e.g: "EN kfoo\r\n" means the key "foo" does not exist, but the client
+		//  maybe want 2 lines, but only 1 line to read.
 		return resp.read1(rr)
 	case endIndicatorSpecificEndLine:
 		return resp.read2(rr)

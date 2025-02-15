@@ -426,7 +426,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	}
 	err := parseMetaItem(resp.rawLines, item, msFlags.q)
 	if err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+		return nil, err
 	}
 
 	return item, nil
@@ -451,7 +451,7 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 		Key: key,
 	}
 	if err := parseMetaItem(resp.rawLines, item, mgFlags.q); err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+		return nil, err
 	}
 
 	return item, nil
@@ -476,7 +476,7 @@ func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDele
 		Key: key,
 	}
 	if err := parseMetaItem(resp.rawLines, item, mdFlags.q); err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+		return nil, err
 	}
 
 	return item, nil
@@ -501,7 +501,7 @@ func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, o
 		Key: key,
 	}
 	if err := parseMetaItem(resp.rawLines, item, maFlags.q); err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, err.Error())
+		return nil, err
 	}
 
 	return item, nil

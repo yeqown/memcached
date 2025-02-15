@@ -360,6 +360,7 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
 		dataLenIndex = 1
 	)
 	cd := parts[CDIndex]
+
 	switch string(cd) {
 	case "NF":
 		return ErrNotFound
