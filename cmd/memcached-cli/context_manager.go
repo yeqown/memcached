@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/yeqown/memcached"
 )
 
 // contextManager handles multiple memcached contexts
@@ -15,6 +17,8 @@ type contextManager struct {
 	current  string
 	path     string
 	mu       sync.RWMutex
+
+	currentClient memcached.Client
 }
 
 // newContextManager creates a new context manager
@@ -30,19 +34,33 @@ func newContextManager() (*contextManager, error) {
 	}
 
 	m := &contextManager{
-		contexts: make(map[string]*Context),
-		path:     path,
+		contexts:      make(map[string]*Context, 4),
+		current:       "",
+		path:          path,
+		mu:            sync.RWMutex{},
+		currentClient: nil,
 	}
 
-	if err := m.load(); err != nil && !os.IsNotExist(err) {
+	if err := m.initialize(); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
 	return m, nil
 }
 
-// load reads contexts from disk
-func (m *contextManager) load() error {
+func (m *contextManager) close() error {
+	m.save()
+
+	if m.currentClient != nil {
+		return m.currentClient.Close()
+	}
+
+	return nil
+}
+
+// initialize load CLI config file and initialize current client while
+// the current is not empty.
+func (m *contextManager) initialize() error {
 	data, err := os.ReadFile(m.path)
 	if err != nil {
 		return err
@@ -60,6 +78,12 @@ func (m *contextManager) load() error {
 	m.mu.Lock()
 	m.contexts = stored.Contexts
 	m.current = stored.Current
+	if m.current != "" {
+		m.currentClient, err = createClient(m.contexts[m.current])
+		if err != nil {
+			return err
+		}
+	}
 	m.mu.Unlock()
 
 	return nil
@@ -113,18 +137,6 @@ func (m *contextManager) newContext(name, servers string, config *clientConfig) 
 	m.mu.Unlock()
 
 	return m.save()
-}
-
-// GetContext returns the context with the given name
-func (m *contextManager) getContext(name string) (*Context, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ctx, exists := m.contexts[name]
-	if !exists {
-		return nil, fmt.Errorf("context %s not found", name)
-	}
-	return ctx, nil
 }
 
 // UseContext sets the current context
@@ -183,4 +195,46 @@ func (m *contextManager) getCurrentContext() (*Context, error) {
 	}
 
 	return m.contexts[m.current], nil
+}
+
+func (m *contextManager) getClientWithContext(ctxName string) (memcached.Client, error) {
+	m.mu.RLock()
+	ctx, exists := m.contexts[ctxName]
+	m.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("context %s not found", ctxName)
+	}
+	client, err := createClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
+}
+
+func (m *contextManager) getCurrentClient() (memcached.Client, error) {
+	m.mu.RLock()
+	if m.currentClient != nil {
+		clientCopy := m.currentClient
+		m.mu.RUnlock()
+		return clientCopy, nil
+	}
+	m.mu.RUnlock()
+
+	currentCtx, err := m.getCurrentContext()
+	if err != nil {
+		return nil, err
+	}
+
+	// re-init
+	client, err := createClient(currentCtx)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	m.currentClient = client
+	m.mu.Unlock()
+
+	return client, nil
 }

@@ -15,8 +15,6 @@ import (
 type replCommander struct {
 	cm      *contextManager
 	timeout time.Duration
-
-	client memcached.Client
 }
 
 func newREPLCommander(manager *contextManager, timeout time.Duration) (*replCommander, error) {
@@ -27,27 +25,7 @@ func newREPLCommander(manager *contextManager, timeout time.Duration) (*replComm
 	return &replCommander{
 		cm:      manager,
 		timeout: timeout,
-		client:  nil,
 	}, nil
-}
-
-func (r *replCommander) ensureClient() error {
-	if r.client != nil {
-		return nil
-	}
-
-	ctx, err := r.cm.getCurrentContext()
-	if err != nil {
-		return err
-	}
-
-	client, err := createClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	r.client = client
-	return nil
 }
 
 func (r *replCommander) commandCompleter(d prompt.Document) []prompt.Suggest {
@@ -131,6 +109,15 @@ func (r *replCommander) commandExecutor(line string) {
 	}
 }
 
+func (r *replCommander) getMemcachedClient() memcached.Client {
+	client, err := r.cm.getCurrentClient()
+	if err != nil {
+		panic(err)
+	}
+
+	return client
+}
+
 /**
  * context operations
  */
@@ -172,10 +159,8 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage: get <key>")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
-	value, err := r.client.Get(ctx, args[1])
+
+	value, err := r.getMemcachedClient().Get(ctx, args[1])
 	if err != nil {
 		return err
 	}
@@ -187,9 +172,6 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 	if len(args) != 3 {
 		return fmt.Errorf("usage: set <key> <value> [expiration]")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
 
 	expiration := uint32(0)
 	if len(args) == 4 {
@@ -198,7 +180,7 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 		}
 	}
 
-	if err := r.client.Set(ctx, args[1], []byte(args[2]), magicFlags, expiration); err != nil {
+	if err := r.getMemcachedClient().Set(ctx, args[1], []byte(args[2]), magicFlags, expiration); err != nil {
 		return err
 	}
 	fmt.Println("OK")
@@ -209,10 +191,8 @@ func (r *replCommander) handleDelete(ctx context.Context, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage: delete <key>")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
-	if err := r.client.Delete(ctx, args[1]); err != nil {
+
+	if err := r.getMemcachedClient().Delete(ctx, args[1]); err != nil {
 		return err
 	}
 	fmt.Println("OK")
@@ -223,16 +203,14 @@ func (r *replCommander) handleIncr(ctx context.Context, args []string) error {
 	if len(args) != 2 && len(args) != 3 {
 		return fmt.Errorf("usage: incr <key> [delta]")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
+
 	delta := uint64(1)
 	if len(args) == 3 {
 		if d, err := strconv.ParseUint(args[2], 10, 64); err == nil {
 			delta = d
 		}
 	}
-	newValue, err := r.client.Incr(ctx, args[1], delta)
+	newValue, err := r.getMemcachedClient().Incr(ctx, args[1], delta)
 	if err != nil {
 		return err
 	}
@@ -244,16 +222,14 @@ func (r *replCommander) handleDecr(ctx context.Context, args []string) error {
 	if len(args) != 2 && len(args) != 3 {
 		return fmt.Errorf("usage: decr <key> [delta]")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
+
 	delta := uint64(1)
 	if len(args) == 3 {
 		if d, err := strconv.ParseUint(args[2], 10, 64); err == nil {
 			delta = d
 		}
 	}
-	newValue, err := r.client.Decr(ctx, args[1], delta)
+	newValue, err := r.getMemcachedClient().Decr(ctx, args[1], delta)
 	if err != nil {
 		return err
 	}
@@ -265,14 +241,12 @@ func (r *replCommander) handleTouch(ctx context.Context, args []string) error {
 	if len(args) != 3 {
 		return fmt.Errorf("usage: touch <key> <expiration>")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
+
 	expiration, err := strconv.ParseUint(args[2], 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid expiration format: %v", err)
 	}
-	if err := r.client.Touch(ctx, args[1], uint32(expiration)); err != nil {
+	if err := r.getMemcachedClient().Touch(ctx, args[1], uint32(expiration)); err != nil {
 		return err
 	}
 	fmt.Println("OK")
@@ -283,14 +257,12 @@ func (r *replCommander) handleMGet(ctx context.Context, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: mget <key1> [key2 ...]")
 	}
-	if err := r.ensureClient(); err != nil {
-		return err
-	}
+
 	keys := make([]string, len(args)-1)
 	for i, key := range args[1:] {
 		keys[i] = key
 	}
-	values, err := r.client.Gets(ctx, keys...)
+	values, err := r.getMemcachedClient().Gets(ctx, keys...)
 	if err != nil {
 		return err
 	}

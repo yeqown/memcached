@@ -297,7 +297,9 @@ func (p *connPool) close() error {
 	// close all existing connections, so that the get() couldn't
 	// create a new connection.
 	close(p.conns)
-	p.cleanerCh <- struct{}{}
+	if p.cleanerCh != nil {
+		p.cleanerCh <- struct{}{}
+	}
 
 	p.mu.Unlock()
 	return nil

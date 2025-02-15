@@ -9,23 +9,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newContextCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "ctx",
-		Short: "Manage memcached contexts",
-		Long:  `Create, delete, switch between different memcached contexts.`,
-	}
-
-	cmd.AddCommand(
-		newContextCreateCommand(),
-		newContextListCommand(),
-		newContextUseCommand(),
-		newContextDeleteCommand(),
-		newContextCurrentCommand(),
-	)
-
-	return cmd
-}
+/**
+ * Context group commands
+ */
 
 func newContextCreateCommand() *cobra.Command {
 	var (
@@ -74,7 +60,7 @@ func newContextCreateCommand() *cobra.Command {
 	cmd.Flags().DurationVar(&readTimeout, "read-timeout", 3*time.Second, "read timeout")
 	cmd.Flags().DurationVar(&writeTimeout, "write-timeout", 3*time.Second, "write timeout")
 	cmd.Flags().StringVar(&hashStrategy, "hash-strategy", "crc32", "hash strategy, one of: crc32(default), rendezvous, murmur3")
-	cmd.MarkFlagRequired("servers")
+	_ = cmd.MarkFlagRequired("servers")
 
 	return cmd
 }
@@ -186,18 +172,26 @@ func newContextCurrentCommand() *cobra.Command {
 	}
 }
 
-func newGetCommand() *cobra.Command {
-	cmd := &cobra.Command{
+/**
+ * KV group commands
+ */
+
+const (
+	magicFlags = 0x0705
+	magicSeed  = 0x2014
+)
+
+func newKVGetCommand() *cobra.Command {
+	return &cobra.Command{
 		Use:   "get [key]",
 		Short: "Get value by key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := getClientFromCurrentContext()
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
 			if err != nil {
 				return err
 			}
-			defer client.Close()
-
 			value, err := client.Get(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -207,11 +201,9 @@ func newGetCommand() *cobra.Command {
 			return nil
 		},
 	}
-
-	return cmd
 }
 
-func newSetCommand() *cobra.Command {
+func newKVSetCommand() *cobra.Command {
 	var expiration uint32
 
 	cmd := &cobra.Command{
@@ -219,11 +211,11 @@ func newSetCommand() *cobra.Command {
 		Short: "Set key to value",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := getClientFromCurrentContext()
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
 			if err != nil {
 				return err
 			}
-			defer client.Close()
 
 			err = client.Set(cmd.Context(), args[0], []byte(args[1]), magicFlags, expiration)
 			if err != nil {
@@ -236,21 +228,20 @@ func newSetCommand() *cobra.Command {
 	}
 
 	cmd.Flags().Uint32VarP(&expiration, "ttl", "t", 0, "ttl of key in seconds")
-
 	return cmd
 }
 
-func newDeleteCommand() *cobra.Command {
+func newKVDeleteCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "delete [key]",
 		Short: "Delete key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := getClientFromCurrentContext()
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
 			if err != nil {
 				return err
 			}
-			defer client.Close()
 
 			err = client.Delete(cmd.Context(), args[0])
 			if err != nil {
@@ -263,7 +254,105 @@ func newDeleteCommand() *cobra.Command {
 	}
 }
 
-const (
-	magicFlags = 0x0705
-	magicSeed  = 0x2014
-)
+func newKVGetsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "gets [key]",
+		Short: "Get value and CAS token by key",
+		Long:  "Gets command retrieves the value and CAS token for the given key",
+		Args:  cobra.MatchAll(),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("keys: %v\n", args[1:])
+
+			items, err := client.Gets(cmd.Context(), args[1:]...)
+			if err != nil {
+				return err
+			}
+
+			for idx, item := range items {
+				fmt.Printf("[%d] %+v\n", idx, item)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newKVTouchCommand() *cobra.Command {
+	var expiration uint32
+
+	cmd := &cobra.Command{
+		Use:   "touch [key]",
+		Short: "Update expiration time for a key",
+		Long:  "Touch command updates the expiration time for an existing key",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
+			if err != nil {
+				return err
+			}
+
+			if err := client.Touch(cmd.Context(), args[0], expiration); err != nil {
+				return err
+			}
+
+			fmt.Println("OK")
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint32VarP(&expiration, "ttl", "t", 0, "new expiration time in seconds")
+	_ = cmd.MarkFlagRequired("ttl")
+	return cmd
+}
+
+func newKVFlushAllCommand() *cobra.Command {
+	var delay uint32
+
+	cmd := &cobra.Command{
+		Use:   "flushall",
+		Short: "Flush all keys from the cache",
+		Long:  "Flushall command invalidates all existing items in memcached",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
+			client, err := manager.getCurrentClient()
+			if err != nil {
+				return err
+			}
+
+			left := delay
+			var ticker *time.Ticker
+			if delay <= 0 {
+				goto imme
+			}
+
+			ticker = time.NewTicker(time.Second)
+			for left > 0 {
+				select {
+				case <-ticker.C:
+					fmt.Printf("The flush command would be send in %d seconds...\n", delay)
+					left--
+				case <-cmd.Context().Done():
+					return cmd.Context().Err()
+				}
+			}
+
+		imme:
+			if err := client.FlushAll(cmd.Context()); err != nil {
+				return err
+			}
+
+			fmt.Println("OK")
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint32VarP(&delay, "delay", "d", 5, "delay in seconds before invalidating all items")
+	return cmd
+}

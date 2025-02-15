@@ -35,21 +35,6 @@ func defaultConfig() clientConfig {
 	}
 }
 
-// getClientFromCurrentContext 从当前上下文创建客户端
-func getClientFromCurrentContext() (memcached.Client, error) {
-	manager, err := newContextManager()
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, err := manager.getCurrentContext()
-	if err != nil {
-		return nil, err
-	}
-
-	return createClient(ctx)
-}
-
 func createClient(ctx *Context) (memcached.Client, error) {
 	var builder memcached.Builder = memcached.NewCr32HashPickBuilder()
 	switch ctx.Config.HashStrategy {

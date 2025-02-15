@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	version = "v0.1.0"
+	version = "v1.0.0"
 )
 
 func main() {
@@ -32,19 +33,12 @@ func main() {
 		&timeout,
 		"timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
 
-	// 添加版本命令
+	// add version command
 	rootCmd.AddCommand(newVersionCommand())
 
-	// 添加上下文管理命令
 	rootCmd.AddCommand(
-		newContextCommand(),
-	)
-
-	// 添加数据操作命令
-	rootCmd.AddCommand(
-		newGetCommand(),
-		newSetCommand(),
-		newDeleteCommand(),
+		newContextCommand(), // add context manage sub commands
+		newKVCommand(),      // add kv sub commands
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -78,6 +72,10 @@ func runAsREPL(timeout time.Duration) error {
 	}
 
 	current, err := manager.getCurrentContext()
+	if err != nil {
+		return errors.Wrap(err, "failed to get current context")
+	}
+
 	if len(contexts) > 0 && current == nil {
 		fmt.Println(heredoc.Doc(`
 			Hint: current context is empty, you can set one by using command:
@@ -118,4 +116,87 @@ func newVersionCommand() *cobra.Command {
 			fmt.Printf("memcached-cli version %s\n", version)
 		},
 	}
+}
+
+func newContextCommand() *cobra.Command {
+	manager, _ := newContextManager()
+
+	cmd := &cobra.Command{
+		Use:   "ctx",
+		Short: "Manage memcached contexts",
+		Long:  `Create, delete, switch between different memcached contexts.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			storeContextManager(cmd, manager)
+			return nil
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			return manager.close()
+		},
+	}
+
+	cmd.AddCommand(
+		newContextCreateCommand(),
+		newContextListCommand(),
+		newContextUseCommand(),
+		newContextDeleteCommand(),
+		newContextCurrentCommand(),
+	)
+
+	return cmd
+}
+
+func newKVCommand() *cobra.Command {
+	manager, _ := newContextManager()
+
+	cmd := &cobra.Command{
+		Use:   "kv",
+		Short: "Manage key-value operations",
+		Long:  `Perform key-value operations like get, set, and delete.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			storeContextManager(cmd, manager)
+			return nil
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			return manager.close()
+		},
+	}
+
+	cmd.AddCommand(
+		newKVSetCommand(),
+		newKVGetCommand(),
+		newKVGetsCommand(),
+		newKVDeleteCommand(),
+		newKVTouchCommand(),
+		newKVFlushAllCommand(),
+	)
+
+	return cmd
+}
+
+type contextKey struct{}
+
+var contextManagerKey = contextKey{}
+
+func storeContextManager(cmd *cobra.Command, manager *contextManager) {
+	newCtx := context.WithValue(cmd.Context(), contextManagerKey, manager)
+	cmd.SetContext(newCtx)
+}
+
+func getContextManager(cmd *cobra.Command, recreate bool) *contextManager {
+	cm, ok := cmd.Context().Value(contextManagerKey).(*contextManager)
+	if ok {
+		return cm
+	}
+
+	if !recreate {
+		return nil
+	}
+
+	cm, err := newContextManager()
+	if err != nil {
+		panic(err)
+	}
+	storeContextManager(cmd, cm)
+
+	return cm
 }
