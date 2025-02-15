@@ -160,11 +160,22 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: get <key>")
 	}
 
-	value, err := r.getMemcachedClient().Get(ctx, args[1])
+	item, err := r.getMemcachedClient().MetaGet(
+		ctx,
+		[]byte(args[1]),
+		memcached.MetaGetFlagReturnTTL(),
+		memcached.MetaGetFlagReturnSize(),
+		memcached.MetaGetFlagReturnValue(),
+		memcached.MetaGetFlagReturnCAS(),
+		memcached.MetaGetFlagReturnKey(),
+		memcached.MetaGetFlagReturnClientFlags(),
+		memcached.MetaGetFlagReturnLastAccessedTime(),
+		memcached.MetaGetFlagReturnHitBefore(),
+	)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s\n", value)
+	printMetaItem(item)
 	return nil
 }
 
@@ -259,16 +270,35 @@ func (r *replCommander) handleMGet(ctx context.Context, args []string) error {
 	}
 
 	keys := make([]string, len(args)-1)
-	for i, key := range args[1:] {
-		keys[i] = key
+	copy(keys, args[1:])
+
+	items := make([]*memcached.MetaItem, 0, len(keys))
+	for _, key := range keys {
+		item, err := r.getMemcachedClient().MetaGet(
+			ctx,
+			[]byte(key),
+			memcached.MetaGetFlagReturnTTL(),
+			memcached.MetaGetFlagReturnSize(),
+			memcached.MetaGetFlagReturnValue(),
+			memcached.MetaGetFlagReturnCAS(),
+			memcached.MetaGetFlagReturnKey(),
+			memcached.MetaGetFlagReturnClientFlags(),
+			memcached.MetaGetFlagReturnLastAccessedTime(),
+			memcached.MetaGetFlagReturnHitBefore(),
+		)
+		if err != nil {
+			fmt.Printf("Encounter error while getting key %s: %v\n", key, err)
+			continue
+		}
+
+		items = append(items, item)
 	}
-	values, err := r.getMemcachedClient().Gets(ctx, keys...)
-	if err != nil {
-		return err
+
+	for idx, item := range items {
+		fmt.Printf("[%d]\n", idx)
+		printMetaItem(item)
 	}
-	for idx, item := range values {
-		fmt.Printf("[%d]:%+v\n", idx, item)
-	}
+
 	return nil
 }
 

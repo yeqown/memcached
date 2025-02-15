@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yeqown/memcached"
+
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 )
@@ -192,12 +194,24 @@ func newKVGetCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			value, err := client.Get(cmd.Context(), args[0])
+			item, err := client.MetaGet(
+				cmd.Context(),
+				[]byte(args[0]), // key
+				memcached.MetaGetFlagReturnTTL(),
+				memcached.MetaGetFlagReturnSize(),
+				memcached.MetaGetFlagReturnValue(),
+				memcached.MetaGetFlagReturnCAS(),
+				memcached.MetaGetFlagReturnKey(),
+				memcached.MetaGetFlagReturnClientFlags(),
+				memcached.MetaGetFlagReturnLastAccessedTime(),
+				memcached.MetaGetFlagReturnHitBefore(),
+			)
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("%s\n", value)
+			printMetaItem(item)
+
 			return nil
 		},
 	}
@@ -267,16 +281,29 @@ func newKVGetsCommand() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("keys: %v\n", args[1:])
+			items := make([]*memcached.MetaItem, 0, len(args))
+			for _, key := range args {
+				item, err := client.MetaGet(
+					cmd.Context(),
+					[]byte(key), // key
+					memcached.MetaGetFlagReturnTTL(),
+					memcached.MetaGetFlagReturnSize(),
+					memcached.MetaGetFlagReturnValue(),
+					memcached.MetaGetFlagReturnCAS(),
+					memcached.MetaGetFlagReturnKey(),
+					memcached.MetaGetFlagReturnClientFlags(),
+					memcached.MetaGetFlagReturnLastAccessedTime(),
+					memcached.MetaGetFlagReturnHitBefore(),
+				)
+				if err != nil {
+					fmt.Printf("Encounter an error while getting key %s: %v\n", key, err)
+					continue
+				}
 
-			items, err := client.Gets(cmd.Context(), args[1:]...)
-			if err != nil {
-				return err
+				items = append(items, item)
 			}
 
-			for idx, item := range items {
-				fmt.Printf("[%d] %+v\n", idx, item)
-			}
+			printMetaItems(items)
 
 			return nil
 		},
@@ -284,13 +311,14 @@ func newKVGetsCommand() *cobra.Command {
 }
 
 func newKVTouchCommand() *cobra.Command {
-	var expiration uint32
+	var expiration time.Duration
 
 	cmd := &cobra.Command{
-		Use:   "touch [key]",
-		Short: "Update expiration time for a key",
-		Long:  "Touch command updates the expiration time for an existing key",
-		Args:  cobra.ExactArgs(1),
+		Use:     "touch [key] [flags]",
+		Short:   "Update expiration time for a key",
+		Long:    "Touch command updates the expiration time for an existing key",
+		Example: "memcached-cli kv touch foo -t 1m",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getCurrentClient()
@@ -298,7 +326,7 @@ func newKVTouchCommand() *cobra.Command {
 				return err
 			}
 
-			if err := client.Touch(cmd.Context(), args[0], expiration); err != nil {
+			if err := client.Touch(cmd.Context(), args[0], uint32(expiration.Seconds())); err != nil {
 				return err
 			}
 
@@ -307,7 +335,7 @@ func newKVTouchCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Uint32VarP(&expiration, "ttl", "t", 0, "new expiration time in seconds")
+	cmd.Flags().DurationVarP(&expiration, "ttl", "t", 0, "new expiration time in seconds")
 	_ = cmd.MarkFlagRequired("ttl")
 	return cmd
 }
@@ -367,4 +395,56 @@ func newKVFlushAllCommand() *cobra.Command {
 
 	cmd.Flags().Uint32VarP(&delay, "delay", "d", 5, "delay in seconds before invalidating all items")
 	return cmd
+}
+
+func printMetaItems(items []*memcached.MetaItem) {
+	for idx, item := range items {
+		fmt.Printf("[%d]\n", idx)
+		printMetaItem(item)
+	}
+}
+
+func printMetaItem(item *memcached.MetaItem) {
+	lastAccessAt := time.Now().Add(-time.Duration(item.LastAccessedTime) * time.Second)
+
+	fmt.Printf("Key:              %s\n", item.Key)
+	fmt.Printf("Flags:            %d (0x%x)\n", item.Flags, item.Flags)
+	fmt.Printf("CAS:              %d (0x%x)\n", item.CAS, item.CAS)
+	fmt.Printf("ClientFlags:      %d (0x%x)\n", item.Flags, item.Flags)
+	fmt.Printf("LastAccessedTime: %s (%s)\n", lastAccessAt.Format(time.RFC3339), formatSeconds(int(item.LastAccessedTime), "before", "never"))
+	fmt.Printf("HitBefore:        %s\n", map[bool]string{true: "✅", false: "❌"}[item.HitBefore])
+	fmt.Printf("TTL:              %d (%s)\n", item.TTL, formatSeconds(int(item.TTL), "later", "never expires"))
+	fmt.Printf("Value:            %s\n", item.Value)
+	fmt.Println()
+}
+
+func formatSeconds(seconds int, suffix, zeroString string) (readable string) {
+	if seconds <= 0 {
+		return zeroString
+	}
+
+	d := time.Duration(seconds) * time.Second
+	if d.Hours() >= 1 {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		s := int(d.Seconds()) % 60
+		readable = fmt.Sprintf("%dh", h)
+		if m > 0 {
+			readable += fmt.Sprintf("%dm", m)
+		}
+		if s > 0 {
+			readable += fmt.Sprintf("%ds", s)
+		}
+	} else if d.Minutes() >= 1 {
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		readable = fmt.Sprintf("%dm", m)
+		if s > 0 {
+			readable += fmt.Sprintf("%ds", s)
+		}
+	} else {
+		readable = fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+
+	return readable + " " + suffix
 }
