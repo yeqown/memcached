@@ -89,7 +89,6 @@ Now, we have implemented some commands, and we will implement more commands in t
 
 | Command        | Status | API Usage                                                                                                           | Description                                                       |
 |----------------|--------|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| Auth           | 🚧     | `Auth(ctx context.Context, username, password string) error`                                                        | Auth to memcached server                                          |
 | ----           | -----  | STORAGE COMMANDS                                                                                                    | ---                                                               |
 | Set            | ✅      | `Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                                    | Set a key-value pair to memcached                                 |
 | Add            | ✅      | `Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error`                                    | Add a key-value pair to memcached                                 |
@@ -111,8 +110,8 @@ Now, we have implemented some commands, and we will implement more commands in t
 | MetaSet        | ✅      | `MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)`                      | Set a key's meta information                                      |
 | MetaDelete     | ✅      | `MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)`                       | Delete a key's meta information                                   |
 | MetaArithmetic | ✅      | `MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)` | Arithmetic a key's meta information                               |
-| MetaDebug      | 🚧     | `MetaDebug(key string) (string, error)`                                                                             | Debug a key's meta information                                    |
-| MetaNoop       | 🚧     | `MetaNoop(key string) error`                                                                                        | Noop a key's meta information                                     |
+| MetaDebug      | ✅     | `MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error)`                    | Debug a key's meta information                                    |
+| MetaNoop       | ✅     | `MetaNoop(ctx context.Context) error`                                                                               | Noop a key's meta information                                     |
 | Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                      | Get memcached server version                                      |
 | FlushAll       | ✅      | `FlushAll(ctx context.Context) error`                                                                               | Flush all keys in memcached server                                |
 

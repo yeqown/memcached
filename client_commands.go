@@ -128,6 +128,11 @@ type metaTextProtocolCommander interface {
 	// All available options start with MetaArithmeticFlagXXX, such as MetaArithmeticFlagReturnCAS
 	// and MetaArithmeticFlagReturnClientFlags.
 	MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)
+	// MetaDebug is used to get the debug information of the given key with metadata.
+	// All available options start with MetaDebugFlagXXX, such as MetaDebugFlagBinaryKey
+	MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error)
+	// MetaNoOp is used to do nothing but return OK.
+	MetaNoOp(ctx context.Context) error
 }
 
 type statisticsTextProtocolCommander interface {
@@ -291,7 +296,7 @@ func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...strin
 }
 
 /**
- * Other commands: delete, incr, decr, touch
+ * Other commands: delete, incr, decr, touch, version, flush_all
  */
 
 func (c *client) Delete(ctx context.Context, key string) error {
@@ -514,6 +519,49 @@ func validateKeyAndValue(key, value []byte) error {
 
 	if nValue := len(value); nValue > maxValueSize {
 		return ErrInvalidValue
+	}
+
+	return nil
+}
+
+func (c *client) MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error) {
+	if err := validateKeyAndValue(key, nil); err != nil {
+		return nil, err
+	}
+
+	mdFlags := &metaDebugFlags{}
+	for _, applyFn := range options {
+		applyFn(mdFlags)
+	}
+
+	req, resp := buildMetaDebugCommand(key, mdFlags)
+	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	item := &MetaItemDebug{
+		Key: key,
+	}
+	// parse response
+	if err := parseMetaItemDebug(resp.rawLines, item); err != nil {
+		return nil, err
+	}
+
+	return item, nil
+}
+
+func (c *client) MetaNoOp(ctx context.Context) error {
+	req, resp := buildMetaNoOpCommand()
+	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+		return errors.Wrap(err, "request failed")
+	}
+
+	if err := resp.expect(_MetaMNCRLFBytes); err != nil {
+		if errors.Is(err, ErrMalformedResponse) {
+			return err
+		}
+
+		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
 	return nil

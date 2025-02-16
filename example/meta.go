@@ -25,6 +25,9 @@ func main() {
 
 	// arithmetic
 	metaArithmetic(client)
+
+	// debug
+	metaDebug(client)
 }
 
 func metaSetAndGet(client memcached.Client) {
@@ -212,4 +215,45 @@ func metaArithmetic(client memcached.Client) {
 
 	// MetaItem{Key:example:meta:arithmetic Value:0 CAS:57 Flags:0 TTL:200 LastAccessedTime:0 Size:1 Opaque:123 HitBefore:false}
 	fmt.Printf("arithmetic item2: %+v\n", item2)
+}
+
+func metaDebug(client memcached.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	fmt.Println("======== MetaDebug example ========")
+
+	key := []byte("example:meta:debug")
+
+	// debug a non-exist key
+	_, err := client.MetaDebug(ctx, key,
+		memcached.MetaDebugFlagBinaryKey(), // binary encoded key
+	)
+	if err != nil {
+		if !errors.Is(err, memcached.ErrNotFound) {
+			panic(err)
+		}
+		fmt.Println("key not found")
+	}
+
+	// set a key
+	_, err = client.MetaSet(ctx, key, []byte("bar"),
+		memcached.MetaSetFlagBinaryKey(),
+		memcached.MetaSetFlagReturnCAS(),
+		memcached.MetaSetFlagTTL(10),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// debug the key
+	itemDebug, err := client.MetaDebug(ctx, key,
+		memcached.MetaDebugFlagBinaryKey(), // binary encoded key
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	//&{Key:ignored, TTL:10 LastAssessTime:0 CAS:33 HitBefore:false SlabClassID:1 Size:80}
+	fmt.Printf("debug item: %+v\n", itemDebug)
 }

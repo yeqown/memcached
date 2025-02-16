@@ -73,6 +73,24 @@ func (m MetaItem) String() string {
 		"}"
 }
 
+// MetaItemDebug represents a key-value pair with meta information for debug.
+//
+//	exp   = expiration time
+//	la    = time in seconds since last access
+//	cas   = CAS ID
+//	fetch = whether an item has been fetched before
+//	cls   = slab class id
+//	size  = total size in bytes
+type MetaItemDebug struct {
+	Key            []byte // key
+	TTL            int64  // exp, expiration time in seconds, -1 means never expire
+	LastAssessTime int64  // la, time in seconds since last access
+	CAS            uint64 // cas
+	HitBefore      bool   // fetch
+	SlabClassID    uint64 // cls
+	Size           uint64 // size
+}
+
 func buildVersionCommand() *request {
 	return &request{
 		cmd: []byte("version"),

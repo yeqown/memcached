@@ -24,16 +24,13 @@ var (
 
 	_OKCRLFBytes      = []byte("OK\r\n")
 	_ValueBytes       = []byte("VALUE")
-	_EndBytes         = []byte("END")
 	_EndCRLFBytes     = []byte("END\r\n")
-	_StoredBytes      = []byte("STORED")
 	_StoredCRLFBytes  = []byte("STORED\r\n")
-	_DeletedBytes     = []byte("DELETED")
 	_DeletedCRLFBytes = []byte("DELETED\r\n")
 	_TouchedCRLFBytes = []byte("TOUCHED\r\n")
 	_VersionBytes     = []byte("VERSION")
 
-	_MetaEndCRLFBytes = []byte("EN\r\n")
+	_MetaMNCRLFBytes = []byte("MN\r\n")
 )
 
 // forecastCommonFaultLine forecasts the error line from the response line.
@@ -43,6 +40,10 @@ var (
 // NOT_FOUND\r\n
 // EXISTS\r\n
 // NOT_STORED\r\n
+// EN <flags>*\r\n or EN\r\n
+// EX <flags>*\r\n or EX\r\n
+// NS <flags>*\r\n or NS\r\n
+// NF <flags>*\r\n or NF\r\n
 func forecastCommonFaultLine(line []byte) error {
 	switch {
 	case bytes.Equal(line, []byte("ERROR\r\n")):
@@ -194,8 +195,8 @@ type request struct {
 func (req *request) send(ctx context.Context, rr memcachedConn) (err error) {
 	deadline, ok := ctx.Deadline()
 	if ok {
-		_ = rr.setReadDeadline(&deadline)
-		defer func() { _ = rr.setReadDeadline(nil) }()
+		_ = rr.setWriteDeadline(&deadline)
+		defer func() { _ = rr.setWriteDeadline(nil) }()
 	}
 	_, err = rr.Write(req.raw)
 
@@ -240,8 +241,8 @@ type response struct {
 func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
 	deadline, ok := ctx.Deadline()
 	if ok {
-		_ = rr.setWriteDeadline(&deadline)
-		defer func() { _ = rr.setWriteDeadline(nil) }()
+		_ = rr.setReadDeadline(&deadline)
+		defer func() { _ = rr.setReadDeadline(nil) }()
 	}
 
 	switch resp.endIndicator {
