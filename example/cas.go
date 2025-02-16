@@ -52,5 +52,5 @@ func main() {
 	}
 	item = items[0]
 
-	fmt.Printf("key: %s, value: %+v\n", item.Key, item)
+	fmt.Printf("Gets after cas, item=%+v\n", item)
 }
