@@ -40,9 +40,9 @@ memcached-cli ctx use dev # switch to context
 memcached-cli ctx current # print current context
 
 # Data Operations with current context
-memcached-cli set mykey myvalue # set a key-value pair
-memcached-cli get mykey         # get a key-value pair
-memcached-cli delete mykey      # delete a key-value pair
+memcached-cli kv set mykey myvalue # set a key-value pair
+memcached-cli kv get mykey         # get a key-value pair
+memcached-cli kv delete mykey      # delete a key-value pair
 
 # Data Operations with specific context
 memcached-cli --context=prod set mykey myvalue
@@ -52,7 +52,7 @@ memcached-cli version
 memcached-cli flushall
 
 # Interactive Mode
-memcached-cli -i
+memcached-cli
 ```
 
 You can use `memcached-cli -h` to see all available commands and options.

@@ -198,6 +198,10 @@ func (m *contextManager) getCurrentContext() (*Context, error) {
 }
 
 func (m *contextManager) getClientWithContext(ctxName string) (memcached.Client, error) {
+	if ctxName == "" {
+		return m.getCurrentClient()
+	}
+
 	m.mu.RLock()
 	ctx, exists := m.contexts[ctxName]
 	m.mu.RUnlock()

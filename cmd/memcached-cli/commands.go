@@ -191,7 +191,7 @@ func newKVGetCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -227,7 +227,7 @@ func newKVSetCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -253,7 +253,7 @@ func newKVDeleteCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -277,7 +277,7 @@ func newKVGetsCommand() *cobra.Command {
 		Args:  cobra.MatchAll(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -322,7 +322,7 @@ func newKVTouchCommand() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -350,7 +350,7 @@ func newKVFlushAllCommand() *cobra.Command {
 		Long:  "Flushall command invalidates all existing items in memcached",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getCurrentClient()
+			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
