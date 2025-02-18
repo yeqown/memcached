@@ -150,9 +150,10 @@ func newKVCommand() *cobra.Command {
 	var contextName string
 
 	cmd := &cobra.Command{
-		Use:   "kv",
-		Short: "Manage key-value operations",
-		Long:  `Perform key-value operations like get, set, and delete.`,
+		Use:          "kv",
+		Short:        "Manage key-value operations",
+		Long:         `Perform key-value operations like get, set, and delete.`,
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			storeContextManager(cmd, manager)
 			storeTemporaryContextName(cmd, contextName)
@@ -179,12 +180,13 @@ func newKVCommand() *cobra.Command {
 	return cmd
 }
 
-type contextKey struct{}
+type contextManagerKeyType struct{}
 
-var (
-	contextManagerKey = contextKey{}
-	contextNameKey    = contextKey{}
-)
+var contextManagerKey = contextManagerKeyType{}
+
+type contextNameKeyType struct{}
+
+var contextNameKey = contextNameKeyType{}
 
 func storeContextManager(cmd *cobra.Command, manager *contextManager) {
 	newCtx := context.WithValue(cmd.Context(), contextManagerKey, manager)

@@ -186,9 +186,10 @@ const (
 
 func newKVGetCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get [key]",
-		Short: "Get value by key",
-		Args:  cobra.ExactArgs(1),
+		Use:          "get [key]",
+		Short:        "Get value by key",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
@@ -222,9 +223,10 @@ func newKVSetCommand() *cobra.Command {
 	var expiration uint32
 
 	cmd := &cobra.Command{
-		Use:   "set [key] [value]",
-		Short: "Set key to value",
-		Args:  cobra.ExactArgs(2),
+		Use:          "set [key] [value]",
+		Short:        "Set key to value",
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
@@ -248,9 +250,10 @@ func newKVSetCommand() *cobra.Command {
 
 func newKVDeleteCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "delete [key]",
-		Short: "Delete key",
-		Args:  cobra.ExactArgs(1),
+		Use:          "delete [key]",
+		Short:        "Delete key",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
@@ -271,10 +274,11 @@ func newKVDeleteCommand() *cobra.Command {
 
 func newKVGetsCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "gets [key]",
-		Short: "Get value and CAS token by key",
-		Long:  "Gets command retrieves the value and CAS token for the given key",
-		Args:  cobra.MatchAll(),
+		Use:          "gets [key]",
+		Short:        "Get value and CAS token by key",
+		Long:         "Gets command retrieves the value and CAS token for the given key",
+		Args:         cobra.MatchAll(),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
@@ -315,11 +319,12 @@ func newKVTouchCommand() *cobra.Command {
 	var expiration time.Duration
 
 	cmd := &cobra.Command{
-		Use:     "touch [key] [flags]",
-		Short:   "Update expiration time for a key",
-		Long:    "Touch command updates the expiration time for an existing key",
-		Example: "memcached-cli kv touch foo -t 1m",
-		Args:    cobra.ExactArgs(1),
+		Use:          "touch [key] [flags]",
+		Short:        "Update expiration time for a key",
+		Long:         "Touch command updates the expiration time for an existing key",
+		Example:      "memcached-cli kv touch foo -t 1m",
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
@@ -345,9 +350,10 @@ func newKVFlushAllCommand() *cobra.Command {
 	var delay uint32
 
 	cmd := &cobra.Command{
-		Use:   "flushall",
-		Short: "Flush all keys from the cache",
-		Long:  "Flushall command invalidates all existing items in memcached",
+		Use:          "flushall",
+		Short:        "Flush all keys from the cache",
+		Long:         "Flushall command invalidates all existing items in memcached",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
