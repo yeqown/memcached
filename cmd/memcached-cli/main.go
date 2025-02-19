@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	version = "v1.0.0"
+	version = "v1.2.0"
 )
 
 var (
@@ -31,11 +31,15 @@ func main() {
 		Use:   "memcached-cli",
 		Short: "A command line interface for memcached",
 		Long:  `A command line interface for memcached with context management and interactive mode.`,
-		PreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("rootCmd.PreRun: timeout=%v, verbose=%v\n", timeout, verbose)
+
 			if verbose {
 				logger.SetLogLevel(log.LevelDebug)
 				logger.SetCallerReporter(true)
 			}
+
+			logger.Debugf("rootCmd.PreRun: timeout=%v, verbose=%v", timeout, verbose)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAsREPL(timeout)
@@ -48,12 +52,11 @@ func main() {
 	rootCmd.PersistentFlags().BoolVarP(
 		&verbose, "verbose", "v", false, "enable verbose mode")
 
-	// add version command
-	rootCmd.AddCommand(newVersionCommand())
-
 	rootCmd.AddCommand(
+		newVersionCommand(), // add version command
 		newContextCommand(), // add context manage sub commands
 		newKVCommand(),      // add kv sub commands
+		newHistoryCommand(), // add history sub commands
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -138,13 +141,13 @@ func newContextCommand() *cobra.Command {
 		Use:   "ctx",
 		Short: "Manage memcached contexts",
 		Long:  `Create, delete, switch between different memcached contexts.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.Root().PersistentPreRun(cmd, args)
 			manager, err := newContextManager()
 			if err != nil {
 				logger.Warnf("failed to create context manager: %v", err)
 			}
 			storeContextManager(cmd, manager)
-			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
@@ -172,18 +175,32 @@ func newKVCommand() *cobra.Command {
 		Short:        "Manage key-value operations",
 		Long:         `Perform key-value operations like get, set, and delete.`,
 		SilenceUsage: true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.Root().PersistentPreRun(cmd, args)
+
 			manager, err := newContextManager()
 			if err != nil {
 				logger.Warnf("failed to create context manager: %v", err)
 			}
 			storeContextManager(cmd, manager)
 			storeTemporaryContextName(cmd, contextName)
-			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			return manager.close()
+			// save history
+			history := manager.getHistoryManager()
+			if history != nil {
+				if err := history.close(); err != nil {
+					logger.Warnf("failed to save history: %v", err)
+				}
+			}
+
+			// save context
+			if err := manager.close(); err != nil {
+				logger.Warnf("failed to save context: %v", err)
+			}
+
+			return nil
 		},
 	}
 
@@ -192,12 +209,71 @@ func newKVCommand() *cobra.Command {
 		"context", "c", "", "context name to use, if not set, use current context")
 
 	cmd.AddCommand(
-		newKVSetCommand(),
 		newKVGetCommand(),
-		newKVGetsCommand(),
+		newKVSetCommand(),
 		newKVDeleteCommand(),
+		newKVGetsCommand(),
 		newKVTouchCommand(),
 		newKVFlushAllCommand(),
+	)
+
+	return cmd
+}
+
+func newHistoryCommand() *cobra.Command {
+	var (
+		keyword string
+		since   string
+		until   string
+		limit   int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "Show command history",
+		Long:  "Display or search kv command history",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.Root().PersistentPreRun(cmd, args)
+
+			manager, err := newContextManager()
+			if err != nil {
+				logger.Warnf("failed to create context manager: %v", err)
+			}
+			storeContextManager(cmd, manager)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			history := getContextManager(cmd, false).getHistoryManager()
+			results := history.search(keyword, since, until, limit)
+
+			if len(results) == 0 {
+				fmt.Println("No history found.")
+				return nil
+			}
+
+			fmt.Printf("KV Command History(limit=%d): \n", limit)
+			for _, h := range results {
+				args := h.Args
+				if len(args) > 50 {
+					args = args[:47] + "..."
+				}
+				fmt.Printf("%s  %s  %s\n",
+					time.Unix(h.Timestamp, 0).Format(historyTimeFormat),
+					h.Command,
+					args,
+				)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&keyword, "keyword", "k", "", "search keyword")
+	cmd.Flags().StringVar(&since, "since", "", fmt.Sprintf("show history since time (format: %s)", historyTimeFormat))
+	cmd.Flags().StringVar(&until, "until", "", fmt.Sprintf("show history until time (format: %s)", historyTimeFormat))
+	cmd.Flags().IntVarP(&limit, "limit", "n", 100, "limit output to n records")
+
+	cmd.AddCommand(
+		newHistoryEnableCommand(),
+		newHistoryDisableCommand(),
 	)
 
 	return cmd
@@ -212,6 +288,7 @@ type contextNameKeyType struct{}
 var contextNameKey = contextNameKeyType{}
 
 func storeContextManager(cmd *cobra.Command, manager *contextManager) {
+	logger.Debugf("store context manager: %+v", manager)
 	newCtx := context.WithValue(cmd.Context(), contextManagerKey, manager)
 	cmd.SetContext(newCtx)
 }
@@ -223,6 +300,7 @@ func getContextManager(cmd *cobra.Command, recreate bool) *contextManager {
 	}
 
 	if !recreate {
+		logger.Warnf("context manager not found, recreate it")
 		return nil
 	}
 

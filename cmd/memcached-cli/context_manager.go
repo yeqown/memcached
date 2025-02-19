@@ -13,12 +13,15 @@ import (
 
 // contextManager handles multiple memcached contexts
 type contextManager struct {
-	contexts map[string]*Context
-	current  string
-	path     string
-	mu       sync.RWMutex
+	mu              sync.RWMutex
+	contexts        map[string]*Context
+	current         string
+	path            string
+	historyMaxLines int
+	historyEnabled  bool
 
-	currentClient memcached.Client
+	currentClient  memcached.Client
+	historyManager *kvCommandHistoryManager
 }
 
 // newContextManager creates a new context manager
@@ -34,11 +37,13 @@ func newContextManager() (*contextManager, error) {
 	}
 
 	m := &contextManager{
-		contexts:      make(map[string]*Context, 4),
-		current:       "",
-		path:          path,
-		mu:            sync.RWMutex{},
-		currentClient: nil,
+		mu:              sync.RWMutex{},
+		contexts:        make(map[string]*Context, 4),
+		current:         "",
+		path:            path,
+		historyMaxLines: 10000,
+		historyEnabled:  true,
+		currentClient:   nil,
 	}
 
 	if err := m.initialize(); err != nil && !os.IsNotExist(err) {
@@ -67,8 +72,10 @@ func (m *contextManager) initialize() error {
 	}
 
 	var stored struct {
-		Current  string              `json:"current"`
-		Contexts map[string]*Context `json:"contexts"`
+		Current         string              `json:"current"`
+		HistoryMaxLines int                 `json:"history_max_lines"`
+		HistoryEnabled  bool                `json:"history_enabled"`
+		Contexts        map[string]*Context `json:"contexts"`
 	}
 
 	if err := json.Unmarshal(data, &stored); err != nil {
@@ -78,12 +85,22 @@ func (m *contextManager) initialize() error {
 	m.mu.Lock()
 	m.contexts = stored.Contexts
 	m.current = stored.Current
+	m.historyMaxLines = stored.HistoryMaxLines
+	m.historyEnabled = stored.HistoryEnabled
 	if m.current != "" {
 		m.currentClient, err = createClient(m.contexts[m.current])
 		if err != nil {
 			return err
 		}
 	}
+
+	if m.historyEnabled {
+		m.historyManager, err = newHistoryManager(m.historyEnabled, m.historyMaxLines)
+		if err != nil {
+			return err
+		}
+	}
+
 	m.mu.Unlock()
 
 	return nil
@@ -95,11 +112,15 @@ func (m *contextManager) save() error {
 	defer m.mu.RUnlock()
 
 	data, err := json.MarshalIndent(struct {
-		Current  string              `json:"current"`
-		Contexts map[string]*Context `json:"contexts"`
+		Current         string              `json:"current"`
+		HistoryMaxLines int                 `json:"history_max_lines"`
+		HistoryEnabled  bool                `json:"history_enabled"`
+		Contexts        map[string]*Context `json:"contexts"`
 	}{
-		Current:  m.current,
-		Contexts: m.contexts,
+		Current:         m.current,
+		HistoryMaxLines: m.historyMaxLines,
+		HistoryEnabled:  m.historyEnabled,
+		Contexts:        m.contexts,
 	}, "", "  ")
 
 	logger.Debugf("saving context to %s, current=%s, contexts=%+v", m.path, m.current, m.contexts)
@@ -245,4 +266,12 @@ func (m *contextManager) getCurrentClient() (memcached.Client, error) {
 	m.mu.Unlock()
 
 	return client, nil
+}
+
+func (m *contextManager) getHistoryManager() *kvCommandHistoryManager {
+	if !m.historyEnabled {
+		return nil
+	}
+
+	return m.historyManager
 }

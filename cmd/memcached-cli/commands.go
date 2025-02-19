@@ -163,6 +163,8 @@ func newContextCurrentCommand() *cobra.Command {
 const (
 	magicFlags = 0x0705
 	magicSeed  = 0x2014
+
+	historyTimeFormat = "2006-01-02 15:04:05"
 )
 
 func newKVGetCommand() *cobra.Command {
@@ -173,6 +175,7 @@ func newKVGetCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -193,6 +196,8 @@ func newKVGetCommand() *cobra.Command {
 				return ignoreMemcachedError(err)
 			}
 
+			history.addRecord("get", args)
+
 			printMetaItem(item)
 
 			return nil
@@ -200,6 +205,7 @@ func newKVGetCommand() *cobra.Command {
 	}
 }
 
+// 修改 KV 命令，添加历史记录
 func newKVSetCommand() *cobra.Command {
 	var expiration uint32
 
@@ -210,6 +216,7 @@ func newKVSetCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -219,6 +226,8 @@ func newKVSetCommand() *cobra.Command {
 			if err != nil {
 				return ignoreMemcachedError(err)
 			}
+
+			history.addRecord("set", args)
 
 			fmt.Printf("OK\n")
 			return nil
@@ -237,6 +246,7 @@ func newKVDeleteCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -246,6 +256,8 @@ func newKVDeleteCommand() *cobra.Command {
 			if err != nil {
 				return ignoreMemcachedError(err)
 			}
+
+			history.addRecord("delete", args)
 
 			fmt.Printf("OK\n")
 			return nil
@@ -262,6 +274,7 @@ func newKVGetsCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -289,6 +302,8 @@ func newKVGetsCommand() *cobra.Command {
 				items = append(items, item)
 			}
 
+			history.addRecord("gets", args)
+
 			printMetaItems(items)
 
 			return nil
@@ -308,6 +323,7 @@ func newKVTouchCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -316,6 +332,8 @@ func newKVTouchCommand() *cobra.Command {
 			if err := client.Touch(cmd.Context(), args[0], uint32(expiration.Seconds())); err != nil {
 				return ignoreMemcachedError(err)
 			}
+
+			history.addRecord("touch", args)
 
 			fmt.Println("OK")
 			return nil
@@ -337,6 +355,7 @@ func newKVFlushAllCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
+			history := manager.getHistoryManager()
 			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
@@ -375,6 +394,8 @@ func newKVFlushAllCommand() *cobra.Command {
 			if err := client.FlushAll(cmd.Context()); err != nil {
 				return ignoreMemcachedError(err)
 			}
+
+			history.addRecord("flushall", args)
 
 			fmt.Println("OK")
 			return nil
@@ -469,4 +490,47 @@ func ignoreMemcachedError(err error) error {
 	}
 
 	return err
+}
+
+/**
+ * History group commands
+ */
+
+func newHistoryEnableCommand() *cobra.Command {
+	var historyMaxLines uint
+
+	cmd := &cobra.Command{
+		Use:          "enable",
+		Short:        "Enable history recording",
+		Long:         "Enable history recording",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
+			manager.historyEnabled = true
+			manager.historyMaxLines = int(historyMaxLines)
+			manager.save()
+			fmt.Println("History enabled!")
+			return nil
+		},
+	}
+
+	cmd.Flags().UintVarP(&historyMaxLines, "max-lines", "m", 10000, "max lines of history")
+
+	return cmd
+}
+
+func newHistoryDisableCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:          "disable",
+		Short:        "Disable history",
+		Long:         "Disable history",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
+			manager.historyEnabled = false
+			manager.save()
+			fmt.Println("History disabled!")
+			return nil
+		},
+	}
 }
