@@ -101,6 +101,9 @@ func (m *contextManager) save() error {
 		Current:  m.current,
 		Contexts: m.contexts,
 	}, "", "  ")
+
+	logger.Debugf("saving context to %s, current=%s, contexts=%+v", m.path, m.current, m.contexts)
+
 	if err != nil {
 		return err
 	}
@@ -152,7 +155,8 @@ func (m *contextManager) useContext(name string) error {
 	m.contexts[name].LastUsed = time.Now()
 	m.mu.Unlock()
 
-	return m.save()
+	return nil
+	// return m.save()
 }
 
 // DeleteContext removes a context

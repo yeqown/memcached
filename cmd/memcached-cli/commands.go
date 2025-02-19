@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-
 	"strings"
 	"time"
 
@@ -31,11 +30,7 @@ func newContextCreateCommand() *cobra.Command {
 		Short: "Create a new context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := newContextManager()
-			if err != nil {
-				return err
-			}
-
+			manager := getContextManager(cmd, false)
 			if !lo.Contains([]string{"rendezvous", "crc32", "murmur3"}, hashStrategy) {
 				return fmt.Errorf("hash strategy %s not supported", hashStrategy)
 			}
@@ -48,7 +43,7 @@ func newContextCreateCommand() *cobra.Command {
 				HashStrategy: hashStrategy,
 			}
 
-			if err = manager.newContext(args[0], servers, &config); err != nil {
+			if err := manager.newContext(args[0], servers, &config); err != nil {
 				return err
 			}
 
@@ -73,11 +68,7 @@ func newContextListCommand() *cobra.Command {
 		Use:   "list",
 		Short: "List all contexts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := newContextManager()
-			if err != nil {
-				return err
-			}
-
+			manager := getContextManager(cmd, false)
 			current, _ := manager.getCurrentContext()
 			allContexts := manager.listContexts()
 			if len(allContexts) == 0 {
@@ -106,12 +97,8 @@ func newContextUseCommand() *cobra.Command {
 		Short: "Switch to a different context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := newContextManager()
-			if err != nil {
-				return err
-			}
-
-			if err = manager.useContext(args[0]); err != nil {
+			manager := getContextManager(cmd, false)
+			if err := manager.useContext(args[0]); err != nil {
 				return err
 			}
 
@@ -127,10 +114,7 @@ func newContextDeleteCommand() *cobra.Command {
 		Short: "Delete a context",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := newContextManager()
-			if err != nil {
-				return err
-			}
+			manager := getContextManager(cmd, false)
 			return manager.deleteContext(args[0])
 		},
 	}
@@ -141,10 +125,7 @@ func newContextCurrentCommand() *cobra.Command {
 		Use:   "current",
 		Short: "Show current context",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manager, err := newContextManager()
-			if err != nil {
-				return err
-			}
+			manager := getContextManager(cmd, false)
 
 			ctx, err := manager.getCurrentContext()
 			if err != nil {
@@ -192,7 +173,7 @@ func newKVGetCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -229,7 +210,7 @@ func newKVSetCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -256,7 +237,7 @@ func newKVDeleteCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -281,7 +262,7 @@ func newKVGetsCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -327,7 +308,7 @@ func newKVTouchCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}
@@ -356,7 +337,7 @@ func newKVFlushAllCommand() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
-			client, err := manager.getClientWithContext(getTeporaryContextName(cmd))
+			client, err := manager.getClientWithContext(getTemporaryContextName(cmd))
 			if err != nil {
 				return err
 			}

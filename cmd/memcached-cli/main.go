@@ -7,22 +7,36 @@ import (
 	"time"
 
 	"github.com/MakeNowJust/heredoc"
-	"github.com/c-bata/go-prompt"
+	prompt "github.com/c-bata/go-prompt"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/yeqown/log"
 )
 
 const (
 	version = "v1.0.0"
 )
 
+var (
+	logger = newLogger()
+)
+
 func main() {
-	var timeout time.Duration
+	var (
+		timeout time.Duration
+		verbose bool
+	)
 
 	rootCmd := &cobra.Command{
 		Use:   "memcached-cli",
 		Short: "A command line interface for memcached",
 		Long:  `A command line interface for memcached with context management and interactive mode.`,
+		PreRun: func(cmd *cobra.Command, args []string) {
+			if verbose {
+				logger.SetLogLevel(log.LevelDebug)
+				logger.SetCallerReporter(true)
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAsREPL(timeout)
 		},
@@ -30,8 +44,9 @@ func main() {
 
 	// 添加全局标志
 	rootCmd.PersistentFlags().DurationVarP(
-		&timeout,
-		"timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
+		&timeout, "timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
+	rootCmd.PersistentFlags().BoolVarP(
+		&verbose, "verbose", "v", false, "enable verbose mode")
 
 	// add version command
 	rootCmd.AddCommand(newVersionCommand())
@@ -119,17 +134,20 @@ func newVersionCommand() *cobra.Command {
 }
 
 func newContextCommand() *cobra.Command {
-	manager, _ := newContextManager()
-
 	cmd := &cobra.Command{
 		Use:   "ctx",
 		Short: "Manage memcached contexts",
 		Long:  `Create, delete, switch between different memcached contexts.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := newContextManager()
+			if err != nil {
+				logger.Warnf("failed to create context manager: %v", err)
+			}
 			storeContextManager(cmd, manager)
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
 			return manager.close()
 		},
 	}
@@ -146,7 +164,7 @@ func newContextCommand() *cobra.Command {
 }
 
 func newKVCommand() *cobra.Command {
-	manager, _ := newContextManager()
+
 	var contextName string
 
 	cmd := &cobra.Command{
@@ -155,11 +173,16 @@ func newKVCommand() *cobra.Command {
 		Long:         `Perform key-value operations like get, set, and delete.`,
 		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			manager, err := newContextManager()
+			if err != nil {
+				logger.Warnf("failed to create context manager: %v", err)
+			}
 			storeContextManager(cmd, manager)
 			storeTemporaryContextName(cmd, contextName)
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			manager := getContextManager(cmd, false)
 			return manager.close()
 		},
 	}
@@ -221,11 +244,23 @@ func storeTemporaryContextName(cmd *cobra.Command, name string) {
 	cmd.SetContext(newCtx)
 }
 
-func getTeporaryContextName(cmd *cobra.Command) string {
+func getTemporaryContextName(cmd *cobra.Command) string {
 	name, ok := cmd.Context().Value(contextNameKey).(string)
 	if ok {
 		return name
 	}
 
 	return ""
+}
+
+func newLogger() *log.Logger {
+	l, err := log.NewLogger(
+		log.WithLevel(log.LevelInfo),
+		log.WithTimeFormat(true, "2006-01-02 15:04:05"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	return l
 }
