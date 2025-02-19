@@ -18,6 +18,6 @@ repos:
     hooks:
       - id: go-fmt
       - id: go-vet
-        exclude: ^example/
+        exclude: ^(example|benchmark)/
       - id: go-imports
       - id: go-unit-tests
