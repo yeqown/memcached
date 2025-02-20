@@ -227,6 +227,16 @@ func (c *conn) idle(since time.Time) (time.Duration, bool) {
 }
 
 func (c *conn) returnTo() {
+	_ = c.setReadDeadline(nil)
+	_ = c.setWriteDeadline(nil)
+
+	_, _ = c.rr.Discard(c.rr.Buffered())
+	c.rr.Reset(c.raw)
+	// discard all pending data
+
+	_ = c.wr.Flush()
+	c.wr.Reset(c.raw)
+
 	c.returnedAt = nowFunc()
 }
 
