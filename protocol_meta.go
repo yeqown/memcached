@@ -119,6 +119,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 		AddString("ms").
 		AddBytes(key).
 		AddInt(len(value))
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagBool("c", flags.c)
@@ -288,6 +289,7 @@ func buildMetaGetCommand(key []byte, flags *metaGetFlags) (*request, *response) 
 	b := newProtocolBuilder().
 		AddString("mg").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagBool("c", flags.c)
@@ -499,6 +501,7 @@ func buildMetaDeleteCommand(key []byte, flags *metaDeleteFlags) (*request, *resp
 	b := newProtocolBuilder().
 		AddString("md").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagUint("C", flags.C)
@@ -632,6 +635,7 @@ func buildMetaArithmeticCommand(key []byte, delta uint64, flags *metaArithmeticF
 	b := newProtocolBuilder().
 		AddString("ma").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagUint("C", flags.C)
@@ -689,6 +693,7 @@ func buildMetaDebugCommand(key []byte, flags *metaDebugFlags) (*request, *respon
 	b := newProtocolBuilder().
 		AddString("me").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b).AddCRLF()
 

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"math"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -76,6 +77,27 @@ func forecastCommonFaultLine(line []byte) error {
 	return nil
 }
 
+const (
+	// defaultBufferSize is the default size of the buffer.
+	// TODO: It is used to avoid the buffer growth, but is 64B the most common case?
+	defaultBufferSize = 64
+)
+
+var (
+	bufferPool = sync.Pool{
+		New: func() any {
+			return bytes.NewBuffer(make([]byte, 0, defaultBufferSize))
+		},
+	}
+	builderPool = sync.Pool{
+		New: func() any {
+			return &protocolBuilder{
+				buf: bufferPool.Get().(*bytes.Buffer),
+			}
+		},
+	}
+)
+
 // The protocolBuilder is used to build a protocol message.
 // We can use it build request command quickly with chaining method like this:
 //
@@ -88,13 +110,23 @@ func forecastCommonFaultLine(line []byte) error {
 // set key 0 0 5\r\n
 // value\r\n
 type protocolBuilder struct {
-	buf bytes.Buffer
+	buf *bytes.Buffer
 }
 
 func newProtocolBuilder() *protocolBuilder {
-	return &protocolBuilder{
-		buf: bytes.Buffer{},
+	pb := builderPool.Get().(*protocolBuilder)
+	pb.buf = bufferPool.Get().(*bytes.Buffer)
+	return pb
+}
+
+func (b *protocolBuilder) release() {
+	if b.buf != nil {
+		b.buf.Reset()
+		bufferPool.Put(b.buf)
+		b.buf = nil
 	}
+
+	builderPool.Put(b)
 }
 
 func (b *protocolBuilder) AddString(s string) *protocolBuilder {
