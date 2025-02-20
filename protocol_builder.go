@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -192,13 +193,40 @@ type request struct {
 	raw []byte
 }
 
-func (req *request) send(ctx context.Context, rr memcachedConn) (err error) {
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = rr.setWriteDeadline(&deadline)
-		defer func() { _ = rr.setWriteDeadline(nil) }()
+func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc nowFuncType) (deadline time.Time, ok bool) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	var has bool
+	if timeout > 0 {
+		deadline = nowFunc().Add(timeout)
+		has = true
+	}
+
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if !has || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+			has = true
+		}
+	}
+
+	return deadline, has
+}
+
+func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
+	deadline, has := selectProximateDeadline(ctx, writeTimeout, nowFunc)
+	if has {
+		_ = rr.setWriteDeadline(&deadline)
+	}
+
 	_, err = rr.Write(req.raw)
+	if has {
+		_ = rr.setWriteDeadline(nil)
+	}
 
 	return err
 }
@@ -238,9 +266,9 @@ type response struct {
 	rawLines [][]byte
 }
 
-func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
-	deadline, ok := ctx.Deadline()
-	if ok {
+func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
+	deadline, has := selectProximateDeadline(ctx, readTimeout, nowFunc)
+	if has {
 		_ = rr.setReadDeadline(&deadline)
 		defer func() { _ = rr.setReadDeadline(nil) }()
 	}

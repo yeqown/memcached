@@ -13,7 +13,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-var nowFunc = time.Now
+type nowFuncType func() time.Time
+
+var nowFunc nowFuncType = time.Now
 
 // Addr represents a memcached server address.
 type Addr struct {
