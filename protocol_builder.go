@@ -115,7 +115,12 @@ type protocolBuilder struct {
 
 func newProtocolBuilder() *protocolBuilder {
 	pb := builderPool.Get().(*protocolBuilder)
-	pb.buf = bufferPool.Get().(*bytes.Buffer)
+	if pb.buf == nil {
+		pb.buf = bufferPool.Get().(*bytes.Buffer)
+	} else {
+		pb.buf.Reset()
+	}
+
 	return pb
 }
 
@@ -198,7 +203,11 @@ func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
 }
 
 func (b *protocolBuilder) build() []byte {
-	result := b.buf.Bytes()
+	data := b.buf.Bytes()
+
+	result := make([]byte, len(data))
+	copy(result, data)
+
 	if bytes.HasSuffix(result, _SpaceBytes) {
 		result = result[:len(result)-1]
 	}
