@@ -228,6 +228,7 @@ func withCRLF(bs []byte) []byte {
 	return append(bs, _CRLFBytes...)
 }
 
+// TODO(@yeqown): reuse request and response objects
 type request struct {
 	cmd []byte // command name
 	key []byte // key is nil if the command DOES NOT need key
