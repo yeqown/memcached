@@ -52,3 +52,14 @@ benchstat results/bradfitz_concurrent.txt results/yeqown_concurrent.txt
 ```plain
 TODO:
 ```
+
+3. benchmark profile
+
+```bash
+mkdir -p results
+go test -bench=^BenchmarkYeqownMemcachedConcurrent$ -count=10 -benchmem -memprofile=results/mem.pprof -cpuprofile=results/cpu.pprof
+
+# view profile
+go tool pprof -http=:8080 results/cpu.pprof
+go tool pprof -http=:8081 results/mem.pprof
+```

@@ -129,6 +129,7 @@ func buildStorageCommand(command, key string, value []byte, flags, expTime uint3
 		AddUint(uint64(flags)).   // flags
 		AddUint(uint64(expTime)). // exptime
 		AddInt(len(value))        // bytes
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -160,6 +161,7 @@ func buildDeleteCommand(key string, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("delete").
 		AddString(key)
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -188,6 +190,7 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 		AddString("touch").
 		AddString(key).
 		AddUint(uint64(expTime))
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -222,6 +225,7 @@ func buildCasCommand(
 		AddUint(uint64(expTime)).  // exptime
 		AddInt(len(value)).        // bytes
 		AddUint(uint64(casUnique)) // cas unique
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -253,6 +257,7 @@ func buildCasCommand(
 func buildGetsCommand(command string, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command)
+	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
@@ -275,6 +280,7 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command)
+	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
@@ -398,6 +404,7 @@ func buildArithmeticCommand(command, key string, delta uint64, noReply bool) (*r
 		AddString(command).
 		AddString(key).
 		AddUint(delta)
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)

@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"math"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -75,6 +77,27 @@ func forecastCommonFaultLine(line []byte) error {
 	return nil
 }
 
+const (
+	// defaultBufferSize is the default size of the buffer.
+	// TODO: It is used to avoid the buffer growth, but is 64B the most common case?
+	defaultBufferSize = 64
+)
+
+var (
+	bufferPool = sync.Pool{
+		New: func() any {
+			return bytes.NewBuffer(make([]byte, 0, defaultBufferSize))
+		},
+	}
+	builderPool = sync.Pool{
+		New: func() any {
+			return &protocolBuilder{
+				buf: bufferPool.Get().(*bytes.Buffer),
+			}
+		},
+	}
+)
+
 // The protocolBuilder is used to build a protocol message.
 // We can use it build request command quickly with chaining method like this:
 //
@@ -87,13 +110,28 @@ func forecastCommonFaultLine(line []byte) error {
 // set key 0 0 5\r\n
 // value\r\n
 type protocolBuilder struct {
-	buf bytes.Buffer
+	buf *bytes.Buffer
 }
 
 func newProtocolBuilder() *protocolBuilder {
-	return &protocolBuilder{
-		buf: bytes.Buffer{},
+	pb := builderPool.Get().(*protocolBuilder)
+	if pb.buf == nil {
+		pb.buf = bufferPool.Get().(*bytes.Buffer)
+	} else {
+		pb.buf.Reset()
 	}
+
+	return pb
+}
+
+func (b *protocolBuilder) release() {
+	if b.buf != nil {
+		b.buf.Reset()
+		bufferPool.Put(b.buf)
+		b.buf = nil
+	}
+
+	builderPool.Put(b)
 }
 
 func (b *protocolBuilder) AddString(s string) *protocolBuilder {
@@ -165,7 +203,11 @@ func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
 }
 
 func (b *protocolBuilder) build() []byte {
-	result := b.buf.Bytes()
+	data := b.buf.Bytes()
+
+	result := make([]byte, len(data))
+	copy(result, data)
+
 	if bytes.HasSuffix(result, _SpaceBytes) {
 		result = result[:len(result)-1]
 	}
@@ -186,19 +228,47 @@ func withCRLF(bs []byte) []byte {
 	return append(bs, _CRLFBytes...)
 }
 
+// TODO(@yeqown): reuse request and response objects
 type request struct {
 	cmd []byte // command name
 	key []byte // key is nil if the command DOES NOT need key
 	raw []byte
 }
 
-func (req *request) send(ctx context.Context, rr memcachedConn) (err error) {
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = rr.setWriteDeadline(&deadline)
-		defer func() { _ = rr.setWriteDeadline(nil) }()
+func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc nowFuncType) (deadline time.Time, ok bool) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	var has bool
+	if timeout > 0 {
+		deadline = nowFunc().Add(timeout)
+		has = true
+	}
+
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if !has || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+			has = true
+		}
+	}
+
+	return deadline, has
+}
+
+func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
+	deadline, has := selectProximateDeadline(ctx, writeTimeout, nowFunc)
+	if has {
+		_ = rr.setWriteDeadline(&deadline)
+	}
+
 	_, err = rr.Write(req.raw)
+	if has {
+		_ = rr.setWriteDeadline(nil)
+	}
 
 	return err
 }
@@ -238,9 +308,9 @@ type response struct {
 	rawLines [][]byte
 }
 
-func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
-	deadline, ok := ctx.Deadline()
-	if ok {
+func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
+	deadline, has := selectProximateDeadline(ctx, readTimeout, nowFunc)
+	if has {
 		_ = rr.setReadDeadline(&deadline)
 		defer func() { _ = rr.setReadDeadline(nil) }()
 	}

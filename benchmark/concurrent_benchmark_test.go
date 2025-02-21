@@ -15,13 +15,15 @@ func BenchmarkYeqownMemcachedConcurrent(b *testing.B) {
 	}
 	defer client.Close()
 
+	ctx := context.Background()
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if err := client.Set(context.Background(), testKey, testValue, 0, 0); err != nil {
+			if err := client.Set(ctx, testKey, testValue, 0, 0); err != nil {
 				b.Fatal(err)
 			}
-			if _, err := client.Get(context.Background(), testKey); err != nil {
+			if _, err := client.Get(ctx, testKey); err != nil {
 				b.Fatal(err)
 			}
 		}
