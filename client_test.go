@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -30,7 +29,10 @@ func (su *clientTestSuite) TearDownSuite() {
 func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 	key := "Test_concurrent_dispatchRequest"
 	// prepare data
-	err := su.client.Set(context.Background(), key, []byte("Test_concurrent_dispatchRequest"), 0, 0)
+
+	ctx := context.Background()
+
+	err := su.client.Set(ctx, key, []byte("Test_concurrent_dispatchRequest"), 0, 0)
 	su.Require().NoError(err)
 
 	wg := sync.WaitGroup{}
@@ -42,10 +44,8 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 			defer wg.Done()
 			for counter := 0; counter < limits; counter++ {
 				req, resp := buildGetsCommand("get", key)
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				err := su.client.dispatchRequest(ctx, req, resp)
 				su.Require().NoError(err)
-				cancel()
 			}
 
 		}()

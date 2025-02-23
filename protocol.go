@@ -7,8 +7,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// TODO(@yeqown): reuse response and request objects in following building functions.
-
 // Item represents a key-value pair to be got or stored.
 type Item struct {
 	Key   string
