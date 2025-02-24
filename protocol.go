@@ -273,8 +273,6 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 // ...
 // END\r\n
 func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
-	var items []*Item
-
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
@@ -287,6 +285,7 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 
 	var (
 		rn             = n
+		items          = make([]*Item, 0, n/2) // pre-alloc to avoid memory allocation
 		flags, dataLen uint64
 		cas            uint64
 		err            error
@@ -314,7 +313,7 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 			continue
 		}
 
-		parts := bytes.Split(line, _SpaceBytes)
+		parts := bytes.Fields(line)
 		if len(parts) < 4 {
 			return nil, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
 		}
@@ -322,18 +321,18 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 		flagsBytes := parts[flagsIndex]
 		dataLenBytes := parts[dataLenIndex]
 		// Parse flags and data length
-		flags, err = strconv.ParseUint(string(flagsBytes), 10, 32)
+		flags, err = strconv.ParseUint(unsafeByteSliceToString(flagsBytes), 10, 32)
 		if err != nil {
 			return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
 		}
-		dataLen, err = strconv.ParseUint(string(dataLenBytes), 10, 64)
+		dataLen, err = strconv.ParseUint(unsafeByteSliceToString(dataLenBytes), 10, 64)
 		if err != nil {
 			return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
 		}
 		// Parse cas unique if exists
 		if len(parts) == withCasLen {
 			casBytes := parts[casIndex]
-			cas, err = strconv.ParseUint(string(casBytes), 10, 64)
+			cas, err = strconv.ParseUint(unsafeByteSliceToString(casBytes), 10, 64)
 			if err != nil {
 				return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
 			}
@@ -349,7 +348,7 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 		}
 
 		item := &Item{
-			Key:   string(parts[keyIndex]),
+			Key:   unsafeByteSliceToString(parts[keyIndex]),
 			Value: data,
 			Flags: uint32(flags),
 			CAS:   cas,

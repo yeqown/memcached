@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/pkg/errors"
 )
@@ -497,4 +498,12 @@ func releaseReqAndResp(req *request, resp *response) {
 	if resp != nil {
 		resp.release()
 	}
+}
+
+func unsafeStringToByteSlice(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+func unsafeByteSliceToString(bs []byte) string {
+	return unsafe.String(unsafe.SliceData(bs), len(bs))
 }
