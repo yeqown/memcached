@@ -63,23 +63,23 @@ func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
 
 func (m *mockConn) returnTo() { m.returnedAt = time.Now() }
 
-func (m *mockConn) setReadDeadline(d *time.Time) error {
-	if d == nil {
-		m.readDeadline = time.Time{}
+func (m *mockConn) setReadDeadline(d time.Time) error {
+	if d.IsZero() {
+		m.readDeadline = zeroTime
 		return nil
 	}
 
-	m.readDeadline = *d
+	m.readDeadline = d
 	return nil
 }
 
-func (m *mockConn) setWriteDeadline(d *time.Time) error {
-	if d == nil {
-		m.writeDeadline = time.Time{}
+func (m *mockConn) setWriteDeadline(d time.Time) error {
+	if d.IsZero() {
+		m.writeDeadline = zeroTime
 		return nil
 	}
 
-	m.writeDeadline = *d
+	m.writeDeadline = d
 	return nil
 }
 

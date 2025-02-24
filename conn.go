@@ -82,8 +82,8 @@ type memcachedConn interface {
 	// returnTo returns the connection to the pool.
 	returnTo()
 
-	setReadDeadline(d *time.Time) error
-	setWriteDeadline(d *time.Time) error
+	setReadDeadline(d time.Time) error
+	setWriteDeadline(d time.Time) error
 }
 
 var (
@@ -140,20 +140,20 @@ func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) 
 
 var zeroTime = time.Time{}
 
-func (c *conn) setReadDeadline(d *time.Time) error {
-	if d == nil {
+func (c *conn) setReadDeadline(d time.Time) error {
+	if d.IsZero() {
 		return c.raw.SetReadDeadline(zeroTime)
 	}
 
-	return c.raw.SetReadDeadline(*d)
+	return c.raw.SetReadDeadline(d)
 }
 
-func (c *conn) setWriteDeadline(d *time.Time) error {
-	if d == nil {
+func (c *conn) setWriteDeadline(d time.Time) error {
+	if d.IsZero() {
 		return c.raw.SetWriteDeadline(zeroTime)
 	}
 
-	return c.raw.SetWriteDeadline(*d)
+	return c.raw.SetWriteDeadline(d)
 }
 
 func (c *conn) readLine(delim byte) ([]byte, error) {
@@ -227,8 +227,8 @@ func (c *conn) idle(since time.Time) (time.Duration, bool) {
 }
 
 func (c *conn) returnTo() {
-	_ = c.setReadDeadline(nil)
-	_ = c.setWriteDeadline(nil)
+	_ = c.setReadDeadline(zeroTime)
+	_ = c.setWriteDeadline(zeroTime)
 	//_, _ = c.rr.Discard(c.rr.Buffered())
 	//c.rr.Reset(c.raw)
 	//// discard all pending data

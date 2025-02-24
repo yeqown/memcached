@@ -263,7 +263,7 @@ func (req *request) release() {
 
 func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
 	if has := selectProximateDeadline(ctx, rr, writeTimeout, nowFunc, false); has {
-		defer func() { _ = rr.setWriteDeadline(nil) }()
+		defer func() { _ = rr.setWriteDeadline(zeroTime) }()
 	}
 	_, err = rr.Write(req.raw)
 
@@ -353,7 +353,7 @@ func (resp *response) release() {
 
 func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
 	if has := selectProximateDeadline(ctx, rr, readTimeout, nowFunc, true); has {
-		defer func() { _ = rr.setReadDeadline(nil) }()
+		defer func() { _ = rr.setReadDeadline(zeroTime) }()
 	}
 
 	switch resp.endIndicator {
@@ -401,9 +401,9 @@ func selectProximateDeadline(
 
 	if has {
 		if isRead {
-			_ = rr.setReadDeadline(&deadline)
+			_ = rr.setReadDeadline(deadline)
 		} else {
-			_ = rr.setWriteDeadline(&deadline)
+			_ = rr.setWriteDeadline(deadline)
 		}
 	}
 
