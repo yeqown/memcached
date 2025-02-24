@@ -96,18 +96,6 @@ var (
 			}
 		},
 	}
-
-	// TODO(@yeqown): reuse request and response objects
-	// requestPool = sync.Pool{
-	// 	New: func() any {
-	// 		return &request{}
-	// 	},
-	// }
-	// responsePool = sync.Pool{
-	// 	New: func() any {
-	// 		return &response{}
-	// 	},
-	// }
 )
 
 // The protocolBuilder is used to build a protocol message.
@@ -240,34 +228,36 @@ func withCRLF(bs []byte) []byte {
 	return append(bs, _CRLFBytes...)
 }
 
+var requestPool = sync.Pool{
+	New: func() any {
+		return &request{
+			cmd: nil,
+			key: nil,
+			raw: nil,
+		}
+	},
+}
+
 type request struct {
 	cmd []byte // command name
 	key []byte // key is nil if the command DOES NOT need key
 	raw []byte
 }
 
-func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc nowFuncType) (deadline time.Time, ok bool) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout < 0 {
-		timeout = 0
-	}
+func buildRequest(cmd []byte, key []byte, raw []byte) *request {
+	req := requestPool.Get().(*request)
+	req.cmd = cmd
+	req.key = key
+	req.raw = raw
+	return req
+}
 
-	var has bool
-	if timeout > 0 {
-		deadline = nowFunc().Add(timeout)
-		has = true
-	}
+func (req *request) release() {
+	req.cmd = nil
+	req.key = nil
+	req.raw = nil
 
-	if ctxDeadline, ok := ctx.Deadline(); ok {
-		if !has || ctxDeadline.Before(deadline) {
-			deadline = ctxDeadline
-			has = true
-		}
-	}
-
-	return deadline, has
+	requestPool.Put(req)
 }
 
 func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
@@ -284,12 +274,24 @@ func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout tim
 	return err
 }
 
+var responsePool = sync.Pool{
+	New: func() any {
+		return &response{
+			endIndicator: endIndicatorNoReply,
+			limitedLines: 0,
+			specEndLine:  nil,
+			rawLines:     nil,
+		}
+	},
+}
+
 type responseEndIndicator uint8
 
 const (
+	endIndicatorUnknown responseEndIndicator = iota
 	// endIndicatorNoReply indicates the response is no reply
 	// and the client should not wait for the response.
-	endIndicatorNoReply responseEndIndicator = iota
+	endIndicatorNoReply
 	// endIndicatorLimitedLines indicates the response is limited lines,
 	// the client should read line from response with limited lines with delimiter '\n'.
 	endIndicatorLimitedLines
@@ -319,6 +321,40 @@ type response struct {
 	rawLines [][]byte
 }
 
+func buildNoReplyResponse() *response {
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorNoReply
+	return resp
+}
+
+func buildLimitedLineResponse(lines uint8) *response {
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorLimitedLines
+	resp.limitedLines = lines
+	resp.rawLines = make([][]byte, 0, lines)
+	return resp
+}
+
+func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
+	if predictLines <= 0 {
+		predictLines = 8
+	}
+
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorSpecificEndLine
+	resp.specEndLine = endLine
+	resp.rawLines = make([][]byte, 0, predictLines)
+	return resp
+}
+
+func (resp *response) release() {
+	resp.endIndicator = endIndicatorUnknown
+	resp.limitedLines = 0
+	resp.specEndLine = nil
+	resp.rawLines = nil
+	responsePool.Put(resp)
+}
+
 func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
 	deadline, has := selectProximateDeadline(ctx, readTimeout, nowFunc)
 	if has {
@@ -337,9 +373,34 @@ func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout ti
 		return resp.read1(rr)
 	case endIndicatorSpecificEndLine:
 		return resp.read2(rr)
+	default:
 	}
 
 	return ErrUnknownIndicator
+}
+
+func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc nowFuncType) (deadline time.Time, ok bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	var has bool
+	if timeout > 0 {
+		deadline = nowFunc().Add(timeout)
+		has = true
+	}
+
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if !has || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+			has = true
+		}
+	}
+
+	return deadline, has
 }
 
 // read1 reads the response from the connection with limited lines.
@@ -412,37 +473,6 @@ func (resp *response) expect(line []byte) error {
 	return errors.New(message + string(resp.rawLines[0]))
 }
 
-func buildNoReplyResponse() *response {
-	return &response{
-		endIndicator: endIndicatorNoReply,
-		limitedLines: 0,
-		specEndLine:  nil,
-		rawLines:     nil,
-	}
-}
-
-func buildLimitedLineResponse(lines uint8) *response {
-	return &response{
-		endIndicator: endIndicatorLimitedLines,
-		limitedLines: lines,
-		specEndLine:  nil,
-		rawLines:     make([][]byte, 0, lines),
-	}
-}
-
-func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
-	if predictLines <= 0 {
-		predictLines = 8
-	}
-
-	return &response{
-		endIndicator: endIndicatorSpecificEndLine,
-		limitedLines: 0,
-		specEndLine:  endLine,
-		rawLines:     make([][]byte, 0, predictLines),
-	}
-}
-
 func base64Encode(src []byte) []byte {
 	dst := make([]byte, base64.StdEncoding.EncodedLen(len(src)))
 	base64.StdEncoding.Encode(dst, src)
@@ -457,4 +487,14 @@ func base64Decode(src []byte) ([]byte, error) {
 	}
 
 	return dst[:n], nil
+}
+
+func releaseReqAndResp(req *request, resp *response) {
+	if req != nil {
+		req.release()
+	}
+
+	if resp != nil {
+		resp.release()
+	}
 }

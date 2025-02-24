@@ -89,20 +89,14 @@ type MetaItemDebug struct {
 	Size           uint64 // size
 }
 
-func buildVersionCommand() *request {
-	return &request{
-		cmd: []byte("version"),
-		key: nil,
-		raw: []byte("version\r\n"),
-	}
+func buildVersionCommand() (*request, *response) {
+	req := buildRequest([]byte("version"), nil, []byte("version\r\n"))
+	resp := buildLimitedLineResponse(1)
+	return req, resp
 }
 
 func buildFlushAllCommand(noReply bool) (*request, *response) {
-	req := &request{
-		cmd: []byte("flush_all"),
-		key: nil,
-		raw: []byte("flush_all\r\n"),
-	}
+	req := buildRequest([]byte("flush_all"), nil, []byte("flush_all\r\n"))
 
 	var resp *response
 	if noReply {
@@ -138,11 +132,7 @@ func buildStorageCommand(command, key string, value []byte, flags, expTime uint3
 		AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte(command),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte(command), []byte(key), raw)
 
 	var resp *response
 	if noReply {
@@ -165,12 +155,7 @@ func buildDeleteCommand(key string, noReply bool) (*request, *response) {
 		b.AddBytes(_NoReplyBytes)
 	}
 
-	req := &request{
-		cmd: []byte("delete"),
-		key: []byte(key),
-		raw: b.AddCRLF().
-			build(),
-	}
+	req := buildRequest([]byte("delete"), []byte(key), b.AddCRLF().build())
 
 	var resp *response
 	if noReply {
@@ -194,14 +179,7 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 		b.AddBytes(_NoReplyBytes)
 	}
 
-	raw := b.AddCRLF().
-		build()
-
-	req := &request{
-		cmd: []byte("touch"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("touch"), []byte(key), b.AddCRLF().build())
 
 	var resp *response
 	if noReply {
@@ -234,11 +212,7 @@ func buildCasCommand(
 		AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte("cas"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("cas"), []byte(key), raw)
 
 	var resp *response
 	if noReply {
@@ -262,12 +236,7 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 	}
 	b.AddCRLF()
 
-	req := &request{
-		cmd: []byte(command),
-		key: nil,
-		raw: b.build(),
-	}
-
+	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
@@ -287,12 +256,7 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 	b.AddUint(uint64(expiry)).
 		AddCRLF()
 
-	req := &request{
-		cmd: []byte(command),
-		key: []byte(keys[0]),
-		raw: b.build(),
-	}
-
+	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp

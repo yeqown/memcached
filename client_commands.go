@@ -151,6 +151,8 @@ func (c *client) storageCommand(ctx context.Context, command, key string, value 
 	}
 
 	req, resp := buildStorageCommand(command, key, value, flags, expiry, c.options.noReply)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -189,6 +191,8 @@ func (c *client) Cas(ctx context.Context, key string, value []byte, flags, expir
 	}
 
 	req, resp := buildCasCommand(key, []byte(value), flags, expiry, cas, c.options.noReply)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -211,6 +215,8 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	}
 
 	req, resp := buildGetsCommand("get", key)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -233,6 +239,8 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	}
 
 	req, resp := buildGetsCommand("gets", keys...)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -255,6 +263,8 @@ func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*I
 	}
 
 	req, resp := buildGetAndTouchesCommand("gat", expiry, key)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -278,6 +288,8 @@ func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...strin
 	}
 
 	req, resp := buildGetAndTouchesCommand("gats", expiry, keys...)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -305,6 +317,8 @@ func (c *client) Delete(ctx context.Context, key string) error {
 	}
 
 	req, resp := buildDeleteCommand(key, c.options.noReply)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -361,6 +375,8 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
 	}
 
 	req, resp := buildTouchCommand(key, expiry, c.options.noReply)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -374,8 +390,9 @@ func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
 }
 
 func (c *client) Version(ctx context.Context) (string, error) {
-	req := buildVersionCommand()
-	resp := buildLimitedLineResponse(1)
+	req, resp := buildVersionCommand()
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return "", errors.Wrap(err, "request")
 	}
@@ -392,6 +409,8 @@ func (c *client) Version(ctx context.Context) (string, error) {
 
 func (c *client) FlushAll(ctx context.Context) error {
 	req, resp := buildFlushAllCommand(c.options.noReply)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.broadcastRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
@@ -420,6 +439,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	}
 
 	req, resp := buildMetaSetCommand(key, value, msFlags)
+	defer releaseReqAndResp(req, resp)
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -448,6 +468,8 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 	}
 
 	req, resp := buildMetaGetCommand(key, mgFlags)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -473,6 +495,8 @@ func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDele
 	}
 
 	req, resp := buildMetaDeleteCommand(key, mdFlags)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -498,6 +522,8 @@ func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, o
 	}
 
 	req, resp := buildMetaArithmeticCommand(key, delta, maFlags)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -535,6 +561,8 @@ func (c *client) MetaDebug(ctx context.Context, key []byte, options ...MetaDebug
 	}
 
 	req, resp := buildMetaDebugCommand(key, mdFlags)
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
 	}
@@ -552,10 +580,11 @@ func (c *client) MetaDebug(ctx context.Context, key []byte, options ...MetaDebug
 
 func (c *client) MetaNoOp(ctx context.Context) error {
 	req, resp := buildMetaNoOpCommand()
+	defer releaseReqAndResp(req, resp)
+
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
-
 	if err := resp.expect(_MetaMNCRLFBytes); err != nil {
 		if errors.Is(err, ErrMalformedResponse) {
 			return err
