@@ -222,7 +222,7 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	}
 
 	// parse response
-	items, err := parseValueItems(resp.rawLines, false)
+	items, err := parseValueItems(resp.rawLines, false, false)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse values failed")
 	}
@@ -246,7 +246,7 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	}
 
 	// parse response
-	items, err := parseValueItems(resp.rawLines, false)
+	items, err := parseValueItems(resp.rawLines, false, true)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
@@ -270,7 +270,7 @@ func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*I
 	}
 
 	// parse response
-	items, err := parseValueItems(resp.rawLines, false)
+	items, err := parseValueItems(resp.rawLines, false, false)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
@@ -295,7 +295,7 @@ func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...strin
 	}
 
 	// parse response
-	items, err := parseValueItems(resp.rawLines, false)
+	items, err := parseValueItems(resp.rawLines, false, true)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}

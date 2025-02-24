@@ -272,7 +272,7 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 // <data block>\r\n
 // ...
 // END\r\n
-func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
+func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, err error) {
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
@@ -284,11 +284,9 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 	}
 
 	var (
-		rn             = n
-		items          = make([]*Item, 0, n/2) // pre-alloc to avoid memory allocation
-		flags, dataLen uint64
-		cas            uint64
-		err            error
+		rn      = n
+		items   = make([]*Item, 0, n/2) // pre-alloc to avoid memory allocation
+		dataLen uint64
 	)
 
 	if !withoutEndLine {
@@ -296,67 +294,115 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 		rn = n - 1
 	}
 
-	const (
-		keyIndex     = 1
-		flagsIndex   = 2
-		dataLenIndex = 3
-		casIndex     = 4
-
-		withCasLen = 5
-	)
-
 	for i := 0; i < rn; i += 2 {
 		line := trimCRLF(lines[i])
-		cas = 0
-
 		if !bytes.HasPrefix(line, _ValueBytes) {
 			continue
 		}
 
-		parts := bytes.Fields(line)
-		if len(parts) < 4 {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+		item := &Item{
+			Key:   "",
+			Value: nil,
+			Flags: 0,
+			CAS:   0,
 		}
-
-		flagsBytes := parts[flagsIndex]
-		dataLenBytes := parts[dataLenIndex]
-		// Parse flags and data length
-		flags, err = strconv.ParseUint(unsafeByteSliceToString(flagsBytes), 10, 32)
+		dataLen, err = parseValueLine(line, item, withCAS)
 		if err != nil {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
-		}
-		dataLen, err = strconv.ParseUint(unsafeByteSliceToString(dataLenBytes), 10, 64)
-		if err != nil {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
-		}
-		// Parse cas unique if exists
-		if len(parts) == withCasLen {
-			casBytes := parts[casIndex]
-			cas, err = strconv.ParseUint(unsafeByteSliceToString(casBytes), 10, 64)
-			if err != nil {
-				return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
-			}
+			return nil, err
 		}
 
 		// Read the data block
 		if i+1 >= n {
 			return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
 		}
-		data := trimCRLF(lines[i+1])
-		if len(data) != int(dataLen) {
+		item.Value = trimCRLF(lines[i+1])
+		if len(item.Value) != int(dataLen) {
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
 
-		item := &Item{
-			Key:   unsafeByteSliceToString(parts[keyIndex]),
-			Value: data,
-			Flags: uint32(flags),
-			CAS:   cas,
-		}
 		items = append(items, item)
 	}
 
 	return items, nil
+}
+
+// parseValueLine extract item from VALUE line, like following:
+// VALUE <key> <flags> <bytes> <cas unique> => Item{key, flags, cas}
+//
+// if withCas is false, VALUE line is:
+// VALUE <key> <flags> <bytes> => Item{key, flags, 0}
+func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err error) {
+	const (
+		keyIndex     = 1
+		flagsIndex   = 2
+		dataLenIndex = 3
+		casIndex     = 4
+	)
+
+	start := len(_ValueBytes)
+	fieldStart := start
+	nField := 0
+
+	for i := start; i < len(line); i++ {
+		if nField > 5 || (!withCas && nField > 4) {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+		}
+
+		if line[i] == ' ' {
+			switch nField {
+			case keyIndex:
+				item.Key = unsafeByteSliceToString(line[fieldStart:i])
+			case flagsIndex:
+				flags, err := parseUintFromBytes(line[fieldStart:i])
+				if err != nil {
+					return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
+				}
+				item.Flags = uint32(flags)
+			case dataLenIndex:
+				dataLen, err = parseUintFromBytes(line[fieldStart:i])
+				if err != nil {
+					return 0, errors.Wrap(ErrMalformedResponse, "invalid data length")
+				}
+			case casIndex:
+				cas, err := parseUintFromBytes(line[fieldStart:i])
+				if err != nil {
+					return 0, errors.Wrap(ErrMalformedResponse, "invalid CAS")
+				}
+				item.CAS = cas
+			}
+
+			fieldStart = i + 1
+			nField++
+			continue
+		}
+	}
+
+	return dataLen, nil
+}
+
+// parseUintFromBytes parses slice of bytes to uint64.
+//
+// For example:
+// []byte("1234567890") -> 1234567890
+//
+// If the slice of bytes is empty, it returns 0.
+//
+// If the slice of bytes contains non-digit characters, it returns an error.
+func parseUintFromBytes(bs []byte) (uint64, error) {
+	if len(bs) == 0 {
+		return 0, nil
+	}
+
+	r := uint64(0)
+	for _, b := range bs {
+		if b < '0' || b > '9' {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid uint number")
+		}
+
+		r = r*10 + uint64(b-'0')
+	}
+
+	return r, nil
 }
 
 // incr/decr <key> <value> [noreply]\r\n
