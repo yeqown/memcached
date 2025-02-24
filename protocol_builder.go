@@ -262,15 +262,10 @@ func (req *request) release() {
 }
 
 func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
-	deadline, has := selectProximateDeadline(ctx, writeTimeout, nowFunc)
-	if has {
-		_ = rr.setWriteDeadline(&deadline)
+	if has := selectProximateDeadline(ctx, rr, writeTimeout, nowFunc, false); has {
+		defer func() { _ = rr.setWriteDeadline(nil) }()
 	}
-
 	_, err = rr.Write(req.raw)
-	if has {
-		_ = rr.setWriteDeadline(nil)
-	}
 
 	return err
 }
@@ -357,9 +352,7 @@ func (resp *response) release() {
 }
 
 func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
-	deadline, has := selectProximateDeadline(ctx, readTimeout, nowFunc)
-	if has {
-		_ = rr.setReadDeadline(&deadline)
+	if has := selectProximateDeadline(ctx, rr, readTimeout, nowFunc, true); has {
 		defer func() { _ = rr.setReadDeadline(nil) }()
 	}
 
@@ -380,7 +373,9 @@ func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout ti
 	return ErrUnknownIndicator
 }
 
-func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc nowFuncType) (deadline time.Time, ok bool) {
+func selectProximateDeadline(
+	ctx context.Context, rr memcachedConn, timeout time.Duration, nowFunc nowFuncType, isRead bool) (ok bool) {
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -388,7 +383,10 @@ func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc
 		timeout = 0
 	}
 
-	var has bool
+	var (
+		deadline time.Time
+		has      bool
+	)
 	if timeout > 0 {
 		deadline = nowFunc().Add(timeout)
 		has = true
@@ -401,7 +399,15 @@ func selectProximateDeadline(ctx context.Context, timeout time.Duration, nowFunc
 		}
 	}
 
-	return deadline, has
+	if has {
+		if isRead {
+			_ = rr.setReadDeadline(&deadline)
+		} else {
+			_ = rr.setWriteDeadline(&deadline)
+		}
+	}
+
+	return has
 }
 
 // read1 reads the response from the connection with limited lines.

@@ -28,6 +28,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 	tests := []struct {
 		name         string
 		ctx          context.Context
+		conn         *mockConn
 		timeout      time.Duration
 		wantDeadline time.Time
 		wantHas      bool
@@ -35,6 +36,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 		{
 			name:         "nil context and zero timeout",
 			ctx:          nil,
+			conn:         newMockConn(),
 			timeout:      0,
 			wantDeadline: time.Time{},
 			wantHas:      false,
@@ -42,6 +44,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 		{
 			name:         "nil context and negative timeout",
 			ctx:          nil,
+			conn:         newMockConn(),
 			timeout:      -1 * time.Second,
 			wantDeadline: time.Time{},
 			wantHas:      false,
@@ -49,6 +52,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 		{
 			name:         "background context and positive timeout",
 			ctx:          context.Background(),
+			conn:         newMockConn(),
 			timeout:      time.Second,
 			wantDeadline: baseTime.Add(time.Second),
 			wantHas:      true,
@@ -60,6 +64,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 				t.Cleanup(cancel)
 				return ctx
 			}(),
+			conn:         newMockConn(),
 			timeout:      0,
 			wantDeadline: baseTime.Add(2 * time.Second),
 			wantHas:      true,
@@ -71,6 +76,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 				t.Cleanup(cancel)
 				return ctx
 			}(),
+			conn:         newMockConn(),
 			timeout:      2 * time.Second,
 			wantDeadline: baseTime.Add(time.Second),
 			wantHas:      true,
@@ -82,6 +88,7 @@ func Test_selectProximateDeadline(t *testing.T) {
 				t.Cleanup(cancel)
 				return ctx
 			}(),
+			conn:         newMockConn(),
 			timeout:      time.Second,
 			wantDeadline: baseTime.Add(time.Second),
 			wantHas:      true,
@@ -90,9 +97,9 @@ func Test_selectProximateDeadline(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotDeadline, gotHas := selectProximateDeadline(tt.ctx, tt.timeout, mockNowFunc)
+			gotHas := selectProximateDeadline(tt.ctx, tt.conn, tt.timeout, mockNowFunc, true)
 			assert.Equal(t, tt.wantHas, gotHas)
-			assert.Equal(t, tt.wantDeadline, gotDeadline)
+			assert.Equal(t, tt.wantDeadline, tt.conn.readDeadline)
 		})
 	}
 }

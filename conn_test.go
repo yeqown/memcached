@@ -18,6 +18,9 @@ var (
 type mockConn struct {
 	createdAt  time.Time
 	returnedAt time.Time
+
+	readDeadline  time.Time
+	writeDeadline time.Time
 }
 
 func newMockConn() *mockConn {
@@ -60,9 +63,25 @@ func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
 
 func (m *mockConn) returnTo() { m.returnedAt = time.Now() }
 
-func (m *mockConn) setReadDeadline(d *time.Time) error { _ = d; return nil }
+func (m *mockConn) setReadDeadline(d *time.Time) error {
+	if d == nil {
+		m.readDeadline = time.Time{}
+		return nil
+	}
 
-func (m *mockConn) setWriteDeadline(d *time.Time) error { _ = d; return nil }
+	m.readDeadline = *d
+	return nil
+}
+
+func (m *mockConn) setWriteDeadline(d *time.Time) error {
+	if d == nil {
+		m.writeDeadline = time.Time{}
+		return nil
+	}
+
+	m.writeDeadline = *d
+	return nil
+}
 
 func createConn(_ context.Context) (memcachedConn, error) {
 	return newMockConn(), nil
