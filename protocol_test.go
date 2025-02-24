@@ -238,7 +238,7 @@ func Test_parseValueLine(t *testing.T) {
 	}{
 		{
 			name:    "normal case without cas",
-			line:    []byte("VALUE mykey 123 456 "),
+			line:    []byte("VALUE mykey 123 456"),
 			withCas: false,
 			wantItem: &Item{
 				Key:   "mykey",
@@ -250,19 +250,19 @@ func Test_parseValueLine(t *testing.T) {
 		},
 		{
 			name:    "normal case with cas",
-			line:    []byte("VALUE mykey 123 456 789 "),
+			line:    []byte("VALUE mykey 123 456 789"),
 			withCas: true,
 			wantItem: &Item{
 				Key:   "mykey",
 				Flags: 123,
-				CAS:   0,
+				CAS:   789,
 			},
 			wantLen: 456,
 			wantErr: false,
 		},
 		{
 			name:       "invalid flags",
-			line:       []byte("VALUE mykey abc 456 "),
+			line:       []byte("VALUE mykey abc 456"),
 			withCas:    false,
 			wantItem:   &Item{Key: "mykey"},
 			wantLen:    0,
@@ -289,7 +289,7 @@ func Test_parseValueLine(t *testing.T) {
 		},
 		{
 			name:       "too many fields with cas",
-			line:       []byte("VALUE mykey 123 456 789 extra more "),
+			line:       []byte("VALUE mykey 123 456 789 extra more"),
 			withCas:    true,
 			wantItem:   &Item{},
 			wantLen:    0,

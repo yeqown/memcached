@@ -339,42 +339,53 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 		casIndex     = 4
 	)
 
+	n := len(line)
 	start := len(_ValueBytes)
 	fieldStart := start
 	nField := 0
 
-	for i := start; i < len(line); i++ {
+	for i := start; i < n; i++ {
 		if nField > 5 || (!withCas && nField > 4) {
 			return 0, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
 		}
 
-		if line[i] == ' ' {
-			switch nField {
-			case keyIndex:
-				item.Key = unsafeByteSliceToString(line[fieldStart:i])
-			case flagsIndex:
-				flags, err := parseUintFromBytes(line[fieldStart:i])
-				if err != nil {
-					return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
-				}
-				item.Flags = uint32(flags)
-			case dataLenIndex:
-				dataLen, err = parseUintFromBytes(line[fieldStart:i])
-				if err != nil {
-					return 0, errors.Wrap(ErrMalformedResponse, "invalid data length")
-				}
-			case casIndex:
-				cas, err := parseUintFromBytes(line[fieldStart:i])
-				if err != nil {
-					return 0, errors.Wrap(ErrMalformedResponse, "invalid CAS")
-				}
-				item.CAS = cas
-			}
-
-			fieldStart = i + 1
-			nField++
+		if line[i] != ' ' && i != n-1 {
 			continue
 		}
+
+		// another field starts from fieldStart to i, or the last field
+		// the 'i' is the index of space or the last byte.
+		switch nField {
+		case keyIndex:
+			item.Key = unsafeByteSliceToString(line[fieldStart:i])
+		case flagsIndex:
+			flags, err := parseUintFromBytes(line[fieldStart:i])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
+			}
+			item.Flags = uint32(flags)
+		case dataLenIndex:
+			si := i
+			if i == n-1 {
+				si = i + 1
+			}
+			dataLen, err = parseUintFromBytes(line[fieldStart:si])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid data length")
+			}
+		case casIndex:
+			si := i
+			if i == n-1 {
+				si = i + 1
+			}
+			item.CAS, err = parseUintFromBytes(line[fieldStart:si])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid CAS")
+			}
+		}
+
+		fieldStart = i + 1
+		nField++
 	}
 
 	return dataLen, nil
