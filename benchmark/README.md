@@ -8,6 +8,9 @@ Comparing following three implementations:
 
 ## How to run
 
+> **NOTE**: Make sure you have installed `benchstat`.
+> And we can use `go build -gcflags="-m" ./...` to check the escape analysis.
+
 ```bash
 # install benchcmp
 go install golang.org/x/tools/cmd/benchcmp@latest
