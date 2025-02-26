@@ -1,8 +1,10 @@
 package main
 
 import (
+	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/yeqown/memcached"
 )
 
@@ -44,8 +46,18 @@ func createClient(ctx *Context) (memcached.Client, error) {
 		builder = memcached.NewMurmur3HashPickBuilder(magicSeed)
 	}
 
+	_uniqueServers := make([]string, 0, 4)
+	for _, server := range strings.Split(ctx.Servers, ",") {
+		if lo.Contains(_uniqueServers, strings.TrimSpace(server)) {
+			continue
+		}
+
+		_uniqueServers = append(_uniqueServers, strings.TrimSpace(server))
+	}
+	uniqServers := strings.Join(_uniqueServers, ",")
+
 	client, err := memcached.New(
-		ctx.Servers,
+		uniqServers,
 		memcached.WithPickBuilder(builder),
 		memcached.WithMaxConns(ctx.Config.PoolSize),
 		memcached.WithDialTimeout(ctx.Config.DialTimeout),
