@@ -93,16 +93,14 @@ func (c *client) Close() error {
 	return nil
 }
 
-type releaseConnFn func(memcachedConn) error
-
 // getConn returns a true connection from the pool.
-func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, releaseConnFn, error) {
+func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
 	c.mu.Lock()
 	pool, ok := c.connPools[addr]
 	if ok {
 		c.mu.Unlock()
 		cn, err := pool.get(ctx)
-		return cn, pool.put, err
+		return cn, err
 	}
 
 	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
@@ -138,10 +136,12 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, releas
 	c.mu.Unlock()
 
 	cn, err := pool.get(ctx)
-	return cn, pool.put, err
+	return cn, err
 }
 
-func (c *client) broadcastRequest(ctx context.Context, req *request, resp *response) error {
+type callFunc func(ctx context.Context, conn memcachedConn) error
+
+func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -150,23 +150,6 @@ func (c *client) broadcastRequest(ctx context.Context, req *request, resp *respo
 
 	wg := sync.WaitGroup{}
 
-	execute := func(cn memcachedConn) error {
-		readCtx, cancel := context.WithTimeout(ctx, c.options.readTimeout)
-		if err := req.send(readCtx, cn); err != nil {
-			cancel()
-			return errors.Wrap(err, "send failed")
-		}
-		cancel()
-
-		writeCtx, cancel := context.WithTimeout(ctx, c.options.writeTimeout)
-		if err := resp.recv(writeCtx, cn); err != nil {
-			cancel()
-			return errors.Wrap(err, "recv failed")
-		}
-		cancel()
-
-		return nil
-	}
 	errCh := make(chan error, len(c.addrs))
 
 	for _, addr := range c.addrs {
@@ -175,14 +158,14 @@ func (c *client) broadcastRequest(ctx context.Context, req *request, resp *respo
 		go func() {
 			defer wg.Done()
 
-			cn, returnToPool, err := c.getConn(ctx, addrCopy)
+			cn, err := c.getConn(ctx, addrCopy)
 			if err != nil {
 				errCh <- err
 				return
 			}
-			defer func() { _ = returnToPool(cn) }()
+			defer func() { _ = cn.release() }()
 
-			if err = execute(cn); err != nil {
+			if err = call(ctx, cn); err != nil {
 				errCh <- err
 			}
 		}()
@@ -211,21 +194,17 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		return errors.Wrap(err, "pick node failed")
 	}
 
-	cn, returnToPool, err := c.getConn(ctx, addr)
+	cn, err := c.getConn(ctx, addr)
 	if err != nil {
 		return errors.Wrap(err, "alloc connection failed")
 	}
-	defer func() { _ = returnToPool(cn) }()
+	defer func() { _ = cn.release() }()
 
-	readCtx, cancel := context.WithTimeout(ctx, c.options.readTimeout)
-	defer cancel()
-	if err = req.send(readCtx, cn); err != nil {
+	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
 		return errors.Wrap(err, "send failed")
 	}
 
-	writeCtx, cancel := context.WithTimeout(ctx, c.options.writeTimeout)
-	defer cancel()
-	return resp.recv(writeCtx, cn)
+	return resp.recv(ctx, cn, c.options.readTimeout)
 }
 
 // authSASL performs the Binary SASL authentication.

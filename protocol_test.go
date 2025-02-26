@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -11,6 +12,7 @@ func Test_parseValueItems(t *testing.T) {
 	type args struct {
 		lines          [][]byte
 		withoutEndLine bool
+		withCAS        bool
 	}
 	tests := []struct {
 		name    string
@@ -29,6 +31,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("END\r\n"),
 				},
 				withoutEndLine: false,
+				withCAS:        false,
 			},
 			want: []*Item{
 				{
@@ -53,6 +56,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("END\r\n"),
 				},
 				withoutEndLine: false,
+				withCAS:        true,
 			},
 			want: []*Item{
 				{
@@ -80,6 +84,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("value2\r\n"),
 				},
 				withoutEndLine: true,
+				withCAS:        true,
 			},
 			want: []*Item{
 				{
@@ -106,6 +111,7 @@ func Test_parseValueItems(t *testing.T) {
 					[]byte("END\r\n"),
 				},
 				withoutEndLine: false,
+				withCAS:        false,
 			},
 			want:    nil,
 			wantErr: true,
@@ -124,7 +130,7 @@ func Test_parseValueItems(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine)
+			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine, tt.args.withCAS)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -138,4 +144,188 @@ func Test_parseValueItems(t *testing.T) {
 
 func constructParts(raw []byte) [][]byte {
 	return bytes.Split(trimCRLF(raw), []byte(" "))
+}
+
+func Test_parseUintFromBytes(t *testing.T) {
+	type args struct {
+		raw []byte
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    uint64
+		wantErr bool
+	}{
+		{
+			name: "normal-1",
+			args: args{
+				raw: []byte("123"),
+			},
+			want:    123,
+			wantErr: false,
+		},
+		{
+			name: "normal-2",
+			args: args{
+				raw: []byte("1234567890"),
+			},
+			want:    1234567890,
+			wantErr: false,
+		},
+		{
+			name: "malformed-contains-letters",
+			args: args{
+				raw: []byte("abc"),
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name: "malformed-contains-other-chars",
+			args: args{
+				raw: []byte("1234567890abc"),
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name: "malformed-empty",
+			args: args{
+				raw: []byte(""),
+			},
+			want:    0,
+			wantErr: false,
+		},
+		{
+			name: "malformed-space",
+			args: args{
+				raw: []byte(" "),
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name: "malformed-negative",
+			args: args{
+				raw: []byte("-123"),
+			},
+			want:    0,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseUintFromBytes(tt.args.raw)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_parseValueLine(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       []byte
+		withCas    bool
+		wantItem   *Item
+		wantLen    uint64
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name:    "normal case without cas",
+			line:    []byte("VALUE mykey 123 456"),
+			withCas: false,
+			wantItem: &Item{
+				Key:   "mykey",
+				Flags: 123,
+				CAS:   0,
+			},
+			wantLen: 456,
+			wantErr: false,
+		},
+		{
+			name:    "normal case with cas",
+			line:    []byte("VALUE mykey 123 456 789"),
+			withCas: true,
+			wantItem: &Item{
+				Key:   "mykey",
+				Flags: 123,
+				CAS:   789,
+			},
+			wantLen: 456,
+			wantErr: false,
+		},
+		{
+			name:       "invalid flags",
+			line:       []byte("VALUE mykey abc 456"),
+			withCas:    false,
+			wantItem:   &Item{Key: "mykey"},
+			wantLen:    0,
+			wantErr:    true,
+			wantErrMsg: "invalid flags",
+		},
+		{
+			name:       "invalid data length",
+			line:       []byte("VALUE mykey 123 abc "),
+			withCas:    false,
+			wantItem:   &Item{Key: "mykey", Flags: 123},
+			wantLen:    0,
+			wantErr:    true,
+			wantErrMsg: "invalid data length",
+		},
+		{
+			name:       "too many fields without cas",
+			line:       []byte("VALUE mykey 123 456 789 extra "),
+			withCas:    false,
+			wantItem:   &Item{},
+			wantLen:    0,
+			wantErr:    true,
+			wantErrMsg: "invalid VALUE line",
+		},
+		{
+			name:       "too many fields with cas",
+			line:       []byte("VALUE mykey 123 456 789 extra more"),
+			withCas:    true,
+			wantItem:   &Item{},
+			wantLen:    0,
+			wantErr:    true,
+			wantErrMsg: "invalid VALUE line",
+		},
+		{
+			name:    "empty line",
+			line:    []byte("VALUE "),
+			withCas: false,
+			wantItem: &Item{
+				Key:   "",
+				Flags: 0,
+				CAS:   0,
+			},
+			wantLen: 0,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := &Item{}
+			gotLen, err := parseValueLine(tt.line, item, tt.withCas)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.True(t, errors.Is(err, ErrMalformedResponse))
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantLen, gotLen)
+				assert.Equal(t, tt.wantItem.Key, item.Key)
+				assert.Equal(t, tt.wantItem.Flags, item.Flags)
+				assert.Equal(t, tt.wantItem.CAS, item.CAS)
+			}
+		})
+	}
 }

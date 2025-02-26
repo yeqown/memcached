@@ -1,1 +1,4 @@
 results/
+cpu.pprof
+mem.pprof
+benchmark.test

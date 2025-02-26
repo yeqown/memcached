@@ -16,8 +16,11 @@ var (
 
 // mockConn is an implementation of the memcachedConn interface for testing purposes.
 type mockConn struct {
-	createdAt  time.Time
-	returnedAt time.Time
+	createdAt     time.Time
+	returnedAt    time.Time
+	readDeadline  time.Time
+	writeDeadline time.Time
+	pool          *connPool
 }
 
 func newMockConn() *mockConn {
@@ -58,11 +61,34 @@ func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
 	return m.returnedAt.Sub(since), false
 }
 
-func (m *mockConn) returnTo() { m.returnedAt = time.Now() }
+func (m *mockConn) release() error {
+	m.returnedAt = time.Now()
+	return nil
+}
 
-func (m *mockConn) setReadDeadline(d *time.Time) error { _ = d; return nil }
+func (m *mockConn) setConnPool(pool *connPool) { m.pool = pool }
 
-func (m *mockConn) setWriteDeadline(d *time.Time) error { _ = d; return nil }
+func (m *mockConn) getConnPool() *connPool { return m.pool }
+
+func (m *mockConn) setReadDeadline(d time.Time) error {
+	if d.IsZero() {
+		m.readDeadline = zeroTime
+		return nil
+	}
+
+	m.readDeadline = d
+	return nil
+}
+
+func (m *mockConn) setWriteDeadline(d time.Time) error {
+	if d.IsZero() {
+		m.writeDeadline = zeroTime
+		return nil
+	}
+
+	m.writeDeadline = d
+	return nil
+}
 
 func createConn(_ context.Context) (memcachedConn, error) {
 	return newMockConn(), nil

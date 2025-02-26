@@ -119,6 +119,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 		AddString("ms").
 		AddBytes(key).
 		AddInt(len(value))
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagBool("c", flags.c)
@@ -139,11 +140,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 		AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte("ms"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("ms"), key, raw)
 
 	var resp *response
 	if flags.q {
@@ -288,6 +285,7 @@ func buildMetaGetCommand(key []byte, flags *metaGetFlags) (*request, *response) 
 	b := newProtocolBuilder().
 		AddString("mg").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagBool("c", flags.c)
@@ -309,12 +307,7 @@ func buildMetaGetCommand(key []byte, flags *metaGetFlags) (*request, *response) 
 
 	raw := b.AddCRLF().
 		build()
-
-	req := &request{
-		cmd: []byte("mg"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("mg"), key, raw)
 
 	var resp *response
 	if flags.q {
@@ -499,6 +492,7 @@ func buildMetaDeleteCommand(key []byte, flags *metaDeleteFlags) (*request, *resp
 	b := newProtocolBuilder().
 		AddString("md").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagUint("C", flags.C)
@@ -513,11 +507,7 @@ func buildMetaDeleteCommand(key []byte, flags *metaDeleteFlags) (*request, *resp
 	raw := b.AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte("md"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("md"), key, raw)
 
 	var resp *response
 	if flags.q {
@@ -632,6 +622,7 @@ func buildMetaArithmeticCommand(key []byte, delta uint64, flags *metaArithmeticF
 	b := newProtocolBuilder().
 		AddString("ma").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagUint("C", flags.C)
@@ -649,12 +640,7 @@ func buildMetaArithmeticCommand(key []byte, delta uint64, flags *metaArithmeticF
 	b.AddFlagBool("k", flags.k)
 
 	raw := b.AddCRLF().build()
-
-	req := &request{
-		cmd: []byte("ma"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("ma"), key, raw)
 
 	var resp *response
 	if flags.q {
@@ -689,14 +675,11 @@ func buildMetaDebugCommand(key []byte, flags *metaDebugFlags) (*request, *respon
 	b := newProtocolBuilder().
 		AddString("me").
 		AddBytes(key)
+	defer b.release()
 
 	b.AddFlagBool("b", flags.b).AddCRLF()
 
-	req := &request{
-		cmd: []byte("me"),
-		raw: b.build(),
-	}
-
+	req := buildRequest([]byte("me"), key, b.build())
 	resp := buildLimitedLineResponse(1)
 
 	return req, resp
@@ -759,11 +742,7 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 }
 
 func buildMetaNoOpCommand() (*request, *response) {
-	req := &request{
-		cmd: []byte("mn"),
-		raw: []byte("noop\r\n"),
-	}
-
+	req := buildRequest([]byte("mn"), nil, []byte("noop\r\n"))
 	resp := buildLimitedLineResponse(1)
 	return req, resp
 }

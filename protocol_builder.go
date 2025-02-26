@@ -6,6 +6,9 @@ import (
 	"encoding/base64"
 	"math"
 	"strconv"
+	"sync"
+	"time"
+	"unsafe"
 
 	"github.com/pkg/errors"
 )
@@ -75,6 +78,27 @@ func forecastCommonFaultLine(line []byte) error {
 	return nil
 }
 
+const (
+	// defaultBufferSize is the default size of the buffer.
+	// TODO: It is used to avoid the buffer growth, but is 64B the most common case?
+	defaultBufferSize = 64
+)
+
+var (
+	bufferPool = sync.Pool{
+		New: func() any {
+			return bytes.NewBuffer(make([]byte, 0, defaultBufferSize))
+		},
+	}
+	builderPool = sync.Pool{
+		New: func() any {
+			return &protocolBuilder{
+				buf: bufferPool.Get().(*bytes.Buffer),
+			}
+		},
+	}
+)
+
 // The protocolBuilder is used to build a protocol message.
 // We can use it build request command quickly with chaining method like this:
 //
@@ -87,13 +111,28 @@ func forecastCommonFaultLine(line []byte) error {
 // set key 0 0 5\r\n
 // value\r\n
 type protocolBuilder struct {
-	buf bytes.Buffer
+	buf *bytes.Buffer
 }
 
 func newProtocolBuilder() *protocolBuilder {
-	return &protocolBuilder{
-		buf: bytes.Buffer{},
+	pb := builderPool.Get().(*protocolBuilder)
+	if pb.buf == nil {
+		pb.buf = bufferPool.Get().(*bytes.Buffer)
+	} else {
+		pb.buf.Reset()
 	}
+
+	return pb
+}
+
+func (b *protocolBuilder) release() {
+	if b.buf != nil {
+		b.buf.Reset()
+		bufferPool.Put(b.buf)
+		b.buf = nil
+	}
+
+	builderPool.Put(b)
 }
 
 func (b *protocolBuilder) AddString(s string) *protocolBuilder {
@@ -165,7 +204,11 @@ func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
 }
 
 func (b *protocolBuilder) build() []byte {
-	result := b.buf.Bytes()
+	data := b.buf.Bytes()
+
+	result := make([]byte, len(data))
+	copy(result, data)
+
 	if bytes.HasSuffix(result, _SpaceBytes) {
 		result = result[:len(result)-1]
 	}
@@ -186,29 +229,65 @@ func withCRLF(bs []byte) []byte {
 	return append(bs, _CRLFBytes...)
 }
 
+var requestPool = sync.Pool{
+	New: func() any {
+		return &request{
+			cmd: nil,
+			key: nil,
+			raw: nil,
+		}
+	},
+}
+
 type request struct {
 	cmd []byte // command name
 	key []byte // key is nil if the command DOES NOT need key
 	raw []byte
 }
 
-func (req *request) send(ctx context.Context, rr memcachedConn) (err error) {
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = rr.setWriteDeadline(&deadline)
-		defer func() { _ = rr.setWriteDeadline(nil) }()
+func buildRequest(cmd []byte, key []byte, raw []byte) *request {
+	req := requestPool.Get().(*request)
+	req.cmd = cmd
+	req.key = key
+	req.raw = raw
+	return req
+}
+
+func (req *request) release() {
+	req.cmd = nil
+	req.key = nil
+	req.raw = nil
+
+	requestPool.Put(req)
+}
+
+func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout time.Duration) (err error) {
+	if has := selectProximateDeadline(ctx, rr, writeTimeout, nowFunc, false); has {
+		defer func() { _ = rr.setWriteDeadline(zeroTime) }()
 	}
 	_, err = rr.Write(req.raw)
 
 	return err
 }
 
+var responsePool = sync.Pool{
+	New: func() any {
+		return &response{
+			endIndicator: endIndicatorNoReply,
+			limitedLines: 0,
+			specEndLine:  nil,
+			rawLines:     nil,
+		}
+	},
+}
+
 type responseEndIndicator uint8
 
 const (
+	endIndicatorUnknown responseEndIndicator = iota
 	// endIndicatorNoReply indicates the response is no reply
 	// and the client should not wait for the response.
-	endIndicatorNoReply responseEndIndicator = iota
+	endIndicatorNoReply
 	// endIndicatorLimitedLines indicates the response is limited lines,
 	// the client should read line from response with limited lines with delimiter '\n'.
 	endIndicatorLimitedLines
@@ -238,11 +317,43 @@ type response struct {
 	rawLines [][]byte
 }
 
-func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
-	deadline, ok := ctx.Deadline()
-	if ok {
-		_ = rr.setReadDeadline(&deadline)
-		defer func() { _ = rr.setReadDeadline(nil) }()
+func buildNoReplyResponse() *response {
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorNoReply
+	return resp
+}
+
+func buildLimitedLineResponse(lines uint8) *response {
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorLimitedLines
+	resp.limitedLines = lines
+	resp.rawLines = make([][]byte, 0, lines)
+	return resp
+}
+
+func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
+	if predictLines <= 0 {
+		predictLines = 8
+	}
+
+	resp := responsePool.Get().(*response)
+	resp.endIndicator = endIndicatorSpecificEndLine
+	resp.specEndLine = endLine
+	resp.rawLines = make([][]byte, 0, predictLines)
+	return resp
+}
+
+func (resp *response) release() {
+	resp.endIndicator = endIndicatorUnknown
+	resp.limitedLines = 0
+	resp.specEndLine = nil
+	resp.rawLines = nil
+	responsePool.Put(resp)
+}
+
+func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout time.Duration) error {
+	if has := selectProximateDeadline(ctx, rr, readTimeout, nowFunc, true); has {
+		defer func() { _ = rr.setReadDeadline(zeroTime) }()
 	}
 
 	switch resp.endIndicator {
@@ -256,9 +367,47 @@ func (resp *response) recv(ctx context.Context, rr memcachedConn) error {
 		return resp.read1(rr)
 	case endIndicatorSpecificEndLine:
 		return resp.read2(rr)
+	default:
 	}
 
 	return ErrUnknownIndicator
+}
+
+func selectProximateDeadline(
+	ctx context.Context, rr memcachedConn, timeout time.Duration, nowFunc nowFuncType, isRead bool) (ok bool) {
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout < 0 {
+		timeout = 0
+	}
+
+	var (
+		deadline time.Time
+		has      bool
+	)
+	if timeout > 0 {
+		deadline = nowFunc().Add(timeout)
+		has = true
+	}
+
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if !has || ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+			has = true
+		}
+	}
+
+	if has {
+		if isRead {
+			_ = rr.setReadDeadline(deadline)
+		} else {
+			_ = rr.setWriteDeadline(deadline)
+		}
+	}
+
+	return has
 }
 
 // read1 reads the response from the connection with limited lines.
@@ -316,8 +465,8 @@ func (resp *response) expect(line []byte) error {
 	if resp.endIndicator == endIndicatorNoReply {
 		return nil
 	}
-	if len(resp.rawLines) != 1 {
-		return errors.Wrap(ErrMalformedResponse, "expect only 1 line, but got "+strconv.Itoa(len(resp.rawLines)))
+	if n := len(resp.rawLines); n != 1 {
+		return errors.Wrapf(ErrMalformedResponse, "expect only 1 line, but got %d", n)
 	}
 
 	if bytes.Equal(resp.rawLines[0], line) {
@@ -329,37 +478,6 @@ func (resp *response) expect(line []byte) error {
 		return errors.New(message + string(resp.rawLines[0]))
 	}
 	return errors.New(message + string(resp.rawLines[0]))
-}
-
-func buildNoReplyResponse() *response {
-	return &response{
-		endIndicator: endIndicatorNoReply,
-		limitedLines: 0,
-		specEndLine:  nil,
-		rawLines:     nil,
-	}
-}
-
-func buildLimitedLineResponse(lines uint8) *response {
-	return &response{
-		endIndicator: endIndicatorLimitedLines,
-		limitedLines: lines,
-		specEndLine:  nil,
-		rawLines:     make([][]byte, 0, lines),
-	}
-}
-
-func buildSpecEndLineResponse(endLine []byte, predictLines int) *response {
-	if predictLines <= 0 {
-		predictLines = 8
-	}
-
-	return &response{
-		endIndicator: endIndicatorSpecificEndLine,
-		limitedLines: 0,
-		specEndLine:  endLine,
-		rawLines:     make([][]byte, 0, predictLines),
-	}
 }
 
 func base64Encode(src []byte) []byte {
@@ -376,4 +494,22 @@ func base64Decode(src []byte) ([]byte, error) {
 	}
 
 	return dst[:n], nil
+}
+
+func releaseReqAndResp(req *request, resp *response) {
+	if req != nil {
+		req.release()
+	}
+
+	if resp != nil {
+		resp.release()
+	}
+}
+
+func unsafeStringToByteSlice(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+func unsafeByteSliceToString(bs []byte) string {
+	return unsafe.String(unsafe.SliceData(bs), len(bs))
 }

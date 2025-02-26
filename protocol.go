@@ -7,8 +7,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// TODO(@yeqown): reuse response and request objects in following building functions.
-
 // Item represents a key-value pair to be got or stored.
 type Item struct {
 	Key   string
@@ -91,20 +89,14 @@ type MetaItemDebug struct {
 	Size           uint64 // size
 }
 
-func buildVersionCommand() *request {
-	return &request{
-		cmd: []byte("version"),
-		key: nil,
-		raw: []byte("version\r\n"),
-	}
+func buildVersionCommand() (*request, *response) {
+	req := buildRequest([]byte("version"), nil, []byte("version\r\n"))
+	resp := buildLimitedLineResponse(1)
+	return req, resp
 }
 
 func buildFlushAllCommand(noReply bool) (*request, *response) {
-	req := &request{
-		cmd: []byte("flush_all"),
-		key: nil,
-		raw: []byte("flush_all\r\n"),
-	}
+	req := buildRequest([]byte("flush_all"), nil, []byte("flush_all\r\n"))
 
 	var resp *response
 	if noReply {
@@ -129,6 +121,7 @@ func buildStorageCommand(command, key string, value []byte, flags, expTime uint3
 		AddUint(uint64(flags)).   // flags
 		AddUint(uint64(expTime)). // exptime
 		AddInt(len(value))        // bytes
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -139,11 +132,7 @@ func buildStorageCommand(command, key string, value []byte, flags, expTime uint3
 		AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte(command),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte(command), []byte(key), raw)
 
 	var resp *response
 	if noReply {
@@ -160,17 +149,13 @@ func buildDeleteCommand(key string, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("delete").
 		AddString(key)
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
 	}
 
-	req := &request{
-		cmd: []byte("delete"),
-		key: []byte(key),
-		raw: b.AddCRLF().
-			build(),
-	}
+	req := buildRequest([]byte("delete"), []byte(key), b.AddCRLF().build())
 
 	var resp *response
 	if noReply {
@@ -188,19 +173,13 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 		AddString("touch").
 		AddString(key).
 		AddUint(uint64(expTime))
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
 	}
 
-	raw := b.AddCRLF().
-		build()
-
-	req := &request{
-		cmd: []byte("touch"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("touch"), []byte(key), b.AddCRLF().build())
 
 	var resp *response
 	if noReply {
@@ -222,6 +201,7 @@ func buildCasCommand(
 		AddUint(uint64(expTime)).  // exptime
 		AddInt(len(value)).        // bytes
 		AddUint(uint64(casUnique)) // cas unique
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)
@@ -232,11 +212,7 @@ func buildCasCommand(
 		AddCRLF().
 		build()
 
-	req := &request{
-		cmd: []byte("cas"),
-		key: []byte(key),
-		raw: raw,
-	}
+	req := buildRequest([]byte("cas"), []byte(key), raw)
 
 	var resp *response
 	if noReply {
@@ -253,18 +229,14 @@ func buildCasCommand(
 func buildGetsCommand(command string, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command)
+	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
 	}
 	b.AddCRLF()
 
-	req := &request{
-		cmd: []byte(command),
-		key: nil,
-		raw: b.build(),
-	}
-
+	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
@@ -275,6 +247,7 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command)
+	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
@@ -283,12 +256,7 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 	b.AddUint(uint64(expiry)).
 		AddCRLF()
 
-	req := &request{
-		cmd: []byte(command),
-		key: []byte(keys[0]),
-		raw: b.build(),
-	}
-
+	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
@@ -304,9 +272,7 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 // <data block>\r\n
 // ...
 // END\r\n
-func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
-	var items []*Item
-
+func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, err error) {
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
@@ -318,10 +284,9 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 	}
 
 	var (
-		rn             = n
-		flags, dataLen uint64
-		cas            uint64
-		err            error
+		rn      = n
+		items   = make([]*Item, 0, (n/2)+1) // pre-alloc to avoid memory allocation
+		dataLen uint64
 	)
 
 	if !withoutEndLine {
@@ -329,67 +294,126 @@ func parseValueItems(lines [][]byte, withoutEndLine bool) ([]*Item, error) {
 		rn = n - 1
 	}
 
-	const (
-		keyIndex     = 1
-		flagsIndex   = 2
-		dataLenIndex = 3
-		casIndex     = 4
-
-		withCasLen = 5
-	)
-
 	for i := 0; i < rn; i += 2 {
 		line := trimCRLF(lines[i])
-		cas = 0
-
 		if !bytes.HasPrefix(line, _ValueBytes) {
 			continue
 		}
 
-		parts := bytes.Split(line, _SpaceBytes)
-		if len(parts) < 4 {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+		item := &Item{
+			Key:   "",
+			Value: nil,
+			Flags: 0,
+			CAS:   0,
 		}
-
-		flagsBytes := parts[flagsIndex]
-		dataLenBytes := parts[dataLenIndex]
-		// Parse flags and data length
-		flags, err = strconv.ParseUint(string(flagsBytes), 10, 32)
+		dataLen, err = parseValueLine(line, item, withCAS)
 		if err != nil {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid flags")
-		}
-		dataLen, err = strconv.ParseUint(string(dataLenBytes), 10, 64)
-		if err != nil {
-			return nil, errors.Wrap(ErrMalformedResponse, "invalid bytes length")
-		}
-		// Parse cas unique if exists
-		if len(parts) == withCasLen {
-			casBytes := parts[casIndex]
-			cas, err = strconv.ParseUint(string(casBytes), 10, 64)
-			if err != nil {
-				return nil, errors.Wrap(ErrMalformedResponse, "invalid cas unique")
-			}
+			return nil, err
 		}
 
 		// Read the data block
 		if i+1 >= n {
 			return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
 		}
-		data := trimCRLF(lines[i+1])
-		if len(data) != int(dataLen) {
+		item.Value = trimCRLF(lines[i+1])
+		if len(item.Value) != int(dataLen) {
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
 
-		item := &Item{
-			Key:   string(parts[keyIndex]),
-			Value: data,
-			Flags: uint32(flags),
-			CAS:   cas,
-		}
 		items = append(items, item)
 	}
 
 	return items, nil
+}
+
+// parseValueLine extract item from VALUE line, like following:
+// VALUE <key> <flags> <bytes> <cas unique> => Item{key, flags, cas}
+//
+// if withCas is false, VALUE line is:
+// VALUE <key> <flags> <bytes> => Item{key, flags, 0}
+func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err error) {
+	const (
+		keyIndex     = 1
+		flagsIndex   = 2
+		dataLenIndex = 3
+		casIndex     = 4
+	)
+
+	n := len(line)
+	start := len(_ValueBytes)
+	fieldStart := start
+	nField := 0
+
+	for i := start; i < n; i++ {
+		if nField > 5 || (!withCas && nField > 4) {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+		}
+
+		if line[i] != ' ' && i != n-1 {
+			continue
+		}
+
+		// another field starts from fieldStart to i, or the last field
+		// the 'i' is the index of space or the last byte.
+		switch nField {
+		case keyIndex:
+			item.Key = unsafeByteSliceToString(line[fieldStart:i])
+		case flagsIndex:
+			flags, err := parseUintFromBytes(line[fieldStart:i])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
+			}
+			item.Flags = uint32(flags)
+		case dataLenIndex:
+			si := i
+			if i == n-1 {
+				si = i + 1
+			}
+			dataLen, err = parseUintFromBytes(line[fieldStart:si])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid data length")
+			}
+		case casIndex:
+			si := i
+			if i == n-1 {
+				si = i + 1
+			}
+			item.CAS, err = parseUintFromBytes(line[fieldStart:si])
+			if err != nil {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid CAS")
+			}
+		}
+
+		fieldStart = i + 1
+		nField++
+	}
+
+	return dataLen, nil
+}
+
+// parseUintFromBytes parses slice of bytes to uint64.
+//
+// For example:
+// []byte("1234567890") -> 1234567890
+//
+// If the slice of bytes is empty, it returns 0.
+//
+// If the slice of bytes contains non-digit characters, it returns an error.
+func parseUintFromBytes(bs []byte) (uint64, error) {
+	if len(bs) == 0 {
+		return 0, nil
+	}
+
+	r := uint64(0)
+	for _, b := range bs {
+		if b < '0' || b > '9' {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid uint number")
+		}
+
+		r = r*10 + uint64(b-'0')
+	}
+
+	return r, nil
 }
 
 // incr/decr <key> <value> [noreply]\r\n
@@ -398,6 +422,7 @@ func buildArithmeticCommand(command, key string, delta uint64, noReply bool) (*r
 		AddString(command).
 		AddString(key).
 		AddUint(delta)
+	defer b.release()
 
 	if noReply {
 		b.AddBytes(_NoReplyBytes)

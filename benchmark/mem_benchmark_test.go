@@ -15,6 +15,8 @@ var (
 	testValue = []byte("test_value")
 )
 
+// BenchmarkYeqownMemcached
+// go test -benchmem -run=^$ -bench ^BenchmarkYeqownMemcached$ -count 10 -benchmem
 func BenchmarkYeqownMemcached(b *testing.B) {
 	client, err := memcached.New("localhost:11211")
 	if err != nil {
@@ -22,12 +24,14 @@ func BenchmarkYeqownMemcached(b *testing.B) {
 	}
 	defer client.Close()
 
+	ctx := context.Background()
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := client.Set(context.Background(), testKey, testValue, 0, 0); err != nil {
+		if err := client.Set(ctx, testKey, testValue, 0, 0); err != nil {
 			b.Fatal(err)
 		}
-		if _, err := client.Get(context.Background(), testKey); err != nil {
+		if _, err := client.Get(ctx, testKey); err != nil {
 			b.Fatal(err)
 		}
 	}

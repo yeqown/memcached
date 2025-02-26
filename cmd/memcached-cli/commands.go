@@ -463,6 +463,8 @@ func ignoreMemcachedError(err error) error {
 		return nil
 	}
 
+	logger.Debugf("ignoreMemcachedError handling err: %v", err)
+
 	var memErrs = []error{
 		memcached.ErrNonexistentCommand,
 		memcached.ErrClientError,

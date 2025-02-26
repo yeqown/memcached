@@ -13,7 +13,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-var nowFunc = time.Now
+type nowFuncType func() time.Time
+
+var nowFunc nowFuncType = time.Now
 
 // Addr represents a memcached server address.
 type Addr struct {
@@ -77,11 +79,14 @@ type memcachedConn interface {
 	// idle returns bool whether memcachedConn stays idle since the given time(since).
 	// if false, the duration of time since the connection is idle will be returned.
 	idle(since time.Time) (time.Duration, bool)
-	// returnTo returns the connection to the pool.
-	returnTo()
 
-	setReadDeadline(d *time.Time) error
-	setWriteDeadline(d *time.Time) error
+	// release returns the connection to the pool.
+	release() error
+	setConnPool(p *connPool)
+	getConnPool() *connPool
+
+	setReadDeadline(d time.Time) error
+	setWriteDeadline(d time.Time) error
 }
 
 var (
@@ -102,16 +107,17 @@ type conn struct {
 	sync.Mutex // guards following
 	raw        net.Conn
 	closed     bool
+	pool       *connPool
 
 	rr *bufio.Reader
 	wr *bufio.Writer
 }
 
-func newConn(addr *Addr, dialTimeout time.Duration) (*conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
-	defer cancel()
-	return newConnContext(ctx, addr, dialTimeout)
-}
+// func newConn(addr *Addr, dialTimeout time.Duration) (*conn, error) {
+// 	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+// 	defer cancel()
+// 	return newConnContext(ctx, addr, dialTimeout)
+// }
 
 // newConnWithContext dials a TCP connection
 func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) (*conn, error) {
@@ -136,22 +142,30 @@ func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) 
 	return cn, nil
 }
 
+func (c *conn) getConnPool() *connPool {
+	return c.pool
+}
+
+func (c *conn) setConnPool(p *connPool) {
+	c.pool = p
+}
+
 var zeroTime = time.Time{}
 
-func (c *conn) setReadDeadline(d *time.Time) error {
-	if d == nil {
+func (c *conn) setReadDeadline(d time.Time) error {
+	if d.IsZero() {
 		return c.raw.SetReadDeadline(zeroTime)
 	}
 
-	return c.raw.SetReadDeadline(*d)
+	return c.raw.SetReadDeadline(d)
 }
 
-func (c *conn) setWriteDeadline(d *time.Time) error {
-	if d == nil {
+func (c *conn) setWriteDeadline(d time.Time) error {
+	if d.IsZero() {
 		return c.raw.SetWriteDeadline(zeroTime)
 	}
 
-	return c.raw.SetWriteDeadline(*d)
+	return c.raw.SetWriteDeadline(d)
 }
 
 func (c *conn) readLine(delim byte) ([]byte, error) {
@@ -224,8 +238,12 @@ func (c *conn) idle(since time.Time) (time.Duration, bool) {
 	return c.returnedAt.Sub(since), false
 }
 
-func (c *conn) returnTo() {
+func (c *conn) release() error {
+	_ = c.setReadDeadline(zeroTime)
+	_ = c.setWriteDeadline(zeroTime)
 	c.returnedAt = nowFunc()
+	// put the connection back to the pool
+	return c.pool.put(c)
 }
 
 // The connPool holds a pool of connections to one memcached server instance
@@ -334,6 +352,7 @@ func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
 		if err != nil {
 			return nil, err
 		}
+		cn.setConnPool(p)
 		p.numOpen.Add(1)
 
 		return cn, nil
@@ -360,7 +379,6 @@ func (p *connPool) put(cn memcachedConn) error {
 
 	select {
 	case p.conns <- cn:
-		cn.returnTo()
 		p.startCleanerLocked()
 		p.mu.Unlock()
 		return nil

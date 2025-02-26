@@ -8,6 +8,9 @@ Comparing following three implementations:
 
 ## How to run
 
+> **NOTE**: Make sure you have installed `benchstat`.
+> And we can use `go build -gcflags="-m" ./...` to check the escape analysis.
+
 ```bash
 # install benchcmp
 go install golang.org/x/tools/cmd/benchcmp@latest
@@ -51,4 +54,15 @@ benchstat results/bradfitz_concurrent.txt results/yeqown_concurrent.txt
 
 ```plain
 TODO:
+```
+
+3. benchmark profile
+
+```bash
+mkdir -p results
+go test -bench=^BenchmarkYeqownMemcachedConcurrent$ -count=10 -benchmem -memprofile=results/mem.pprof -cpuprofile=results/cpu.pprof
+
+# view profile
+go tool pprof -http=:8080 results/cpu.pprof
+go tool pprof -http=:8081 results/mem.pprof
 ```
