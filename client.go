@@ -139,7 +139,9 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error)
 	return cn, err
 }
 
-func (c *client) broadcastRequest(ctx context.Context, req *request, resp *response) error {
+type callFunc func(ctx context.Context, conn memcachedConn) error
+
+func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -148,17 +150,6 @@ func (c *client) broadcastRequest(ctx context.Context, req *request, resp *respo
 
 	wg := sync.WaitGroup{}
 
-	execute := func(cn memcachedConn) error {
-		if err := req.send(ctx, cn, c.options.writeTimeout); err != nil {
-			return errors.Wrap(err, "send failed")
-		}
-
-		if err := resp.recv(ctx, cn, c.options.readTimeout); err != nil {
-			return errors.Wrap(err, "recv failed")
-		}
-
-		return nil
-	}
 	errCh := make(chan error, len(c.addrs))
 
 	for _, addr := range c.addrs {
@@ -174,7 +165,7 @@ func (c *client) broadcastRequest(ctx context.Context, req *request, resp *respo
 			}
 			defer func() { _ = cn.release() }()
 
-			if err = execute(cn); err != nil {
+			if err = call(ctx, cn); err != nil {
 				errCh <- err
 			}
 		}()

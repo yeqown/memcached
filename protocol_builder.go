@@ -465,8 +465,8 @@ func (resp *response) expect(line []byte) error {
 	if resp.endIndicator == endIndicatorNoReply {
 		return nil
 	}
-	if len(resp.rawLines) != 1 {
-		return errors.Wrap(ErrMalformedResponse, "expect only 1 line, but got "+strconv.Itoa(len(resp.rawLines)))
+	if n := len(resp.rawLines); n != 1 {
+		return errors.Wrapf(ErrMalformedResponse, "expect only 1 line, but got %d", n)
 	}
 
 	if bytes.Equal(resp.rawLines[0], line) {

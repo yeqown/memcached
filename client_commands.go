@@ -408,16 +408,27 @@ func (c *client) Version(ctx context.Context) (string, error) {
 }
 
 func (c *client) FlushAll(ctx context.Context) error {
-	req, resp := buildFlushAllCommand(c.options.noReply)
-	defer releaseReqAndResp(req, resp)
+	call := func(ctx context.Context, cn memcachedConn) error {
+		req, resp := buildFlushAllCommand(c.options.noReply)
+		defer releaseReqAndResp(req, resp)
 
-	if err := c.broadcastRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		if err := req.send(ctx, cn, c.options.writeTimeout); err != nil {
+			return errors.Wrap(err, "send failed")
+		}
+		if err := resp.recv(ctx, cn, c.options.readTimeout); err != nil {
+			return errors.Wrap(err, "recv failed")
+		}
+
+		// expect OK\r\n
+		if err := resp.expect(_OKCRLFBytes); err != nil {
+			return errors.Wrap(ErrMalformedResponse, err.Error())
+		}
+
+		return nil
 	}
 
-	// expect OK\r\n
-	if err := resp.expect(_OKCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+	if err := c.broadcastRequest(ctx, call); err != nil {
+		return errors.Wrap(err, "request failed")
 	}
 
 	return nil
