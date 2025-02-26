@@ -285,7 +285,7 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, e
 
 	var (
 		rn      = n
-		items   = make([]*Item, 0, n/2) // pre-alloc to avoid memory allocation
+		items   = make([]*Item, 0, (n/2)+1) // pre-alloc to avoid memory allocation
 		dataLen uint64
 	)
 
