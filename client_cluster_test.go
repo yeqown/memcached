@@ -56,12 +56,12 @@ func Test_defaultResolver_Resolve_multiType(t *testing.T) {
 		{
 			name: "case1: v4 with domain host",
 			args: args{
-				addr: "memcached.example.com:11211",
+				addr: "google.com:11211",
 			},
 			wantErr: false,
 			wantAddr: Addr{
 				Network:  "tcp",
-				Address:  "memcached.example.com:11211",
+				Address:  "google.com:11211",
 				Priority: 0,
 				metadata: map[string]any{},
 			},
