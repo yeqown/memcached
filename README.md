@@ -1,3 +1,5 @@
+<img src="./docs/memcached-cli.svg">
+
 ## Memcached
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/yeqown/memcached.svg)](https://pkg.go.dev/github.com/yeqown/memcached) [![Go Report Card](https://goreportcard.com/badge/github.com/yeqown/memcached)](https://goreportcard.com/report/github.com/yeqown/memcached)  [![GitHub license](https://img.shields.io/github/license/yeqown/memcached)](https://github.com/yeqown/memcached/blob/master/LICENSE) [![GitHub release](https://img.shields.io/github/release/yeqown/memcached.svg)](https://github.com/yeqown/memcached/releases) [![GitHub stars](https://img.shields.io/github/stars/yeqown/memcached.svg)](https://github.com/yeqown/memcached/stargazers) [![GitHub issues](https://img.shields.io/github/issues/yeqown/memcached.svg)](https://github.com/yeqown/memcached/issues) [![Build Status](https://github.com/yeqown/memcached/workflows/Go/badge.svg)](https://github.com/yeqown/memcached/actions) [![codecov](https://codecov.io/gh/yeqown/memcached/branch/master/graph/badge.svg)](https://codecov.io/gh/yeqown/memcached)
