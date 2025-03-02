@@ -2,7 +2,7 @@ package memcached
 
 import (
 	"hash/crc32"
-	"net/url"
+	"net"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -14,8 +14,7 @@ import (
 // to a list of Addr, and also support custom address format.
 //
 // TODO: resolver should be periodically refreshed, so that we can
-//
-//	eliminate the dead Addr from the cluster. But this is an optional feature.
+// eliminate the dead Addr from the cluster. But this is an optional feature.
 type Resolver interface {
 	Resolve(addr string) ([]*Addr, error)
 }
@@ -53,11 +52,13 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 			continue
 		}
 
-		if _, err := url.Parse(address); err != nil {
+		// TODO: support udp and unix socket address format.
+		v, err := net.ResolveTCPAddr("tcp", address)
+		if err != nil {
 			return nil, errors.Wrap(err, "invalid address: "+address)
 		}
 
-		result = append(result, NewAddr("tcp", address, idx))
+		result = append(result, NewAddr(v.Network(), address, idx))
 	}
 
 	if len(result) == 0 {
