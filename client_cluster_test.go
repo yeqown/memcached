@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func newDefaultResolver() Resolver {
+func newDefaultResolver() defaultResolver {
 	return defaultResolver{}
 }
 
@@ -29,68 +29,53 @@ func Test_defaultResolver_Resolve(t *testing.T) {
 	}
 }
 
-func Test_defaultResolver_Resolve_multiType(t *testing.T) {
+func Test_defaultResolver_resolveAddr(t *testing.T) {
 	type args struct {
 		addr string
 	}
 
 	tests := []struct {
-		name     string
-		args     args
-		wantErr  bool
-		wantAddr Addr
+		name        string
+		args        args
+		wantErr     bool
+		wantNetwork string
+		wantAddress string
 	}{
 		{
 			name: "case1: v4",
 			args: args{
 				addr: "localhost:11211",
 			},
-			wantErr: false,
-			wantAddr: Addr{
-				Network:  "tcp",
-				Address:  "localhost:11211",
-				Priority: 0,
-				metadata: map[string]any{},
-			},
+			wantErr:     false,
+			wantNetwork: "tcp",
+			wantAddress: "localhost:11211",
 		},
 		{
 			name: "case1: v4 with domain host",
 			args: args{
 				addr: "google.com:11211",
 			},
-			wantErr: false,
-			wantAddr: Addr{
-				Network:  "tcp",
-				Address:  "google.com:11211",
-				Priority: 0,
-				metadata: map[string]any{},
-			},
+			wantErr:     false,
+			wantNetwork: "tcp",
+			wantAddress: "google.com:11211",
 		},
 		{
 			name: "case2: ip v6",
 			args: args{
 				addr: "[::1]:11211",
 			},
-			wantErr: false,
-			wantAddr: Addr{
-				Network:  "tcp",
-				Address:  "[::1]:11211",
-				Priority: 0,
-				metadata: map[string]any{},
-			},
+			wantErr:     false,
+			wantNetwork: "tcp",
+			wantAddress: "[::1]:11211",
 		},
 		{
 			name: "case3: unix socket, not supported yet",
 			args: args{
 				addr: "unix:///tmp/memcached.sock",
 			},
-			wantErr: true,
-			wantAddr: Addr{
-				Network:  "unix",
-				Address:  "/tmp/memcached.sock",
-				Priority: 0,
-				metadata: map[string]any{},
-			},
+			wantErr:     false,
+			wantNetwork: "unix",
+			wantAddress: "/tmp/memcached.sock",
 		},
 		{
 			name: "case4: invalid address",
@@ -111,27 +96,30 @@ func Test_defaultResolver_Resolve_multiType(t *testing.T) {
 			args: args{
 				addr: "localhost:11211,localhost:11212,localhost:11213",
 			},
-			wantErr: false,
-			wantAddr: Addr{
-				Network:  "tcp",
-				Address:  "localhost:11211",
-				Priority: 0,
-				metadata: map[string]any{},
+			wantErr: true,
+		},
+		{
+			name: "case7: udp",
+			args: args{
+				addr: "udp://localhost:11211",
 			},
+			wantErr:     false,
+			wantNetwork: "udp",
+			wantAddress: "localhost:11211",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addrs, err := newDefaultResolver().Resolve(tt.args.addr)
+			network, addrs, err := newDefaultResolver().resolveAddr(tt.args.addr)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
 
 			assert.NoError(t, err)
-			assert.GreaterOrEqual(t, len(addrs), 1)
-			assert.Equal(t, tt.wantAddr, *addrs[0])
+			assert.Equal(t, tt.wantNetwork, network)
+			assert.Equal(t, tt.wantAddress, addrs)
 		})
 	}
 }

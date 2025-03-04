@@ -9,7 +9,16 @@ type ClientOption func(*clientOptions)
 
 type clientOptions struct {
 	pickBuilder Builder
-	resolver    Resolver
+
+	// resolver is the resolver for the client to resolve the given address
+	// to a list of Addr. It supports both single address and cluster address.
+	// .e.g.
+	//  1. single address: IP_ADDRESS:11211
+	// 	2. cluster address: IP_ADDRESS:11211,IP_ADDRESS:11212,IP_ADDRESS_ADDRESS:11211
+	//
+	// The defaultResolver supports tcp、udp and unix domain socket. Default is tcp if the address
+	// is not specified start with `udp://` or `unix://`.
+	resolver Resolver
 
 	// dialTimeout is the timeout for dialing a connection to the memcached server
 	// instance. Default is 5 seconds.
@@ -44,6 +53,9 @@ type clientOptions struct {
 	enableSASL    bool
 	plainUsername string
 	plainPassword string
+
+	// enableUDP means whether the client should use UDP datagram to send the request.
+	enableUDP bool
 }
 
 func newClientOptions() *clientOptions {
@@ -177,5 +189,13 @@ func WithSASL(username, password string) ClientOption {
 		o.enableSASL = true
 		o.plainUsername = username
 		o.plainPassword = password
+	}
+}
+
+// WithUDPEnabled sets the UDP mode for the client.
+// Note: UDP mode would affect all connections to all servers, NOT ONLY the udp servers.
+func WithUDPEnabled() ClientOption {
+	return func(o *clientOptions) {
+		o.enableUDP = true
 	}
 }

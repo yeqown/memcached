@@ -10,6 +10,18 @@ import (
 	"github.com/yeqown/memcached/hash"
 )
 
+var (
+	_ Resolver = defaultResolver{}
+
+	_ Builder = crc32HashPickBuilder{}
+	_ Builder = murmur3HashPickBuilder{}
+	_ Builder = rendezvousHashPickBuilder{}
+
+	_ Picker  = &crc32HashPicker{}
+	_ Builder = murmur3HashPickBuilder{}
+	_ Builder = rendezvousHashPickBuilder{}
+)
+
 // Resolver is responsible for resolving a given address
 // to a list of Addr, and also support custom address format.
 //
@@ -52,13 +64,12 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 			continue
 		}
 
-		// TODO: support udp and unix socket address format.
-		v, err := net.ResolveTCPAddr("tcp", address)
+		network, resolvedAddr, err := r.resolveAddr(address)
 		if err != nil {
-			return nil, errors.Wrap(err, "invalid address: "+address)
+			return nil, err
 		}
 
-		result = append(result, NewAddr(v.Network(), address, idx))
+		result = append(result, NewAddr(network, resolvedAddr, idx))
 	}
 
 	if len(result) == 0 {
@@ -66,6 +77,41 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 	}
 
 	return result, nil
+}
+
+// resolveAddr resolves single network address, supports tcp, udp and unix socket format.
+func (r defaultResolver) resolveAddr(address string) (network, addr string, err error) {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", "", errors.Wrap(ErrInvalidAddress, "empty address")
+	}
+
+	network = "tcp"
+	addr = address
+
+	// 检查地址格式并解析
+	if strings.HasPrefix(address, "unix://") {
+		network = "unix"
+		addr = strings.TrimPrefix(address, "unix://")
+	} else if strings.HasPrefix(address, "udp://") {
+		network = "udp"
+		addr = strings.TrimPrefix(address, "udp://")
+	}
+
+	switch network {
+	case "tcp":
+		_, err = net.ResolveTCPAddr(network, addr)
+	case "udp":
+		_, err = net.ResolveUDPAddr(network, addr)
+	case "unix":
+		_, err = net.ResolveUnixAddr(network, addr)
+	}
+
+	if err != nil {
+		return "", "", errors.Wrap(err, "invalid address: "+address)
+	}
+
+	return network, addr, nil
 }
 
 // The crc32HashPicker is the default implementation of Picker.

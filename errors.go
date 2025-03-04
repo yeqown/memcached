@@ -42,4 +42,6 @@ var (
 	ErrInvalidValue = errors.New("invalid value too long(over than 2^32)")
 	// ErrInvalidBinaryProtocol represents an invalid binary protocol error.
 	ErrInvalidBinaryProtocol = errors.New("invalid binary protocol")
+	// ErrInvalidNetworkProtocol represents an invalid network protocol error.
+	ErrInvalidNetworkProtocol = errors.New("invalid network protocol")
 )
