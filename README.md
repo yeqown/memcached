@@ -14,6 +14,7 @@ This is a golang package for [Memcached](https://memcached.org/). It is a simple
 - [x] Fully connection pool features support.
 - [x] CLI tool support.
 - [x] <del>SASL support.</del>
+- [x] support TCP、UDP and Unix domain socket transport.
 
 ### Installation
 
@@ -112,8 +113,8 @@ Now, we have implemented some commands, and we will implement more commands in t
 | MetaSet        | ✅      | `MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)`                      | Set a key's meta information                                      |
 | MetaDelete     | ✅      | `MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)`                       | Delete a key's meta information                                   |
 | MetaArithmetic | ✅      | `MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)` | Arithmetic a key's meta information                               |
-| MetaDebug      | ✅     | `MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error)`                    | Debug a key's meta information                                    |
-| MetaNoop       | ✅     | `MetaNoop(ctx context.Context) error`                                                                               | Noop a key's meta information                                     |
+| MetaDebug      | ✅      | `MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error)`                    | Debug a key's meta information                                    |
+| MetaNoop       | ✅      | `MetaNoop(ctx context.Context) error`                                                                               | Noop a key's meta information                                     |
 | Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                      | Get memcached server version                                      |
 | FlushAll       | ✅      | `FlushAll(ctx context.Context) error`                                                                               | Flush all keys in memcached server                                |
 
