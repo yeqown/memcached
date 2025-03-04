@@ -105,12 +105,15 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error)
 
 	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
 		switch addr.Network {
-		case "tcp", "tcp4", "tcp6":
-			cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
+		case
+			"tcp", "tcp4", "tcp6",
+			"unix",
+			"udp", "udp4", "udp6":
 		default:
-			// TODO(@yeqown): "udp", "unix" not supported yet
-			panic("not supported yet")
+			return nil, ErrInvalidNetworkProtocol
 		}
+
+		cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
 		if err != nil {
 			return nil, errors.Wrap(err, "newConnContext failed")
 		}
@@ -140,6 +143,11 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error)
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
+
+func (c *client) autoSwitchToUDP(_ context.Context, req *request, resp *response) {
+	req.udpEnabled = c.options.enableUDP
+	resp.udpEnabled = c.options.enableUDP
+}
 
 func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	select {
@@ -199,6 +207,8 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		return errors.Wrap(err, "alloc connection failed")
 	}
 	defer func() { _ = cn.release() }()
+
+	c.autoSwitchToUDP(ctx, req, resp)
 
 	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
 		return errors.Wrap(err, "send failed")

@@ -232,9 +232,10 @@ func withCRLF(bs []byte) []byte {
 var requestPool = sync.Pool{
 	New: func() any {
 		return &request{
-			cmd: nil,
-			key: nil,
-			raw: nil,
+			cmd:        nil,
+			key:        nil,
+			raw:        nil,
+			udpEnabled: false,
 		}
 	},
 }
@@ -243,6 +244,10 @@ type request struct {
 	cmd []byte // command name
 	key []byte // key is nil if the command DOES NOT need key
 	raw []byte
+
+	// this field is used to indicate whether the request is UDP enabled.
+	// And it's set by the memcached client before sending the request.
+	udpEnabled bool
 }
 
 func buildRequest(cmd []byte, key []byte, raw []byte) *request {
@@ -257,6 +262,7 @@ func (req *request) release() {
 	req.cmd = nil
 	req.key = nil
 	req.raw = nil
+	req.udpEnabled = false
 
 	requestPool.Put(req)
 }
@@ -265,8 +271,39 @@ func (req *request) send(ctx context.Context, rr memcachedConn, writeTimeout tim
 	if has := selectProximateDeadline(ctx, rr, writeTimeout, nowFunc, false); has {
 		defer func() { _ = rr.setWriteDeadline(zeroTime) }()
 	}
-	_, err = rr.Write(req.raw)
 
+	if req.udpEnabled {
+		return req.sendUDP(rr)
+	}
+
+	_, err = rr.Write(req.raw)
+	return err
+}
+
+// udpHeader is the header of UDP datagram, now it's simply set to fixed value.
+var udpHeader = []byte{
+	0x00,
+	0x01, // Request ID
+	0x00,
+	0x00, // Sequence Number
+	0x00,
+	0x01, // Total Number of datagrams in this message
+	0x00,
+	0x00, // Reserved for future use: must be set to 0
+}
+
+// sendUDP sends the request to the memcached server.
+// https://github.com/memcached/memcached/blob/master/doc/protocol.txt#L1875-L1914
+func (req *request) sendUDP(rr memcachedConn) (err error) {
+	// 0-1 Request ID
+	// 2-3 Sequence Number
+	// 4-5 Total Number of datagrams in this message
+	// 6-7 Reserved for future use: must be set to 0
+	datagram := make([]byte, 0, 8+len(req.raw))
+	datagram = append(datagram, udpHeader...)
+	datagram = append(datagram, req.raw...)
+
+	_, err = rr.Write(datagram)
 	return err
 }
 
@@ -277,6 +314,7 @@ var responsePool = sync.Pool{
 			limitedLines: 0,
 			specEndLine:  nil,
 			rawLines:     nil,
+			udpEnabled:   false,
 		}
 	},
 }
@@ -315,6 +353,10 @@ type response struct {
 	// .e.g. "VALUE key 0 5\r\nvalue\r\nEND\r\n" will be divided into
 	// ["VALUE key 0 5\r\n", "value\r\n", "END\r\n"].
 	rawLines [][]byte
+
+	// this field is used to indicate whether the request is UDP enabled.
+	// And it's set by the memcached client before sending the request.
+	udpEnabled bool
 }
 
 func buildNoReplyResponse() *response {
@@ -348,6 +390,7 @@ func (resp *response) release() {
 	resp.limitedLines = 0
 	resp.specEndLine = nil
 	resp.rawLines = nil
+	resp.udpEnabled = false
 	responsePool.Put(resp)
 }
 
@@ -410,6 +453,15 @@ func selectProximateDeadline(
 	return has
 }
 
+func parseUDPHeader(line []byte) []byte {
+	if len(line) < 8 {
+		return line
+	}
+
+	// cut off the first 8 bytes
+	return line[8:]
+}
+
 // read1 reads the response from the connection with limited lines.
 func (resp *response) read1(rr memcachedConn) error {
 	read := 0
@@ -420,6 +472,10 @@ func (resp *response) read1(rr memcachedConn) error {
 		}
 
 		if read == 0 {
+			if resp.udpEnabled {
+				line = parseUDPHeader(line)
+			}
+
 			if err = forecastCommonFaultLine(line); err != nil {
 				return err
 			}
@@ -434,11 +490,16 @@ func (resp *response) read1(rr memcachedConn) error {
 
 // read2 reads the response from the connection with specific end line.
 func (resp *response) read2(rr memcachedConn) error {
+	read := 0
 	for {
 		// FIXME(@yeqown): read line would cost too much capacity.
 		line, err := rr.readLine('\n')
 		if err != nil {
 			return errors.Wrap(err, "dispatchRequest read")
+		}
+
+		if read == 0 && resp.udpEnabled {
+			line = parseUDPHeader(line)
 		}
 
 		// FIXED(@yeqown): The end line also should be added to the rawLines.
@@ -452,6 +513,7 @@ func (resp *response) read2(rr memcachedConn) error {
 		}
 
 		resp.rawLines = append(resp.rawLines, line)
+		read++
 	}
 
 	return nil
