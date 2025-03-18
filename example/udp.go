@@ -38,7 +38,7 @@ func main() {
 	}
 
 	// set
-	if err = client.Set(ctx, key, []byte(value), 0, 100); err != nil {
+	if err = client.Set(ctx, key, []byte(value), 0, 100*time.Second); err != nil {
 		panic(err)
 	}
 

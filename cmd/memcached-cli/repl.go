@@ -185,10 +185,10 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: set <key> <value> [expiration]")
 	}
 
-	expiration := uint32(0)
+	var expiration time.Duration
 	if len(args) == 4 {
 		if e, err := strconv.ParseUint(args[2], 10, 32); err == nil {
-			expiration = uint32(e)
+			expiration = time.Duration(e) * time.Second
 		}
 	}
 
@@ -258,7 +258,7 @@ func (r *replCommander) handleTouch(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid expiration format: %v", err)
 	}
-	if err := r.getMemcachedClient().Touch(ctx, args[1], uint32(expiration)); err != nil {
+	if err := r.getMemcachedClient().Touch(ctx, args[1], time.Duration(expiration)*time.Second); err != nil {
 		return ignoreMemcachedError(err)
 	}
 	fmt.Println("OK")
