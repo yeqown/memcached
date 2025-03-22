@@ -3,6 +3,7 @@ package memcached
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -16,45 +17,33 @@ type basicTextProtocolCommander interface {
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error
+	Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Add is used to store the given key-value pair if the key does not exist.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error
+	Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Replace is used to update the value of an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Replace(ctx context.Context, key string, value []byte, flags, expiry uint32) error
+	Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Append is used to append the value to an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Append(ctx context.Context, key string, value []byte, flags, expiry uint32) error
+	Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Prepend is used to prepend the value to an existing item.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Prepend(ctx context.Context, key string, value []byte, flags, expiry uint32) error
+	Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 
 	// Cas is used to update the value of an existing item and also check-and-set operation.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	//
-	// expiry is the TTL of the key in seconds.
-	Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error
+	Cas(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration, cas uint64) error
 
 	/**
 	Retrieval commands: get and gets
@@ -74,14 +63,14 @@ type basicTextProtocolCommander interface {
 	// Gets will return the <cas unique> value which is used to check-and-set operation.
 	Gets(ctx context.Context, keys ...string) ([]*Item, error)
 	// GetAndTouch is used to get the value of the given key and update the expiration time of the key.
-	GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error)
+	GetAndTouch(ctx context.Context, expiry time.Duration, key string) (*Item, error)
 	// GetAndTouches is used to get the values of the given keys and update the expiration time of the keys.
 	//
 	// BUT you must know that the cluster mode of memcached DOES NOT support this command,
 	// since keys are possible stored in different memcached instances.
 	// Be careful when using this command unless you are sure that
 	// all keys are stored in the same memcached instance.
-	GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error)
+	GetAndTouches(ctx context.Context, expiry time.Duration, keys ...string) ([]*Item, error)
 	/**
 	Other commands: delete
 	*/
@@ -96,9 +85,7 @@ type basicTextProtocolCommander interface {
 	Decr(ctx context.Context, key string, delta uint64) (uint64, error)
 	// Touch is used to update the expiration time of an existing item
 	// without fetching it.
-	//
-	// expiry is the TTL of the key in seconds.
-	Touch(ctx context.Context, key string, expiry uint32) error
+	Touch(ctx context.Context, key string, expiry time.Duration) error
 
 	// Version is used to get the version of the memcached server.
 	// TODO(@yeqown): auto-detect the version of the memcached server.
@@ -145,7 +132,7 @@ type statisticsTextProtocolCommander interface {
  * Storage commands: set, add, replace, append, prepend, cas
  */
 
-func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flags, expiry uint32) error {
+func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flags uint32, expiry time.Duration) error {
 	if err := validateKeyAndValue([]byte(key), nil); err != nil {
 		return err
 	}
@@ -165,32 +152,32 @@ func (c *client) storageCommand(ctx context.Context, command, key string, value 
 	return nil
 }
 
-func (c *client) Set(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
+func (c *client) Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
 	return c.storageCommand(ctx, "set", key, value, flags, expiry)
 }
 
-func (c *client) Add(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
+func (c *client) Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
 	return c.storageCommand(ctx, "add", key, value, flags, expiry)
 }
 
-func (c *client) Replace(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
+func (c *client) Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
 	return c.storageCommand(ctx, "replace", key, value, flags, expiry)
 }
 
-func (c *client) Append(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
+func (c *client) Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
 	return c.storageCommand(ctx, "append", key, value, flags, expiry)
 }
 
-func (c *client) Prepend(ctx context.Context, key string, value []byte, flags, expiry uint32) error {
+func (c *client) Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
 	return c.storageCommand(ctx, "prepend", key, value, flags, expiry)
 }
 
-func (c *client) Cas(ctx context.Context, key string, value []byte, flags, expiry uint32, cas uint64) error {
+func (c *client) Cas(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration, cas uint64) error {
 	if err := validateKeyAndValue([]byte(key), value); err != nil {
 		return err
 	}
 
-	req, resp := buildCasCommand(key, []byte(value), flags, expiry, cas, c.options.noReply)
+	req, resp := buildCasCommand(key, value, flags, expiry, cas, c.options.noReply)
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
@@ -257,7 +244,7 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	return items, nil
 }
 
-func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error) {
+func (c *client) GetAndTouch(ctx context.Context, expiry time.Duration, key string) (*Item, error) {
 	if err := validateKeyAndValue([]byte(key), nil); err != nil {
 		return nil, err
 	}
@@ -282,7 +269,7 @@ func (c *client) GetAndTouch(ctx context.Context, expiry uint32, key string) (*I
 	return items[0], nil
 }
 
-func (c *client) GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error) {
+func (c *client) GetAndTouches(ctx context.Context, expiry time.Duration, keys ...string) ([]*Item, error) {
 	if len(keys) == 0 {
 		return []*Item{}, nil
 	}
@@ -369,7 +356,7 @@ func (c *client) Decr(ctx context.Context, key string, delta uint64) (uint64, er
 	return value, nil
 }
 
-func (c *client) Touch(ctx context.Context, key string, expiry uint32) error {
+func (c *client) Touch(ctx context.Context, key string, expiry time.Duration) error {
 	if err := validateKeyAndValue([]byte(key), nil); err != nil {
 		return err
 	}

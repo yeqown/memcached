@@ -207,7 +207,7 @@ func newKVGetCommand() *cobra.Command {
 
 // 修改 KV 命令，添加历史记录
 func newKVSetCommand() *cobra.Command {
-	var expiration uint32
+	var expiration time.Duration
 
 	cmd := &cobra.Command{
 		Use:          "set [key] [value]",
@@ -234,7 +234,7 @@ func newKVSetCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Uint32VarP(&expiration, "ttl", "t", 0, "ttl of key in seconds")
+	cmd.Flags().DurationVarP(&expiration, "ttl", "t", 0, "ttl of key in seconds")
 	return cmd
 }
 
@@ -329,7 +329,7 @@ func newKVTouchCommand() *cobra.Command {
 				return err
 			}
 
-			if err := client.Touch(cmd.Context(), args[0], uint32(expiration.Seconds())); err != nil {
+			if err := client.Touch(cmd.Context(), args[0], expiration); err != nil {
 				return ignoreMemcachedError(err)
 			}
 

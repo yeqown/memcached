@@ -3,6 +3,7 @@ package memcached
 import (
 	"bytes"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -114,13 +115,13 @@ func buildFlushAllCommand(noReply bool) (*request, *response) {
 //
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
-func buildStorageCommand(command, key string, value []byte, flags, expTime uint32, noReply bool) (*request, *response) {
+func buildStorageCommand(command, key string, value []byte, flags uint32, exptime time.Duration, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key).           // key
-		AddUint(uint64(flags)).   // flags
-		AddUint(uint64(expTime)). // exptime
-		AddInt(len(value))        // bytes
+		AddString(key).                     // key
+		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(exptime.Seconds())). // exptime
+		AddInt(len(value))                  // bytes
 	defer b.release()
 
 	if noReply {
@@ -168,11 +169,11 @@ func buildDeleteCommand(key string, noReply bool) (*request, *response) {
 }
 
 // touch <key> <exptime> [noreply]\r\n
-func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *response) {
+func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("touch").
 		AddString(key).
-		AddUint(uint64(expTime))
+		AddUint(uint64(expTime.Seconds()))
 	defer b.release()
 
 	if noReply {
@@ -193,14 +194,14 @@ func buildTouchCommand(key string, expTime uint32, noReply bool) (*request, *res
 
 // cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(
-	key string, value []byte, flags, expTime uint32, casUnique uint64, noReply bool) (*request, *response) {
+	key string, value []byte, flags uint32, expTime time.Duration, casUnique uint64, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString("cas").          // command
-		AddString(key).            // key
-		AddUint(uint64(flags)).    // flags
-		AddUint(uint64(expTime)).  // exptime
-		AddInt(len(value)).        // bytes
-		AddUint(uint64(casUnique)) // cas unique
+		AddString("cas").                   // command
+		AddString(key).                     // key
+		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(expTime.Seconds())). // exptime
+		AddInt(len(value)).                 // bytes
+		AddUint(casUnique)                  // cas unique
 	defer b.release()
 
 	if noReply {
@@ -244,7 +245,7 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 
 // buildGetAndTouchCommand constructs get and touch command.
 // gat/gats <key> <exptime>\r\n
-func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*request, *response) {
+func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command)
 	defer b.release()
@@ -253,7 +254,7 @@ func buildGetAndTouchesCommand(command string, expiry uint32, keys ...string) (*
 		b.AddString(key)
 	}
 
-	b.AddUint(uint64(expiry)).
+	b.AddUint(uint64(expiry.Seconds())).
 		AddCRLF()
 
 	req := buildRequest([]byte(command), nil, b.build())
