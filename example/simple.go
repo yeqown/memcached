@@ -43,7 +43,7 @@ func main() {
 		panic(err)
 	}
 
-	items, err := client.Gets(ctx, "key", "key2")
+	items, err := client.Gets(ctx, false, "key", "key2")
 	if err != nil {
 		panic(err)
 	}
