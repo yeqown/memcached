@@ -30,3 +30,7 @@ clean:
 	@echo "Cleaning build artifacts"
 	@rm -f coverage.txt coverage.html
 	@go clean -testcache
+
+install:
+	@echo "Installing memcached-cli into `go env GOBIN`"
+	@go install ./cmd/memcached-cli

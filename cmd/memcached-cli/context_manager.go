@@ -22,6 +22,7 @@ type contextManager struct {
 
 	currentClient  memcached.Client
 	historyManager *kvCommandHistoryManager
+	resetCurrent   func() string // callback to reset current context before saving
 }
 
 // newContextManager creates a new context manager
@@ -63,7 +64,7 @@ func (m *contextManager) close() error {
 	return nil
 }
 
-// initialize load CLI config file and initialize current client while
+// initialize loads CLI config file and initialize current client while
 // the current is not empty.
 func (m *contextManager) initialize() error {
 	data, err := os.ReadFile(m.path)
@@ -111,6 +112,10 @@ func (m *contextManager) save() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if m.resetCurrent != nil {
+		m.current = m.resetCurrent()
+	}
+
 	data, err := json.MarshalIndent(struct {
 		Current         string              `json:"current"`
 		HistoryMaxLines int                 `json:"history_max_lines"`
@@ -130,6 +135,33 @@ func (m *contextManager) save() error {
 	}
 
 	return os.WriteFile(m.path, data, 0644)
+}
+
+// addTemporaryContext creates a new temporary context for interactive use
+// which will be deleted when the CLI exits, so it's not persistent.
+//
+// The temporary context would be set as the current context when the CLI starts,
+// and it will be deleted when the CLI exits.
+//
+// The temporary context is used to store the current context name, so it can be
+// used to switch back to the original context when the CLI exits.
+func (m *contextManager) addTemporaryContext(servers string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ctx := &Context{
+		Name:      "temporary", // temporary context name
+		Servers:   servers,
+		Config:    defaultConfig(),
+		CreatedAt: time.Now(),
+		LastUsed:  time.Now(),
+	}
+
+	m.contexts[ctx.Name] = ctx
+	m.resetCurrent = func() string {
+		return m.current
+	}
+	m.current = ctx.Name
 }
 
 // CreateContext creates a new context with the given name and configuration
@@ -177,7 +209,6 @@ func (m *contextManager) useContext(name string) error {
 	m.mu.Unlock()
 
 	return nil
-	// return m.save()
 }
 
 // DeleteContext removes a context

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc"
@@ -14,7 +15,7 @@ import (
 )
 
 const (
-	version = "v1.2.0"
+	version = "v1.3.0"
 )
 
 var (
@@ -23,6 +24,9 @@ var (
 
 func main() {
 	var (
+		// temporary context variables, allows using without an existed context.
+		servers string
+
 		timeout time.Duration
 		verbose bool
 	)
@@ -32,8 +36,6 @@ func main() {
 		Short: "A command line interface for memcached",
 		Long:  `A command line interface for memcached with context management and interactive mode.`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("rootCmd.PreRun: timeout=%v, verbose=%v\n", timeout, verbose)
-
 			if verbose {
 				logger.SetLogLevel(log.LevelDebug)
 				logger.SetCallerReporter(true)
@@ -42,11 +44,14 @@ func main() {
 			logger.Debugf("rootCmd.PreRun: timeout=%v, verbose=%v", timeout, verbose)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAsREPL(timeout)
+			return runAsREPL(timeout, servers)
 		},
 	}
 
 	// 添加全局标志
+	rootCmd.PersistentFlags().StringVarP(
+		&servers, "servers", "H", "", "memcached server addresses, separated by comma, e.g. '127.0.0.1:11211'")
+
 	rootCmd.PersistentFlags().DurationVarP(
 		&timeout, "timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
 	rootCmd.PersistentFlags().BoolVarP(
@@ -65,7 +70,7 @@ func main() {
 	}
 }
 
-func runAsREPL(timeout time.Duration) error {
+func runAsREPL(timeout time.Duration, servers string) error {
 	fmt.Println(heredoc.Doc(`
 		Welcome to memcached-cli
 		Type 'help' to see available commands
@@ -78,6 +83,12 @@ func runAsREPL(timeout time.Duration) error {
 	manager, err := newContextManager()
 	if err != nil {
 		return errors.Wrap(err, "failed to create context manager")
+	}
+
+	// if servers are not empty, create a temporary context
+	if servers = strings.TrimSpace(servers); servers != "" {
+		log.Debugf("adding servers: %v to temporary context as 'meteor'", servers)
+		manager.addTemporaryContext(servers)
 	}
 
 	contexts := manager.listContexts()
@@ -107,8 +118,7 @@ func runAsREPL(timeout time.Duration) error {
 		`))
 	}
 
-	// If current context is not set, print instructions to set one.
-
+	// If the current context is not set, print instructions to set one.
 	repl, err := newREPLCommander(manager, timeout)
 	if err != nil {
 		return err
