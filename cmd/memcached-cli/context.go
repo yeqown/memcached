@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yeqown/log"
+
 	"github.com/samber/lo"
 	"github.com/yeqown/memcached"
 )
@@ -27,13 +29,22 @@ type clientConfig struct {
 }
 
 // DefaultConfig returns a ConnectionConfig with default values
-func defaultConfig() clientConfig {
+func defaultConfig(hashStrategy *string) clientConfig {
+	hash := "rendezvous"
+	if hashStrategy != nil {
+		if lo.Contains([]string{"crc32", "murmur3", "rendezvous"}, *hashStrategy) {
+			hash = *hashStrategy
+		} else {
+			log.Debugf("hash strategy not found in config, using default: %s", hash)
+		}
+	}
+
 	return clientConfig{
 		PoolSize:     10,
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
-		HashStrategy: "crc32",
+		HashStrategy: hash,
 	}
 }
 

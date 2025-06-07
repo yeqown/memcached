@@ -145,14 +145,14 @@ func (m *contextManager) save() error {
 //
 // The temporary context is used to store the current context name, so it can be
 // used to switch back to the original context when the CLI exits.
-func (m *contextManager) addTemporaryContext(servers string) {
+func (m *contextManager) addTemporaryContext(servers, hashStrategy string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	ctx := &Context{
 		Name:      "temporary", // temporary context name
 		Servers:   servers,
-		Config:    defaultConfig(),
+		Config:    defaultConfig(&hashStrategy),
 		CreatedAt: time.Now(),
 		LastUsed:  time.Now(),
 	}
@@ -174,7 +174,7 @@ func (m *contextManager) newContext(name, servers string, config *clientConfig) 
 	}
 
 	if config == nil {
-		defaultConfig := defaultConfig()
+		defaultConfig := defaultConfig(nil)
 		config = &defaultConfig
 	}
 

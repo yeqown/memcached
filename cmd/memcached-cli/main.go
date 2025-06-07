@@ -25,7 +25,8 @@ var (
 func main() {
 	var (
 		// temporary context variables, allows using without an existed context.
-		servers string
+		servers      string
+		hashStrategy string
 
 		timeout time.Duration
 		verbose bool
@@ -44,13 +45,15 @@ func main() {
 			logger.Debugf("rootCmd.PreRun: timeout=%v, verbose=%v", timeout, verbose)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAsREPL(timeout, servers)
+			return runAsREPL(timeout, servers, hashStrategy)
 		},
 	}
 
 	// 添加全局标志
 	rootCmd.PersistentFlags().StringVarP(
-		&servers, "servers", "H", "", "memcached server addresses, separated by comma, e.g. '127.0.0.1:11211'")
+		&servers, "servers", "s", "", "memcached server addresses, separated by comma, e.g. '127.0.0.1:11211'")
+	rootCmd.PersistentFlags().StringVarP(
+		&hashStrategy, "hash", "d", "rendezvous", "hash distribution algorithm: crc32, murmur3, rendezvous(default)")
 
 	rootCmd.PersistentFlags().DurationVarP(
 		&timeout, "timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
@@ -70,7 +73,7 @@ func main() {
 	}
 }
 
-func runAsREPL(timeout time.Duration, servers string) error {
+func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 	fmt.Println(heredoc.Doc(`
 		Welcome to memcached-cli
 		Type 'help' to see available commands
@@ -88,7 +91,7 @@ func runAsREPL(timeout time.Duration, servers string) error {
 	// if servers are not empty, create a temporary context
 	if servers = strings.TrimSpace(servers); servers != "" {
 		log.Debugf("adding servers: %v to temporary context as 'meteor'", servers)
-		manager.addTemporaryContext(servers)
+		manager.addTemporaryContext(servers, hashStrategy)
 	}
 
 	contexts := manager.listContexts()
