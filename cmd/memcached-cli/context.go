@@ -4,8 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yeqown/log"
-
 	"github.com/samber/lo"
 	"github.com/yeqown/memcached"
 )
@@ -35,7 +33,7 @@ func defaultConfig(hashStrategy *string) clientConfig {
 		if lo.Contains([]string{"crc32", "murmur3", "rendezvous"}, *hashStrategy) {
 			hash = *hashStrategy
 		} else {
-			log.Debugf("hash strategy not found in config, using default: %s", hash)
+			logger.Debugf("hash strategy not found in config, using default: %s", hash)
 		}
 	}
 
