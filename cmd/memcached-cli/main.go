@@ -90,7 +90,7 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 
 	// if servers are not empty, create a temporary context
 	if servers = strings.TrimSpace(servers); servers != "" {
-		log.Debugf("adding servers: %v to temporary context as 'meteor'", servers)
+		log.Debugf("adding servers: %v to temporary context as 'temporary'", servers)
 		manager.addTemporaryContext(servers, hashStrategy)
 	}
 
