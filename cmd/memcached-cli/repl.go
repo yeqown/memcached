@@ -186,7 +186,7 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 	}
 
 	var expiration time.Duration
-	if len(args) == 4 {
+	if len(args) >= 4 {
 		if e, err := strconv.ParseUint(args[3], 10, 32); err == nil {
 			expiration = time.Duration(e) * time.Second
 		}
