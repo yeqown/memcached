@@ -181,13 +181,13 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 }
 
 func (r *replCommander) handleSet(ctx context.Context, args []string) error {
-	if len(args) != 3 {
+	if len(args) < 3 {
 		return fmt.Errorf("usage: set <key> <value> [expiration]")
 	}
 
 	var expiration time.Duration
-	if len(args) == 4 {
-		if e, err := strconv.ParseUint(args[2], 10, 32); err == nil {
+	if len(args) >= 4 {
+		if e, err := strconv.ParseUint(args[3], 10, 32); err == nil {
 			expiration = time.Duration(e) * time.Second
 		}
 	}
