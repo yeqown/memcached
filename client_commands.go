@@ -123,9 +123,14 @@ type metaTextProtocolCommander interface {
 }
 
 type statisticsTextProtocolCommander interface {
-	// TODO: add more statistics commands
+	Stats(ctx context.Context) (*Statistic, error)
+}
 
-	Stats(ctx context.Context, args ...string) (map[string]string, error)
+type rawTextProtocolCommander interface {
+	// Raw is used to send the raw command to the memcached server.
+	// Warning: this command is not recommended to use since it expects the server to return
+	// the `END` line, which is not guaranteed of all commands. For example, `version`.
+	Raw(ctx context.Context, cmd string) ([]string, error)
 }
 
 /**
@@ -594,4 +599,36 @@ func (c *client) MetaNoOp(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+/**
+ * Other commands:
+ * stats [subcommand]\r\n
+ */
+
+func (c *client) Stats(ctx context.Context) (*Statistic, error) {
+	req, resp := buildStatsCommand("")
+	defer releaseReqAndResp(req, resp)
+
+	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	return parseStats(resp.rawLines)
+}
+
+func (c *client) Raw(ctx context.Context, cmd string) ([]string, error) {
+	req, resp := buildRawCommand(cmd, endIndicatorSpecificEndLine, 0)
+	defer releaseReqAndResp(req, resp)
+
+	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+		return nil, errors.Wrap(err, "request failed")
+	}
+
+	lines := make([]string, 0, len(resp.rawLines))
+	for _, line := range resp.rawLines {
+		lines = append(lines, string(bytes.TrimSuffix(line, _CRLFBytes)))
+	}
+
+	return lines, nil
 }

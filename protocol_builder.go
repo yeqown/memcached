@@ -22,6 +22,7 @@ var (
 	_SpaceBytes    = []byte{' '}
 	_SpaceByte     = byte(' ')
 	_CRLFBytes     = []byte("\r\n")
+	_CRLF          = "\r\n"
 	_NoReplyBytes  = []byte("noreply")
 	_QuitCRLFBytes = []byte("quit\r\n")
 
@@ -326,10 +327,10 @@ const (
 	// endIndicatorNoReply indicates the response is no reply
 	// and the client should not wait for the response.
 	endIndicatorNoReply
-	// endIndicatorLimitedLines indicates the response is limited lines,
+	// endIndicatorLimitedLines indicates the response is limited lines;
 	// the client should read line from response with limited lines with delimiter '\n'.
 	endIndicatorLimitedLines
-	// endIndicatorSpecificEndLine indicates the response is specific end line,
+	// endIndicatorSpecificEndLine indicates the response is specific end line;
 	// the client should read lines from response until the specific end line.
 	// The delimiter is '\n'.
 	endIndicatorSpecificEndLine
@@ -354,7 +355,7 @@ type response struct {
 	// ["VALUE key 0 5\r\n", "value\r\n", "END\r\n"].
 	rawLines [][]byte
 
-	// this field is used to indicate whether the request is UDP enabled.
+	// This field is used to indicate whether the request is UDP enabled.
 	// And it's set by the memcached client before sending the request.
 	udpEnabled bool
 }

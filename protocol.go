@@ -2,6 +2,8 @@ package memcached
 
 import (
 	"bytes"
+	"encoding/json"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -456,4 +458,196 @@ func parseArithmetic(line []byte) (uint64, error) {
 	}
 
 	return strconv.ParseUint(string(trimCRLF(line)), 10, 64)
+}
+
+type Statistic struct {
+	PID                    int64   `json:"pid"`
+	Uptime                 int64   `json:"uptime"` // seconds since the server started
+	Time                   int64   `json:"time"`   // unix timestamp
+	Version                string  `json:"version"`
+	Libevent               string  `json:"libevent"`
+	PointerSize            int     `json:"pointer_size"`
+	RusageUser             float64 `json:"rusage_user"`   // seconds.microseconds
+	RusageSystem           float64 `json:"rusage_system"` // seconds.microseconds
+	MaxConnections         int64   `json:"max_connections"`
+	CurrConnections        int64   `json:"curr_connections"`
+	TotalConnections       int64   `json:"total_connections"`
+	RejectedConnections    int64   `json:"rejected_connections"`
+	ConnectionStructures   int64   `json:"connection_structures"`
+	ResponseObjOOM         int64   `json:"response_obj_oom"`
+	ResponseObjCount       int64   `json:"response_obj_count"`
+	ResponseObjBytes       int64   `json:"response_obj_bytes"`
+	ReadBufCount           int64   `json:"read_buf_count"`
+	ReadBufBytes           int64   `json:"read_buf_bytes"`
+	ReadBufBytesFree       int64   `json:"read_buf_bytes_free"`
+	ReadBufOOM             int64   `json:"read_buf_oom"`
+	ReservedFDs            int64   `json:"reserved_fds"`
+	CmdGet                 int64   `json:"cmd_get"`
+	CmdSet                 int64   `json:"cmd_set"`
+	CmdFlush               int64   `json:"cmd_flush"`
+	CmdTouch               int64   `json:"cmd_touch"`
+	CmdMeta                int64   `json:"cmd_meta"`
+	GetHits                int64   `json:"get_hits"`
+	GetMisses              int64   `json:"get_misses"`
+	GetExpired             int64   `json:"get_expired"`
+	GetFlushed             int64   `json:"get_flushed"`
+	DeleteMisses           int64   `json:"delete_misses"`
+	DeleteHits             int64   `json:"delete_hits"`
+	IncrMisses             int64   `json:"incr_misses"`
+	IncrHits               int64   `json:"incr_hits"`
+	DecrMisses             int64   `json:"decr_misses"`
+	DecrHits               int64   `json:"decr_hits"`
+	CasMisses              int64   `json:"cas_misses"`
+	CasHits                int64   `json:"cas_hits"`
+	CasBadval              int64   `json:"cas_badval"`
+	TouchHits              int64   `json:"touch_hits"`
+	TouchMisses            int64   `json:"touch_misses"`
+	StoreTooLarge          int64   `json:"store_too_large"`
+	StoreNoMemory          int64   `json:"store_no_memory"`
+	AuthCmds               int64   `json:"auth_cmds"`
+	AuthErrors             int64   `json:"auth_errors"`
+	BytesRead              int64   `json:"bytes_read"`
+	BytesWritten           int64   `json:"bytes_written"`
+	LimitMaxbytes          int64   `json:"limit_maxbytes"`
+	AcceptingConns         bool    `json:"accepting_conns"`
+	ListenDisabledNum      int64   `json:"listen_disabled_num"`
+	TimeInListenDisabledUs int64   `json:"time_in_listen_disabled_us"`
+	Threads                int64   `json:"threads"`
+	ConnYields             int64   `json:"conn_yields"`
+	HashPowerLevel         int64   `json:"hash_power_level"`
+	HashBytes              int64   `json:"hash_bytes"`
+	HashIsExpanding        bool    `json:"hash_is_expanding"`
+
+	SlabReassignRescues        int64 `json:"slab_reassign_rescues"`
+	SlabReassignChunkRescues   int64 `json:"slab_reassign_chunk_rescues"`
+	SlabReassignEvictionsNomem int64 `json:"slab_reassign_evictions_nomem"`
+	SlabReassignInlineReclaim  int64 `json:"slab_reassign_inline_reclaim"`
+	SlabReassignBusyItems      int64 `json:"slab_reassign_busy_items"`
+	SlabReassignBusyDeletes    int64 `json:"slab_reassign_busy_deletes"`
+	SlabReassignRunning        int64 `json:"slab_reassign_running"`
+	SlabsMoved                 int64 `json:"slabs_moved"`
+
+	LruCrawlerRunning    int64 `json:"lru_crawler_running"`
+	LruCrawlerStarts     int64 `json:"lru_crawler_starts"`
+	LruMaintainerJuggles int64 `json:"lru_maintainer_juggles"`
+	MallocFails          int64 `json:"malloc_fails"`
+	LogWorkerDropped     int64 `json:"log_worker_dropped"`
+	LogWorkerWritten     int64 `json:"log_worker_written"`
+	LogWatcherSkipped    int64 `json:"log_watcher_skipped"`
+	LogWatcherSent       int64 `json:"log_watcher_sent"`
+	LogWatchers          int64 `json:"log_watchers"`
+	UnexpectedNapiIds    int64 `json:"unexpected_napi_ids"`
+	RoundRobinFallback   int64 `json:"round_robin_fallback"`
+	Bytes                int64 `json:"bytes"`
+	CurrItems            int64 `json:"curr_items"`
+	TotalItems           int64 `json:"total_items"`
+	SlabGlobalPagePool   int64 `json:"slab_global_page_pool"`
+	ExpiredUnfetched     int64 `json:"expired_unfetched"`
+	EvictedUnfetched     int64 `json:"evicted_unfetched"`
+	EvictedActive        int64 `json:"evicted_active"`
+	Evictions            int64 `json:"evictions"`
+	Reclaimed            int64 `json:"reclaimed"`
+	CrawlerReclaimed     int64 `json:"crawler_reclaimed"`
+	CrawlerItemsChecked  int64 `json:"crawler_items_checked"`
+	LrutailReflocked     int64 `json:"lrutail_reflocked"`
+
+	MovesToCold    int64 `json:"moves_to_cold"`
+	MovesToWarm    int64 `json:"moves_to_warm"`
+	MovesWithinLRU int64 `json:"moves_within_lru"`
+
+	DirectReclaims  int64 `json:"direct_reclaims"`
+	LruBumpsDropped int64 `json:"lru_bumps_dropped"`
+}
+
+func parseStats(lines [][]byte) (*Statistic, error) {
+	if len(lines) <= 0 {
+		return nil, errors.Wrap(ErrMalformedResponse, "empty response")
+	}
+
+	transitionMap := make(map[string]any, len(lines))
+	for _, line := range lines {
+		// STAT <key> <value>\r\n
+		fields := bytes.Fields(bytes.TrimSuffix(line, _CRLFBytes))
+		if len(fields) != 3 || !bytes.Equal(fields[0], []byte("STAT")) {
+			continue
+		}
+
+		key := string(fields[1])
+
+		// parse the value into int64 as default, but there are some exceptions:
+		// string: version, libevent
+		// float: rusage_user, rusage_system
+		switch key {
+		case "version", "libevent":
+			transitionMap[key] = string(fields[2])
+		case "rusage_user", "rusage_system":
+			v, err := strconv.ParseFloat(string(fields[2]), 64)
+			if err != nil {
+				slog.Warn("memcached: parse float failed",
+					"key", key,
+					"value", string(fields[2]),
+					"err", err,
+				)
+				continue
+			}
+			transitionMap[key] = v
+		case "hash_is_expanding", "accepting_conns":
+			v, err := strconv.ParseBool(string(fields[2]))
+			if err != nil {
+				slog.Warn("memcached: parse bool failed",
+					"key", key,
+					"value", string(fields[2]),
+					"err", err,
+				)
+				continue
+			}
+			transitionMap[key] = v
+		default:
+			v, err := strconv.ParseInt(string(fields[2]), 10, 64)
+			if err != nil {
+				slog.Warn("memcached: parse int failed",
+					"key", key,
+					"value", string(fields[2]),
+					"err", err,
+				)
+				continue
+			}
+			transitionMap[key] = v
+		}
+	}
+
+	raw, err := json.Marshal(transitionMap)
+	if err != nil {
+		return nil, errors.Wrap(err, "parseStats marshal transition map failed")
+	}
+
+	stat := &Statistic{}
+	if err = json.Unmarshal(raw, stat); err != nil {
+		return nil, errors.Wrap(err, "parseStats unmarshal failed")
+	}
+
+	return stat, nil
+}
+
+func buildStatsCommand(subCommand string) (*request, *response) {
+	b := newProtocolBuilder().
+		AddString("stats")
+
+	defer b.release()
+
+	if subCommand != "" {
+		b.AddString(subCommand)
+	}
+
+	raw := b.AddCRLF().
+		build()
+
+	req := buildRequest([]byte("stats"), nil, raw)
+	resp := buildSpecEndLineResponse(_EndCRLFBytes, 64)
+
+	return req, resp
+}
+
+func buildRawCommand(rawCommand string, indicator responseEndIndicator, lines int) (*request, *response) {
+	panic("IMPLEMENT ME!!!")
 }
