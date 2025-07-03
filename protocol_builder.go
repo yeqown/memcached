@@ -22,7 +22,6 @@ var (
 	_SpaceBytes    = []byte{' '}
 	_SpaceByte     = byte(' ')
 	_CRLFBytes     = []byte("\r\n")
-	_CRLF          = "\r\n"
 	_NoReplyBytes  = []byte("noreply")
 	_QuitCRLFBytes = []byte("quit\r\n")
 

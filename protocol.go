@@ -460,6 +460,7 @@ func parseArithmetic(line []byte) (uint64, error) {
 	return strconv.ParseUint(string(trimCRLF(line)), 10, 64)
 }
 
+// Statistic represents the statistics of the memcached server.
 type Statistic struct {
 	PID                    int64   `json:"pid"`
 	Uptime                 int64   `json:"uptime"` // seconds since the server started
@@ -536,7 +537,7 @@ type Statistic struct {
 	LogWatcherSkipped    int64 `json:"log_watcher_skipped"`
 	LogWatcherSent       int64 `json:"log_watcher_sent"`
 	LogWatchers          int64 `json:"log_watchers"`
-	UnexpectedNapiIds    int64 `json:"unexpected_napi_ids"`
+	UnexpectedNapiIDs    int64 `json:"unexpected_napi_ids"`
 	RoundRobinFallback   int64 `json:"round_robin_fallback"`
 	Bytes                int64 `json:"bytes"`
 	CurrItems            int64 `json:"curr_items"`
@@ -648,6 +649,8 @@ func buildStatsCommand(subCommand string) (*request, *response) {
 	return req, resp
 }
 
+//nolint:unused
 func buildRawCommand(rawCommand string, indicator responseEndIndicator, lines int) (*request, *response) {
+	_, _, _ = rawCommand, indicator, lines
 	panic("IMPLEMENT ME!!!")
 }
