@@ -27,11 +27,11 @@ type client struct {
 	options *clientOptions
 
 	// addrs represents the list of memcached addresses.
-	// Each one of them means a memcached server instance.
+	// each one of them means a memcached server instance.
 	addrs []*Addr
 
 	// picker represents the picker strategy.
-	// It is used to pick a memcached server instance to execute a command.
+	// it is used to pick a memcached server instance to execute a command.
 	picker Picker
 
 	mu        sync.Mutex // guards following
@@ -46,7 +46,7 @@ type client struct {
 //
 // The Cluster mode means that the client can connect to multiple memcached instances
 // and automatically pick a memcached instance to execute a command, of course,
-// the client make sure that the same key will be executed on the same memcached instance.
+// the client makes sure that the same key will be executed on the same memcached instance.
 // Be careful, there are some `keys` command does not obey this rule, such as `gets`, `gats`.
 func New(addr string, opts ...ClientOption) (Client, error) {
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -129,7 +129,7 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error)
 		return cn, nil
 	}
 
-	// could not find pool for the given addr, create a new one
+	// could not find a pool for the given addr, create a new one
 	pool = newConnPool(
 		c.options.maxIdleConns, c.options.maxConns,
 		c.options.maxLifetime, c.options.maxIdleTimeout,
@@ -225,10 +225,10 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 // SASL mechanism:
 // EXTERNAL, ANONYMOUS, PLAIN, OTP, SKEY, CRAM-MD5, DIGEST-MD5, SCRAM, NTLM, GS2-, GSSAPI and more.
 //
-// But here we only support PLAIN mechanism for now.
+// But here we only support a PLAIN mechanism for now.
 // https://datatracker.ietf.org/doc/html/rfc4616
 func authSASL(conn memcachedConn, username, password string) error {
-	// 1. first of all, list mechanisms the server supports
+	// 1. first, list mechanisms the server supports
 	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
 		return errors.Wrap(err, "authSASL send")

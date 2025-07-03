@@ -26,7 +26,7 @@ type Addr struct {
 	// in rendezvous hashing picker. The higher the priority means the node would
 	// win the competition while hash score is the same.
 	//
-	// By default, the priority is set by the order of the address in the cluster, the first address
+	// By default, the priority is set by the order of the address in the cluster; the first address
 	// has the lowest priority, the last address has the highest.
 	//
 	// If you want to customize resolver, be careful to set the priority, make sure the priority
@@ -66,7 +66,7 @@ func (a *Addr) dial(ctx context.Context, dialTimeout time.Duration) (net.Conn, e
 
 // memcachedConn wraps a net.Conn and provides a way to read and write data
 // from the connection.
-// It also provides support for connection pool mechanism, including expired check,
+// It also provides support for a connection pool mechanism, including expired check,
 // idle check and refresh the last time the connection is put back to the pool.
 type memcachedConn interface {
 	io.ReadWriteCloser
@@ -96,9 +96,9 @@ var (
 
 // conn is a network implementation of memcachedConn.
 //
-// It wraps a net.Conn and provides a way to read and write
-// data from the connection. Supports following three network types:
-// tcp / udp / unix domain socket. Default network type is tcp.
+// it wraps a net.Conn and provides a way to read and write
+// data from the connection. supports the following three network types:
+// tcp / udp / unix domain socket. the Default network type is tcp.
 type conn struct {
 	createdAt  time.Time
 	addr       net.Addr
@@ -250,7 +250,7 @@ func (c *conn) release() error {
 // and provides a way to get a connection from the pool.
 //
 // It will automatically create a new connection if the pool is empty or all
-// connections are busy, of course within the maximum connection limit. It also
+// connections are busy, of course, within the maximum connection limit. It also
 // automatically removes idle connections if the idle connection count exceeds
 // the maximum idle connection limit.
 //
@@ -338,7 +338,7 @@ func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
 		// no available connection, check if we can create a new one.
 		if int(p.numOpen.Load()) >= p.maxConns {
 			p.mu.Unlock()
-			// pool is full, wait for a connection to be returned
+			// the pool is full, wait for a connection to be returned
 			select {
 			case cn := <-p.conns:
 				return cn, nil
@@ -414,7 +414,7 @@ func (p *connPool) connectionsCleaner(d time.Duration) {
 		}
 
 		p.mu.Lock()
-		// This step want to adjust the cleaner interval to the shortest idle time
+		// This step wants to adjust the cleaner interval to the shortest idle time
 		// among maxIdleTime and maxLifeTime. Avoid maxIdleTime or maxLifeTime is
 		// much longer than the cleaner interval.
 		d = p.shortestIdleTimeLocked()
@@ -461,7 +461,7 @@ func (p *connPool) shortestIdleTimeLocked() time.Duration {
 
 // connectionCleanerRunLocked will remove two class connections:
 //
-// 1. if the connection is expired(exceeds maxLifeTime since created).
+// 1. if the connection is expired (exceeds maxLifeTime since created).
 // 2. if the connection idle time exceeds the idle connection limit(maxIdleTime).
 func (p *connPool) connectionCleanerRunLocked(d time.Duration) (time.Duration, []memcachedConn) {
 	var idleClosing int64
@@ -498,7 +498,7 @@ func (p *connPool) connectionCleanerRunLocked(d time.Duration) (time.Duration, [
 		for c := range p.conns {
 			if d2, ok := c.expired(expiredSince); !ok {
 				if d2 < d {
-					// Prevents connections staying in pool when they
+					// Prevents connections staying in the pool when they
 					// have expired.
 					d = d2
 				}

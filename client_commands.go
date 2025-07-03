@@ -15,27 +15,27 @@ type basicTextProtocolCommander interface {
 
 	// Set is used to store the given key-value pair.
 	//
-	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Add is used to store the given key-value pair if the key does not exist.
 	//
-	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Replace is used to update the value of an existing item.
 	//
-	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Append is used to append the value to an existing item.
 	//
-	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 	// Prepend is used to prepend the value to an existing item.
 	//
-	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
+	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
 	Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
 
@@ -78,10 +78,10 @@ type basicTextProtocolCommander interface {
 	// Delete is used to delete the given key.
 	Delete(ctx context.Context, key string) error
 	// Incr is used to increment the value of the given key.
-	// If noReply mode enabled, it will return 0.
+	// If noReply mode is enabled, it will return 0.
 	Incr(ctx context.Context, key string, delta uint64) (uint64, error)
 	// Decr is used to decrement the value of the given key.
-	// If noReply mode enabled, it will return 0.
+	// If noReply mode is enabled, it will return 0.
 	Decr(ctx context.Context, key string, delta uint64) (uint64, error)
 	// Touch is used to update the expiration time of an existing item
 	// without fetching it.

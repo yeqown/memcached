@@ -1,7 +1,7 @@
 // Package memcached provides a memcached client implementation.
 //
-// The client is designed to be simple and easy to use, and it is thread-safe.
-// This package supports the memcached text protocol including following commands:
+// The client is designed to be straightforward and easy to use, and it is thread-safe.
+// This package supports the memcached text protocol including the following commands:
 // - set/add/replace/append/prepend/cas
 // - get/gets/gat/gats
 // - ms/mg/md/md/mn/ma/me
