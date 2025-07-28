@@ -4,7 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
+	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -54,6 +56,89 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 	}
 
 	wg.Wait()
+}
+
+// https://github.com/yeqown/memcached/issues/18
+// Mock a concurrent client to set, get and touch the cache at the same time.
+func (su *clientTestSuite) Test_concurrent() {
+	// metaset options
+	msOptions := func(
+		cas uint64, clientFlags uint32,
+	) []MetaSetOption {
+		expiration := 2
+		return []MetaSetOption{
+			MetaSetFlagNewCAS(cas),
+			MetaSetFlagTTL(uint64(expiration)),
+			MetaSetFlagClientFlags(clientFlags),
+			MetaSetFlagReturnKey(),
+			MetaSetFlagReturnSize(),
+			MetaSetFlagReturnCAS(),
+		}
+	}
+
+	key := "Test_concurrent"
+	value := "Test_concurrent is value of Test_concurrent"
+	// prepare data
+	ctx := context.Background()
+
+	wg := sync.WaitGroup{}
+	wg.Add(3)
+
+	// meta set goroutine
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+		cas := uint64(0)
+
+		// update only
+		for counter <= 20 {
+			item, err := su.client.MetaSet(ctx, []byte(key), []byte(value), msOptions(cas, 0x1234)...)
+			su.NoError(err)
+
+			cas = item.CAS
+			counter++
+
+			time.Sleep(time.Second * 5)
+		}
+	}()
+
+	// get goroutine
+	go func() {
+		defer wg.Done()
+
+		counter := 0
+
+		for counter <= 1000 {
+			item, err := su.client.Get(ctx, key)
+			su.NoError(err)
+			su.Equal(value, string(item.Value))
+			counter++
+
+			time.Sleep(time.Millisecond * 100)
+		}
+	}()
+
+	// touch goroutine
+	go func() {
+		defer wg.Done()
+		counter := 0
+
+		for counter <= 100 {
+			err := su.client.Touch(ctx, key, 3)
+			if !pkgerrors.Is(err, ErrNotFound) {
+				su.NoError(err)
+			}
+
+			counter++
+
+			time.Sleep(time.Second)
+		}
+	}()
+
+	wg.Wait()
+
+	su.T().Log("Test_concurrent finished")
 }
 
 func TestClientSuite(t *testing.T) {
