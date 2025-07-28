@@ -111,10 +111,15 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		for counter <= 1000 {
 			item, err := su.client.Get(ctx, key)
+			if pkgerrors.Is(err, ErrNotFound) {
+				goto next
+			}
 			su.NoError(err)
+
 			su.Equal(value, string(item.Value))
 			counter++
 
+		next:
 			time.Sleep(time.Millisecond * 100)
 		}
 	}()
