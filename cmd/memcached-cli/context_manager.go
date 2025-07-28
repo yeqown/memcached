@@ -197,6 +197,10 @@ func (m *contextManager) newContext(name, servers string, config *clientConfig) 
 
 // UseContext sets the current context
 func (m *contextManager) useContext(name string) error {
+	if m.current == name {
+		return nil
+	}
+
 	m.mu.Lock()
 
 	if _, exists := m.contexts[name]; !exists {
@@ -206,6 +210,8 @@ func (m *contextManager) useContext(name string) error {
 
 	m.current = name
 	m.contexts[name].LastUsed = time.Now()
+	// FIXED: REPL switch current context DIDN'T reset the client.
+	m.currentClient = nil
 	m.mu.Unlock()
 
 	return nil
