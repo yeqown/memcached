@@ -17,9 +17,9 @@ var (
 	_ Builder = murmur3HashPickBuilder{}
 	_ Builder = rendezvousHashPickBuilder{}
 
-	_ Picker  = &crc32HashPicker{}
-	_ Builder = murmur3HashPickBuilder{}
-	_ Builder = rendezvousHashPickBuilder{}
+	_ Picker = &crc32HashPicker{}
+	_ Picker = &murmur3HashPicker{}
+	_ Picker = &rendezvousHashPicker{}
 )
 
 // Resolver is responsible for resolving a given address
