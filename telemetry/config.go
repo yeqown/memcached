@@ -17,6 +17,8 @@ type Config struct {
 	EnableMetrics  bool
 }
 
+// NewConfig creates a new Config with the given options.
+// It uses no-op providers by default for zero overhead when telemetry is disabled.
 func NewConfig(opts []Option) *Config {
 	c := &Config{
 		TracerProvider: otel.GetTracerProvider(),

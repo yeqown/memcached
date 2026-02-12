@@ -9,12 +9,15 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// Metrics holds OpenTelemetry metric instruments for memcached operations.
 type Metrics struct {
 	operationDuration metric.Float64Histogram
 	operationCalls    metric.Int64Counter
 	operationErrors   metric.Int64Counter
 }
 
+// NewMetrics creates a new Metrics with the given meter provider.
+// If mp is nil, it uses the global meter provider.
 func NewMetrics(mp metric.MeterProvider) (*Metrics, error) {
 	if mp == nil {
 		mp = otel.GetMeterProvider()
