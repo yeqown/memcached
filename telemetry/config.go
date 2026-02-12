@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -13,18 +12,15 @@ type Option func(*Config)
 type Config struct {
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
-	EnableTracing  bool
-	EnableMetrics  bool
 }
 
 // NewConfig creates a new Config with the given options.
 // It uses no-op providers by default for zero overhead when telemetry is disabled.
+// Setting a provider implicitly enables the corresponding telemetry feature.
 func NewConfig(opts []Option) *Config {
 	c := &Config{
-		TracerProvider: otel.GetTracerProvider(),
-		MeterProvider:  otel.GetMeterProvider(),
-		EnableTracing:  false,
-		EnableMetrics:  false,
+		TracerProvider: nil,
+		MeterProvider:  nil,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -32,28 +28,16 @@ func NewConfig(opts []Option) *Config {
 	return c
 }
 
-// WithTracing enables distributed tracing.
-func WithTracing() Option {
-	return func(c *Config) {
-		c.EnableTracing = true
-	}
-}
-
-// WithMetrics enables metrics collection.
-func WithMetrics() Option {
-	return func(c *Config) {
-		c.EnableMetrics = true
-	}
-}
-
-// WithTracerProvider sets a custom tracer provider.
+// WithTracerProvider sets the tracer provider and enables tracing.
+// If tp is nil, the global tracer provider will be used.
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *Config) {
 		c.TracerProvider = tp
 	}
 }
 
-// WithMeterProvider sets a custom meter provider.
+// WithMeterProvider sets the meter provider and enables metrics.
+// If mp is nil, the global meter provider will be used.
 func WithMeterProvider(mp metric.MeterProvider) Option {
 	return func(c *Config) {
 		c.MeterProvider = mp

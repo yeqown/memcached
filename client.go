@@ -82,11 +82,11 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 	// Initialize telemetry
 	cfg := telemetry.NewConfig(options.telemetryOptions)
 	var t *telemetry.Tracer
-	if cfg.EnableTracing {
+	if cfg.TracerProvider != nil {
 		t = telemetry.NewTracer(cfg.TracerProvider)
 	}
 	var m *telemetry.Metrics
-	if cfg.EnableMetrics {
+	if cfg.MeterProvider != nil {
 		m, err = telemetry.NewMetrics(cfg.MeterProvider)
 		if err != nil {
 			return nil, errors.Wrap(err, "initialize telemetry metrics failed")
