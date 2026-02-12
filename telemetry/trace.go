@@ -14,9 +14,9 @@ type Tracer struct {
 	tracer trace.Tracer
 }
 
-// NewTracer creates a new Tracer with the given tracer provider.
+// newTracer creates a new Tracer with the given tracer provider.
 // If tp is nil, it uses the global tracer provider.
-func NewTracer(tp trace.TracerProvider) *Tracer {
+func newTracer(tp trace.TracerProvider) *Tracer {
 	if tp == nil {
 		tp = otel.GetTracerProvider()
 	}

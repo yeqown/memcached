@@ -16,9 +16,9 @@ type Metrics struct {
 	operationErrors   metric.Int64Counter
 }
 
-// NewMetrics creates a new Metrics with the given meter provider.
+// newMetrics creates a new Metrics with the given meter provider.
 // If mp is nil, it uses the global meter provider.
-func NewMetrics(mp metric.MeterProvider) (*Metrics, error) {
+func newMetrics(mp metric.MeterProvider) (*Metrics, error) {
 	if mp == nil {
 		mp = otel.GetMeterProvider()
 	}

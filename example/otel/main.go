@@ -10,10 +10,10 @@ import (
 	"github.com/yeqown/memcached"
 	"github.com/yeqown/memcached/telemetry"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 func main() {
@@ -48,7 +48,7 @@ func main() {
 	otel.SetMeterProvider(mp)
 
 	// Create memcached client with telemetry enabled
-	client, err := memcached.New("localhost:11212",
+	client, err := memcached.New("localhost:11211",
 		memcached.WithTelemetry(
 			telemetry.WithTracerProvider(tp),
 			telemetry.WithMeterProvider(mp),

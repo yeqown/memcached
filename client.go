@@ -9,8 +9,9 @@ import (
 
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
-	"github.com/yeqown/memcached/telemetry"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/yeqown/memcached/telemetry"
 )
 
 // Client represents a memcached client API set.
@@ -80,18 +81,7 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 	picker := options.pickBuilder.Build(addrs)
 
 	// Initialize telemetry
-	cfg := telemetry.NewConfig(options.telemetryOptions)
-	var t *telemetry.Tracer
-	if cfg.TracerProvider != nil {
-		t = telemetry.NewTracer(cfg.TracerProvider)
-	}
-	var m *telemetry.Metrics
-	if cfg.MeterProvider != nil {
-		m, err = telemetry.NewMetrics(cfg.MeterProvider)
-		if err != nil {
-			return nil, errors.Wrap(err, "initialize telemetry metrics failed")
-		}
-	}
+	cfg := telemetry.NewConfig(options.telemetryOptions...)
 
 	return &client{
 		options: options,
@@ -101,8 +91,8 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 		mu:        sync.Mutex{},
 		connPools: make(map[*Addr]*connPool, 4),
 
-		tracer:  t,
-		metrics: m,
+		tracer:  cfg.Tracer(),
+		metrics: cfg.Metics(),
 	}, nil
 }
 
