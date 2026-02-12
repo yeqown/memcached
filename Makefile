@@ -1,8 +1,7 @@
 .PHONY: lint test coverage pre-commit docker-up docker-down clean
 
 lint:
-	@echo "Running golangci-lint"
-	@golangci-lint run ./...
+	@go run github.com/golangci/golangci-lint/cmd/golangci-lint run ./...
 
 test:
 	@echo "Running tests"
