@@ -9,6 +9,8 @@ import (
 
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"github.com/yeqown/memcached/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Client represents a memcached client API set.
@@ -39,6 +41,10 @@ type client struct {
 
 	mu        sync.Mutex // guards following
 	connPools map[*Addr]*connPool
+
+	// telemetry holds the OpenTelemetry tracers and metrics.
+	tracer  *telemetry.Tracer
+	metrics *telemetry.Metrics
 }
 
 // New creates a new memcached client with the given address and options.
@@ -73,6 +79,20 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 	}
 	picker := options.pickBuilder.Build(addrs)
 
+	// Initialize telemetry
+	cfg := telemetry.NewConfig(options.telemetryOptions)
+	var t *telemetry.Tracer
+	if cfg.EnableTracing {
+		t = telemetry.NewTracer(cfg.TracerProvider)
+	}
+	var m *telemetry.Metrics
+	if cfg.EnableMetrics {
+		m, err = telemetry.NewMetrics(cfg.MeterProvider)
+		if err != nil {
+			return nil, errors.Wrap(err, "initialize telemetry metrics failed")
+		}
+	}
+
 	return &client{
 		options: options,
 		addrs:   addrs,
@@ -80,6 +100,9 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 
 		mu:        sync.Mutex{},
 		connPools: make(map[*Addr]*connPool, 4),
+
+		tracer:  t,
+		metrics: m,
 	}, nil
 }
 
@@ -205,8 +228,22 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		return errors.Wrap(err, "pick node failed")
 	}
 
+	// START: Telemetry
+	start := time.Now()
+	var span trace.Span
+	if c.tracer != nil {
+		ctx, span = c.tracer.Start(ctx, string(req.cmd), addr.Address, addr.Network, string(req.key))
+	}
+	// END: Telemetry
+
 	cn, err := c.getConn(ctx, addr)
 	if err != nil {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
+		}
 		return errors.Wrap(err, "alloc connection failed")
 	}
 	defer func() { _ = cn.release() }()
@@ -214,10 +251,26 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 	c.autoSwitchToUDP(ctx, req, resp)
 
 	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
+		}
 		return errors.Wrap(err, "send failed")
 	}
 
-	return resp.recv(ctx, cn, c.options.readTimeout)
+	recvErr := resp.recv(ctx, cn, c.options.readTimeout)
+
+	// END: Telemetry
+	if c.tracer != nil {
+		c.tracer.End(span, recvErr)
+	}
+	if c.metrics != nil {
+		c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), recvErr)
+	}
+
+	return recvErr
 }
 
 // authSASL performs the Binary SASL authentication.
