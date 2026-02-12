@@ -1,5 +1,3 @@
-version: 2
-
 linters-settings:
   revive:
     disable:
@@ -32,8 +30,5 @@ run:
 issues:
   exclude-use-default: false
   exclude:
-    - linter: revive
-      text: "var-naming: avoid package names that conflict with Go standard library"
-      path: hash/murmur3.go
-    - linter: staticcheck
-      text: "could remove embedded field"
+    - "var-naming: avoid package names that conflict with Go standard library"
+    - "could remove embedded field.*Mutex"
