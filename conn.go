@@ -89,10 +89,8 @@ type memcachedConn interface {
 	setWriteDeadline(d time.Time) error
 }
 
-var (
-	_ memcachedConn = (*conn)(nil) // tcp socket
-	// _ memcachedConn = (*unixConn)(nil) // unix domain socket
-)
+var _ memcachedConn = (*conn)(nil) // tcp socket
+// _ memcachedConn = (*unixConn)(nil) // unix domain socket
 
 // conn is a network implementation of memcachedConn.
 //
@@ -465,8 +463,8 @@ func (p *connPool) shortestIdleTimeLocked() time.Duration {
 // 2. if the connection idle time exceeds the idle connection limit(maxIdleTime).
 func (p *connPool) connectionCleanerRunLocked(d time.Duration) (time.Duration, []memcachedConn) {
 	var idleClosing int64
-	var closing = make([]memcachedConn, 0, p.maxIdle/2)
-	var newConns = make(chan memcachedConn, p.maxConns)
+	closing := make([]memcachedConn, 0, p.maxIdle/2)
+	newConns := make(chan memcachedConn, p.maxConns)
 
 	if p.maxIdleTime > 0 {
 		idleSince := nowFunc().Add(-p.maxIdleTime)

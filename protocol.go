@@ -196,7 +196,8 @@ func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*reques
 
 // cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(
-	key string, value []byte, flags uint32, expTime time.Duration, casUnique uint64, noReply bool) (*request, *response) {
+	key string, value []byte, flags uint32, expTime time.Duration, casUnique uint64, noReply bool,
+) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString("cas").                   // command
 		AddString(key).                     // key

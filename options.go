@@ -2,6 +2,8 @@ package memcached
 
 import (
 	"time"
+
+	"github.com/yeqown/memcached/telemetry"
 )
 
 // ClientOption is the option set pattern for the client.
@@ -56,6 +58,9 @@ type clientOptions struct {
 
 	// enableUDP means whether the client should use UDP datagram to send the request.
 	enableUDP bool
+
+	// telemetryOptions holds the OpenTelemetry configuration options.
+	telemetryOptions []telemetry.Option
 }
 
 func newClientOptions() *clientOptions {
@@ -197,5 +202,13 @@ func WithSASL(username, password string) ClientOption {
 func WithUDPEnabled() ClientOption {
 	return func(o *clientOptions) {
 		o.enableUDP = true
+	}
+}
+
+// WithTelemetry enables OpenTelemetry tracing and metrics.
+// Pass options from the telemetry package to configure behavior.
+func WithTelemetry(opts ...telemetry.Option) ClientOption {
+	return func(o *clientOptions) {
+		o.telemetryOptions = opts
 	}
 }

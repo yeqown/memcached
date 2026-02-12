@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var (
-	_ memcachedConn = (*mockConn)(nil)
-)
+var _ memcachedConn = (*mockConn)(nil)
 
 // mockConn is an implementation of the memcachedConn interface for testing purposes.
 type mockConn struct {
@@ -150,7 +148,6 @@ func Test_connPool_new(t *testing.T) {
 }
 
 func Test_connPool_get_put(t *testing.T) {
-
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -183,7 +180,6 @@ func Test_connPool_get_put(t *testing.T) {
 // Test_connPool_get_timeout_case1 mocking the case that the createConn function
 // takes longer than the context timeout to return a connection.
 func Test_connPool_get_timeout_case1(t *testing.T) {
-
 	createConn := func(ctx context.Context) (memcachedConn, error) {
 		delay := time.NewTimer(200 * time.Millisecond)
 		select {
@@ -211,7 +207,6 @@ func Test_connPool_get_timeout_case1(t *testing.T) {
 // are occupied, we must wait for a connection to be put back to the pool but
 // no connection is put back before (get) context timeout deadline.
 func Test_connPool_get_timeout_case2(t *testing.T) {
-
 	pool := newConnPool(5, 10, time.Hour, 5*time.Minute, createConn)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -288,7 +283,6 @@ func Test_connPool_get_oversize(t *testing.T) {
 // Test_connPool_cleanup_maxIdle tests the case that connection sits in
 // idle list for more than maxIdleTimeout, it should be closed.
 func Test_connPool_cleanup_maxIdle(t *testing.T) {
-
 	// maxLifeTime = 3600s
 	// maxIdleTimeout = 1s
 	pool := newConnPool(5, 10, time.Hour, time.Second, createConn)
@@ -340,7 +334,6 @@ func Test_connPool_cleanup_maxIdle(t *testing.T) {
 // Test_connPool_cleanup_maxLife tests the case that connection sits in
 // idle list for more than maxLifeTime, it should be closed.
 func Test_connPool_cleanup_maxLife(t *testing.T) {
-
 	// maxLifeTime = 1s
 	// maxIdleTimeout = 3600s
 	pool := newConnPool(5, 10, 2*time.Second, time.Hour, createConn)
