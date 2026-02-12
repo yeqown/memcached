@@ -1,4 +1,6 @@
 // Package hash provides hash functions.
+//
+//revive:disable:var-naming // this is a well-known hash library, renaming would be breaking
 package hash
 
 const (

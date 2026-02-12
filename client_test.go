@@ -51,7 +51,6 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 				err := su.client.dispatchRequest(ctx, req, resp)
 				su.Require().NoError(err)
 			}
-
 		}()
 	}
 

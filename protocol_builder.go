@@ -417,8 +417,8 @@ func (resp *response) recv(ctx context.Context, rr memcachedConn, readTimeout ti
 }
 
 func selectProximateDeadline(
-	ctx context.Context, rr memcachedConn, timeout time.Duration, nowFunc nowFuncType, isRead bool) (ok bool) {
-
+	ctx context.Context, rr memcachedConn, timeout time.Duration, nowFunc nowFuncType, isRead bool,
+) (ok bool) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

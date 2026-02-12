@@ -7,7 +7,6 @@ import (
 )
 
 func Test_parseFlags(t *testing.T) {
-
 	type args struct {
 		parts    [][]byte
 		startPos int

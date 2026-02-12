@@ -25,9 +25,7 @@ type Client interface {
 	// rawTextProtocolCommander
 }
 
-var (
-	_ Client = (*client)(nil)
-)
+var _ Client = (*client)(nil)
 
 type client struct {
 	options *clientOptions
@@ -92,7 +90,7 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 		connPools: make(map[*Addr]*connPool, 4),
 
 		tracer:  cfg.Tracer(),
-		metrics: cfg.Metics(),
+		metrics: cfg.Metrics(),
 	}, nil
 }
 

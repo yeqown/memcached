@@ -45,6 +45,8 @@ func NewConfig(opts ...Option) *Config {
 	return c
 }
 
+// Tracer creates a new Tracer from the configured provider.
+// Returns nil if telemetry is disabled (provider is nil).
 func (c *Config) Tracer() *Tracer {
 	if c == nil || c.TracerProvider == nil {
 		return nil
@@ -53,7 +55,9 @@ func (c *Config) Tracer() *Tracer {
 	return newTracer(c.TracerProvider)
 }
 
-func (c *Config) Metics() *Metrics {
+// Metrics returns the configured Metrics instance.
+// Returns nil if telemetry is disabled (provider is nil).
+func (c *Config) Metrics() *Metrics {
 	if c == nil || c.MeterProvider == nil {
 		return nil
 	}
