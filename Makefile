@@ -1,4 +1,5 @@
-.PHONY: lint test coverage pre-commit docker-up docker-down clean
+.PHONY: lint test coverage pre-commit docker-up docker-down clean install \
+        gui-dev gui-build gui-test gui-clean
 
 lint:
 	@go run github.com/golangci/golangci-lint/cmd/golangci-lint run ./...
@@ -33,3 +34,20 @@ clean:
 install:
 	@echo "Installing memcached-cli into `go env GOBIN`"
 	@go install ./cmd/memcached-cli
+
+# GUI targets
+gui-dev:
+	@echo "Starting GUI dev server"
+	@cd gui && wails dev
+
+gui-build:
+	@echo "Building GUI application"
+	@cd gui && wails build
+
+gui-test:
+	@echo "Running GUI backend tests"
+	@cd gui && go test -v -race ./service/...
+
+gui-clean:
+	@echo "Cleaning GUI build artifacts"
+	@cd gui && rm -rf build/bin frontend/dist

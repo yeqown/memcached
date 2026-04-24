@@ -5,4 +5,5 @@ use (
 	./benchmark
 	./cmd/memcached-cli
 	./example
+	./gui
 )

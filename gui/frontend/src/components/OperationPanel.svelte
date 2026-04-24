@@ -1,0 +1,347 @@
+<script lang="ts">
+  import { connected, addLog, displayValue, displayMode, queryResult, activeOperationTab } from '../stores/app'
+  import {
+    Get, Set, Delete, Stats,
+  } from '../../wailsjs/go/service/OperationService.js'
+  import ThemeToggle from './ThemeToggle.svelte'
+
+  let activeTab: 'get' | 'set' | 'delete' | 'stats' = 'get'
+  let getKey = ''
+  let setKey = ''
+  let setValue = ''
+  let setFlags = 0
+  let setExpiry = 0
+  let deleteKey = ''
+
+  $: activeOperationTab.set(activeTab)
+
+  async function handleGet() {
+    if (!getKey.trim()) return
+    try {
+      addLog({ op: 'GET', key: getKey, status: 'info', message: 'Fetching...' })
+      const result = await Get(getKey)
+      queryResult.set(result)
+      if (result.success) {
+        displayValue.set(result.data || result.value || '(empty value)')
+        displayMode.set(result.valueKind === 'json' ? 'json' : 'text')
+        addLog({ op: 'GET', key: getKey, status: 'success', message: 'OK' })
+      } else {
+        displayValue.set(result.error)
+        displayMode.set('text')
+        addLog({ op: 'GET', key: getKey, status: 'error', message: result.error })
+      }
+    } catch (e: any) {
+      queryResult.set(null)
+      addLog({ op: 'GET', key: getKey, status: 'error', message: e.message || String(e) })
+    }
+  }
+
+  async function handleSet() {
+    if (!setKey.trim()) return
+    try {
+      addLog({ op: 'SET', key: setKey, status: 'info', message: 'Storing...' })
+      await Set(setKey, setValue, setFlags, setExpiry)
+      addLog({ op: 'SET', key: setKey, status: 'success', message: 'OK' })
+    } catch (e: any) {
+      addLog({ op: 'SET', key: setKey, status: 'error', message: e.message || String(e) })
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleteKey.trim()) return
+    if (!confirm(`Delete key "${deleteKey}"?`)) return
+    try {
+      addLog({ op: 'DELETE', key: deleteKey, status: 'info', message: 'Deleting...' })
+      await Delete(deleteKey)
+      displayValue.set('')
+      addLog({ op: 'DELETE', key: deleteKey, status: 'success', message: 'OK' })
+    } catch (e: any) {
+      addLog({ op: 'DELETE', key: deleteKey, status: 'error', message: e.message || String(e) })
+    }
+  }
+
+  async function handleStats() {
+    try {
+      addLog({ op: 'STATS', status: 'info', message: 'Fetching stats...' })
+      const result = await Stats()
+      queryResult.set(result)
+      if (result && result.success) {
+        displayValue.set(result.data)
+        displayMode.set('json')
+        addLog({ op: 'STATS', status: 'success', message: 'OK' })
+      } else if (result) {
+        addLog({ op: 'STATS', status: 'error', message: result.error })
+      }
+    } catch (e: any) {
+      queryResult.set(null)
+      addLog({ op: 'STATS', status: 'error', message: e.message || String(e) })
+    }
+  }
+
+  const tabs: Array<{ id: 'get' | 'set' | 'delete' | 'stats'; label: string }> = [
+    { id: 'get', label: 'Get' },
+    { id: 'set', label: 'Set' },
+    { id: 'delete', label: 'Delete' },
+    { id: 'stats', label: 'Stats' },
+  ]
+</script>
+
+<div class="panel">
+  <div class="panel-head">
+    <div class="tabs" role="tablist" aria-label="Memcached operations">
+      {#each tabs as tab}
+        <button
+          type="button"
+          class="tab"
+          class:active={activeTab === tab.id}
+          on:click={() => activeTab = tab.id}
+          disabled={!$connected}
+          role="tab"
+          aria-selected={activeTab === tab.id}
+        >
+          {tab.label}
+        </button>
+      {/each}
+    </div>
+    <div class="panel-tools">
+      <ThemeToggle />
+    </div>
+  </div>
+
+  <div class="tab-content" aria-live="polite">
+    {#if !$connected}
+      <div class="disabled-overlay">Connect to a context first</div>
+    {/if}
+
+    {#if activeTab === 'get'}
+      <div class="form-row">
+        <input
+          id="get-key"
+          type="text"
+          bind:value={getKey}
+          placeholder="Key"
+          on:keydown={(e) => e.key === 'Enter' && handleGet()}
+          disabled={!$connected}
+          aria-label="Get key"
+        />
+        <button type="button" on:click={handleGet} disabled={!$connected || !getKey.trim()}>Retrieve</button>
+      </div>
+    {:else if activeTab === 'set'}
+      <div class="form-col">
+        <input id="set-key" type="text" bind:value={setKey} placeholder="Key" disabled={!$connected} aria-label="Set key" />
+        <textarea id="set-value" bind:value={setValue} placeholder="Value" rows="3" disabled={!$connected} aria-label="Set value"></textarea>
+        <div class="form-row-inline">
+          <div class="field">
+            <label for="set-flags">Flags</label>
+            <input id="set-flags" type="number" bind:value={setFlags} min="0" disabled={!$connected} />
+          </div>
+          <div class="field">
+            <label for="set-expiry">Expiry (s)</label>
+            <input id="set-expiry" type="number" bind:value={setExpiry} min="0" disabled={!$connected} />
+          </div>
+        </div>
+        <button type="button" on:click={handleSet} disabled={!$connected || !setKey.trim()}>Store</button>
+      </div>
+    {:else if activeTab === 'delete'}
+      <div class="form-row">
+        <input
+          id="delete-key"
+          type="text"
+          bind:value={deleteKey}
+          placeholder="Key"
+          on:keydown={(e) => e.key === 'Enter' && handleDelete()}
+          disabled={!$connected}
+          aria-label="Delete key"
+        />
+        <button type="button" class="btn-danger" on:click={handleDelete} disabled={!$connected || !deleteKey.trim()}>
+          Delete
+        </button>
+      </div>
+    {:else if activeTab === 'stats'}
+      <button type="button" on:click={handleStats} disabled={!$connected}>Get Stats</button>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .panel {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+  }
+  .panel-tools {
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s ease-out, color 0.2s ease-out;
+  }
+  .tab:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .tab.active {
+    background: var(--bg-active);
+    color: var(--accent);
+  }
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .tab:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .tab-content {
+    position: relative;
+  }
+  .disabled-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 14px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  input[type="text"], textarea {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+  }
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-focus-ring);
+  }
+  input:disabled, textarea:disabled {
+    opacity: 0.5;
+  }
+  textarea {
+    resize: vertical;
+  }
+  input[type="number"] {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+  }
+  input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-focus-ring);
+  }
+  .form-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .form-row input {
+    flex: 1;
+  }
+  .form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .form-row-inline {
+    display: flex;
+    gap: 12px;
+  }
+  .field {
+    flex: 1;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  button {
+    padding: 8px 20px;
+    border-radius: 6px;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s ease-out, filter 0.2s ease-out;
+  }
+  button:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-danger {
+    background: var(--danger);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--danger-hover);
+  }
+
+  @media (max-width: 980px) {
+    .panel-head {
+      flex-wrap: wrap;
+    }
+
+    .panel-tools {
+      width: 100%;
+    }
+
+    .panel-tools :global(.theme-toggle) {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tab,
+    input[type="text"],
+    textarea,
+    input[type="number"],
+    button {
+      transition: none;
+    }
+  }
+</style>
+
