@@ -178,7 +178,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px;
+    padding: 12px;
     border-bottom: 1px solid var(--border);
   }
   .sidebar-header h3 {
@@ -215,7 +215,7 @@
   .context-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 6px;
   }
   .empty {
     text-align: center;
@@ -227,7 +227,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-radius: 8px;
     cursor: pointer;
     margin-bottom: 4px;

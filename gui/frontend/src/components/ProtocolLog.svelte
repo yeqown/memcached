@@ -37,7 +37,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     font-weight: 500;
@@ -65,7 +65,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
-    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
   }
   .empty {
@@ -76,7 +76,7 @@
   .log-entry {
     display: flex;
     gap: 8px;
-    padding: 4px 12px;
+    padding: 3px 12px;
     color: var(--text-secondary);
     align-items: flex-start;
   }
