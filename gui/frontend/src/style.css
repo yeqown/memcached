@@ -1,17 +1,17 @@
 /* Dark theme (default) */
 :root,
 :root[data-theme='dark'] {
-  --bg-primary: #1a2332;
-  --bg-sidebar: #0f172a;
-  --bg-surface: #1e293b;
-  --bg-surface-soft: #334155;
-  --bg-input: #0f172a;
-  --bg-hover: #1e293b;
-  --bg-active: #334155;
-  --bg-overlay: rgba(0, 0, 0, 0.6);
+  --bg-primary: #0a0e14;
+  --bg-sidebar: #0d1117;
+  --bg-surface: #0f1923;
+  --bg-surface-soft: #1a2332;
+  --bg-input: #0d1117;
+  --bg-hover: #1a2332;
+  --bg-active: #2a3545;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
 
-  --border: #1e293b;
-  --border-strong: #334155;
+  --border: #1a2332;
+  --border-strong: #2a3545;
 
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
@@ -33,8 +33,10 @@
 
   --warning: #f59e0b;
 
-  --scrollbar-thumb: #334155;
-  --scrollbar-hover: #475569;
+  --scrollbar-thumb: #2a3545;
+  --scrollbar-hover: #3a4555;
+
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
 
   --json-key: #7dd3fc;
   --json-string: #86efac;
