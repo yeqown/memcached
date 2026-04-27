@@ -1,10 +1,55 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import Sidebar from './components/Sidebar.svelte'
   import OperationPanel from './components/OperationPanel.svelte'
   import ProtocolLog from './components/ProtocolLog.svelte'
   import ValueDisplay from './components/ValueDisplay.svelte'
   import ConnectionBanner from './components/ConnectionBanner.svelte'
-  import { activeOperationTab } from './stores/app'
+  import StatsCards from './components/StatsCards.svelte'
+  import { activeOperationTab, displayValue, displayMode, queryResult } from './stores/app'
+  import { createShortcutHandler, type OperationTab } from './lib/keyboard'
+  import { loadString, saveString } from './lib/storage'
+
+  let operationPanelRef: OperationPanel
+
+  function clearResult() {
+    displayValue.set('')
+    displayMode.set('text')
+    queryResult.set(null)
+  }
+
+  const shortcutHandler = createShortcutHandler({
+    onTabSwitch: (tab: OperationTab) => {
+      operationPanelRef.setTab(tab)
+    },
+    onExecute: () => {
+      operationPanelRef.executeCurrent()
+    },
+    onClear: () => {
+      clearResult()
+    },
+  })
+
+  function handleKeydown(e: KeyboardEvent) {
+    shortcutHandler(e)
+  }
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeydown)
+
+    const savedTab = loadString('active-tab') as OperationTab | null
+    if (savedTab) {
+      operationPanelRef.setTab(savedTab)
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeydown)
+    }
+  })
+
+  $: if ($activeOperationTab) {
+    saveString('active-tab', $activeOperationTab)
+  }
 </script>
 
 <div class="app-layout">
@@ -16,7 +61,10 @@
       <div class="right-top">
         <ConnectionBanner />
       </div>
-      <OperationPanel />
+      <OperationPanel bind:this={operationPanelRef} />
+      {#if $activeOperationTab === 'stats' && $queryResult && $queryResult.success}
+        <StatsCards data={$queryResult.data} />
+      {/if}
       {#if $activeOperationTab !== 'set' && $activeOperationTab !== 'delete'}
         <div class="result-area">
           <ValueDisplay />
@@ -39,14 +87,12 @@
     background: var(--bg-primary);
     color: var(--text-primary);
   }
-
   .main-content {
     flex: 1;
     display: flex;
     min-height: 0;
     overflow: hidden;
   }
-
   .left-column {
     display: flex;
     flex-direction: column;
@@ -55,7 +101,6 @@
     border-right: 1px solid var(--border);
     overflow: hidden;
   }
-
   .right-column {
     flex: 1;
     display: flex;
@@ -63,24 +108,20 @@
     overflow: hidden;
     min-width: 0;
   }
-
   .right-top {
     flex-shrink: 0;
     border-bottom: 1px solid var(--border);
     background: var(--bg-surface);
   }
-
   .right-top :global(.banner) {
     width: 100%;
     border-bottom: none;
   }
-
   .result-area {
     flex: 1;
     overflow: hidden;
     min-height: 0;
   }
-
   .log-dock-full {
     flex: 0 0 30%;
     min-height: 192px;
