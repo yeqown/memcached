@@ -4,11 +4,24 @@
 
   let copied = false
   let metaExpanded = false
+  let searchQuery = ''
+  let forceExpanded = false
+  let forceCollapsed = false
+  let showCopyMenu = false
 
-  function handleCopy() {
-    const text = $queryResult
-      ? $queryResult.value || $queryResult.data || ''
-      : $displayValue
+  function handleCopyRaw() {
+    copyToClipboard(rawValue)
+    showCopyMenu = false
+  }
+
+  function handleCopyFormatted() {
+    if (parsedJson !== null) {
+      copyToClipboard(JSON.stringify(parsedJson, null, 2))
+    }
+    showCopyMenu = false
+  }
+
+  function copyToClipboard(text: string) {
     navigator.clipboard.writeText(text)
     copied = true
     setTimeout(() => copied = false, 1500)
@@ -24,6 +37,16 @@
 
   function toggleMetaExpanded() {
     metaExpanded = !metaExpanded
+  }
+
+  function toggleExpandAll() {
+    if (forceExpanded) {
+      forceExpanded = false
+      forceCollapsed = true
+    } else {
+      forceExpanded = true
+      forceCollapsed = false
+    }
   }
 
   $: rawValue = $queryResult
@@ -51,6 +74,10 @@
     { label: 'Hit Before', value: $queryResult.hitBefore != null ? String($queryResult.hitBefore) : undefined },
     { label: 'Opaque', value: $queryResult.opaque },
   ].filter(f => f.value !== undefined && f.value !== null) : []
+
+  function handleCopyBlur() {
+    setTimeout(() => { showCopyMenu = false }, 150)
+  }
 </script>
 
 {#if showMetaSummary}
@@ -66,7 +93,6 @@
       <span class="meta-toggle-icon" aria-hidden="true"></span>
       <span>Meta</span>
     </button>
-
     {#if metaExpanded}
       <div id="get-meta-panel" class="meta-summary-body" aria-live="polite">
         <table class="meta-table">
@@ -95,15 +121,37 @@
           {/if}
         </div>
       </div>
-      <button type="button" class="btn-copy" on:click={handleCopy} disabled={!hasContent}>
-        {copied ? 'Copied!' : 'Copy'}
-      </button>
+      <div class="header-right">
+        {#if effectiveMode === 'json' && hasContent}
+          <button type="button" class="btn-tool" on:click={toggleExpandAll} title={forceExpanded ? 'Collapse all' : 'Expand all'}>
+            {forceExpanded ? 'Collapse' : 'Expand'}
+          </button>
+          <input
+            type="text"
+            class="search-input"
+            bind:value={searchQuery}
+            placeholder="Search..."
+            aria-label="Search JSON"
+          />
+        {/if}
+        <div class="copy-wrapper">
+          <button type="button" class="btn-copy" on:click={() => showCopyMenu = !showCopyMenu} disabled={!hasContent}>
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+          {#if showCopyMenu}
+            <div class="copy-menu" role="menu" on:blur={handleCopyBlur}>
+              <button type="button" role="menuitem" on:click={handleCopyRaw}>Raw Value</button>
+              <button type="button" role="menuitem" on:click={handleCopyFormatted} disabled={!isJson}>Formatted JSON</button>
+            </div>
+          {/if}
+        </div>
+      </div>
     </div>
     <div class="value-content" aria-live="polite">
       {#if !hasContent}
         <div class="empty">No data to display</div>
       {:else if effectiveMode === 'json' && parsedJson !== null}
-        <div class="json-tree"><JsonTree data={parsedJson} depth={0} expanded={true} /></div>
+        <div class="json-tree"><JsonTree data={parsedJson} depth={0} expanded={true} {searchQuery} {forceExpanded} {forceCollapsed} /></div>
       {:else if effectiveMode === 'meta' && metaFields.length > 0}
         <table class="meta-table">
           {#each metaFields as field}
@@ -161,12 +209,8 @@
     transform-origin: 35% 50%;
     transition: transform 0.15s ease-out;
   }
-  .meta-summary-toggle.expanded .meta-toggle-icon {
-    transform: rotate(90deg);
-  }
-  .meta-summary-body {
-    padding: 0 12px 12px;
-  }
+  .meta-summary-toggle.expanded .meta-toggle-icon { transform: rotate(90deg); }
+  .meta-summary-body { padding: 0 12px 12px; }
 
   .value-panel {
     display: flex;
@@ -184,11 +228,19 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--text-secondary);
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .header-left {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .mode-toggle {
     display: flex;
@@ -210,14 +262,32 @@
     background: var(--bg-active);
     color: var(--text-primary);
   }
-  .mode-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-tool {
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
   }
-  .mode-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+  .btn-tool:hover { color: var(--text-secondary); background: var(--bg-hover); }
+  .search-input {
+    width: 120px;
+    padding: 2px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: var(--font-mono);
   }
+  .search-input:focus { outline: none; border-color: var(--accent); }
+  .copy-wrapper { position: relative; }
   .btn-copy {
     padding: 2px 10px;
     border-radius: 4px;
@@ -228,23 +298,39 @@
     font-size: 12px;
     transition: background 0.2s ease-out, color 0.2s ease-out;
   }
-  .btn-copy:hover:not(:disabled) {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
+  .btn-copy:hover:not(:disabled) { color: var(--text-secondary); background: var(--bg-hover); }
+  .btn-copy:disabled { opacity: 0.4; cursor: not-allowed; }
+  .copy-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 50;
+    min-width: 140px;
+    padding: 4px 0;
   }
-  .btn-copy:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .copy-menu button {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
   }
-  .btn-copy:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
+  .copy-menu button:hover { background: var(--bg-active); }
+  .copy-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
   .value-content {
     flex: 1;
     overflow-y: auto;
     padding: 12px;
-    font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     color: var(--text-code);
     white-space: pre-wrap;
@@ -260,13 +346,8 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
-  .json-tree {
-    line-height: 1.6;
-  }
-  .meta-table {
-    border-collapse: collapse;
-    width: auto;
-  }
+  .json-tree { line-height: 1.6; }
+  .meta-table { border-collapse: collapse; width: auto; }
   .meta-table td {
     padding: 4px 12px 4px 0;
     border-bottom: 1px solid var(--border);
@@ -277,9 +358,7 @@
     font-weight: 500;
     white-space: nowrap;
   }
-  .meta-value {
-    color: var(--text-primary);
-  }
+  .meta-value { color: var(--text-primary); }
   .meta-raw {
     margin-top: 12px;
     border-top: 1px solid var(--border);
@@ -292,10 +371,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .meta-summary-toggle,
-    .meta-toggle-icon,
-    .mode-btn,
-    .btn-copy {
+    .meta-summary-toggle, .meta-toggle-icon, .mode-btn, .btn-copy, .btn-tool {
       transition: none;
     }
   }
