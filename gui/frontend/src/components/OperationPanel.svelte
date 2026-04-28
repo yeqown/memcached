@@ -154,7 +154,7 @@
       <button
         type="button"
         on:click={executeCurrent}
-        disabled={!$connected || (getCommand(activeCommand)?.inputs.some(i => i.required) && !inputArea?.getKey()?.trim())}
+        disabled={!$connected}
         class:btn-danger={getCommand(activeCommand)?.needsConfirmation}
       >
         {getCommand(activeCommand)?.label || 'Execute'}
