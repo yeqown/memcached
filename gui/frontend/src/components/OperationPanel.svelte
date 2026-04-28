@@ -74,7 +74,7 @@
           addLog({ op: 'INCR', key, status: 'info', message: 'Incrementing...' })
           const incrResult = await Incr(key, values.delta as number)
           keyHistory.add(key)
-          displayValue.set(String(incrResult.value || incrResult.data || 'OK'))
+          displayValue.set(incrResult.data || 'OK')
           displayMode.set('text')
           addLog({ op: 'INCR', key, status: 'success', message: 'OK' })
           break
@@ -84,7 +84,7 @@
           addLog({ op: 'DECR', key, status: 'info', message: 'Decrementing...' })
           const decrResult = await Decr(key, values.delta as number)
           keyHistory.add(key)
-          displayValue.set(String(decrResult.value || decrResult.data || 'OK'))
+          displayValue.set(decrResult.data || 'OK')
           displayMode.set('text')
           addLog({ op: 'DECR', key, status: 'success', message: 'OK' })
           break
@@ -113,7 +113,7 @@
         case 'version':
           addLog({ op: 'VERSION', status: 'info', message: 'Checking version...' })
           const versionResult = await Version()
-          displayValue.set(versionResult.data || versionResult.value || 'OK')
+          displayValue.set(versionResult || 'OK')
           displayMode.set('text')
           addLog({ op: 'VERSION', status: 'success', message: 'OK' })
           break
