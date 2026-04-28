@@ -3,3 +3,11 @@ __pycache__/
 .idea/
 
 contexts.json
+
+# Superpowers plugin cache and generated docs
+.superpowers/
+docs/superpowers/plans/
+docs/superpowers/specs/
+
+# Go work file
+go.work.sum

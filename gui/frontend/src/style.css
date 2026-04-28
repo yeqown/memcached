@@ -1,88 +1,92 @@
-/* Dark theme (default) */
+/* Dark theme (macOS native) */
 :root,
 :root[data-theme='dark'] {
-  --bg-primary: #1a2332;
-  --bg-sidebar: #0f172a;
-  --bg-surface: #1e293b;
-  --bg-surface-soft: #334155;
-  --bg-input: #0f172a;
-  --bg-hover: #1e293b;
-  --bg-active: #334155;
-  --bg-overlay: rgba(0, 0, 0, 0.6);
+  --bg-primary: #1c1c1e;
+  --bg-sidebar: #2c2c2e;
+  --bg-surface: #2c2c2e;
+  --bg-surface-soft: #3a3a3c;
+  --bg-input: #1c1c1e;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --bg-overlay: rgba(0, 0, 0, 0.5);
 
-  --border: #1e293b;
-  --border-strong: #334155;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
 
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-dim: #475569;
-  --text-code: #cbd5e1;
+  --text-primary: #ffffff;
+  --text-secondary: #aeaeb2;
+  --text-muted: #8e8e93;
+  --text-dim: #636366;
+  --text-code: #e5e5e7;
 
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
   --accent-contrast: #ffffff;
-  --accent-focus-ring: rgba(59, 130, 246, 0.25);
+  --accent-focus-ring: rgba(10, 132, 255, 0.25);
+  --accent-soft: rgba(10, 132, 255, 0.12);
 
-  --danger: #dc2626;
-  --danger-hover: #b91c1c;
-  --danger-soft: rgba(239, 68, 68, 0.12);
+  --danger: #ff453a;
+  --danger-hover: #ff6961;
+  --danger-soft: rgba(255, 69, 58, 0.12);
 
-  --success: #22c55e;
-  --success-soft: rgba(34, 197, 94, 0.12);
+  --success: #30d158;
+  --success-soft: rgba(48, 209, 88, 0.12);
 
-  --warning: #f59e0b;
+  --warning: #ff9f0a;
 
-  --scrollbar-thumb: #334155;
-  --scrollbar-hover: #475569;
+  --scrollbar-thumb: #48484a;
+  --scrollbar-hover: #636366;
 
-  --json-key: #7dd3fc;
-  --json-string: #86efac;
-  --json-number: #fbbf24;
-  --json-boolean: #c084fc;
+  --font-mono: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+
+  --json-key: #0a84ff;
+  --json-string: #30d158;
+  --json-number: #ff9f0a;
+  --json-boolean: #bf5af2;
 }
 
-/* Light theme */
+/* Light theme (macOS native) */
 :root[data-theme='light'] {
-  --bg-primary: #f8fafc;
-  --bg-sidebar: #f1f5f9;
+  --bg-primary: #ffffff;
+  --bg-sidebar: #f2f2f7;
   --bg-surface: #ffffff;
-  --bg-surface-soft: #e2e8f0;
+  --bg-surface-soft: #e5e5ea;
   --bg-input: #ffffff;
-  --bg-hover: #e2e8f0;
-  --bg-active: #cbd5e1;
-  --bg-overlay: rgba(15, 23, 42, 0.2);
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --bg-overlay: rgba(0, 0, 0, 0.3);
 
-  --border: #cbd5e1;
-  --border-strong: #94a3b8;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.15);
 
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --text-dim: #94a3b8;
-  --text-code: #334155;
+  --text-primary: #1c1c1e;
+  --text-secondary: #3a3a3c;
+  --text-muted: #8e8e93;
+  --text-dim: #aeaeb2;
+  --text-code: #3a3a3c;
 
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  --accent: #007aff;
+  --accent-hover: #0066d6;
   --accent-contrast: #ffffff;
-  --accent-focus-ring: rgba(37, 99, 235, 0.25);
+  --accent-focus-ring: rgba(0, 122, 255, 0.25);
+  --accent-soft: rgba(0, 122, 255, 0.1);
 
-  --danger: #dc2626;
-  --danger-hover: #b91c1c;
-  --danger-soft: rgba(239, 68, 68, 0.08);
+  --danger: #ff3b30;
+  --danger-hover: #d63028;
+  --danger-soft: rgba(255, 59, 48, 0.08);
 
-  --success: #16a34a;
-  --success-soft: rgba(34, 197, 94, 0.1);
+  --success: #34c759;
+  --success-soft: rgba(52, 199, 89, 0.1);
 
-  --warning: #d97706;
+  --warning: #ff9500;
 
-  --scrollbar-thumb: #94a3b8;
-  --scrollbar-hover: #64748b;
+  --scrollbar-thumb: #c7c7cc;
+  --scrollbar-hover: #aeaeb2;
 
-  --json-key: #0369a1;
-  --json-string: #15803d;
-  --json-number: #b45309;
-  --json-boolean: #7c3aed;
+  --json-key: #007aff;
+  --json-string: #34c759;
+  --json-number: #ff9500;
+  --json-boolean: #af52de;
 }
 
 html {
@@ -96,12 +100,12 @@ html {
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #app {

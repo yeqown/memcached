@@ -62,34 +62,35 @@
 
 <style>
   .theme-toggle {
-    display: flex;
-    border: 1px solid var(--border-strong);
-    border-radius: 8px;
-    overflow: hidden;
+    display: inline-flex;
     background: var(--bg-surface-soft);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 0;
   }
 
   .mode-btn {
-    padding: 6px 12px;
+    padding: 4px 10px;
     border: none;
     background: transparent;
-    color: var(--text-muted);
+    color: var(--text-dim);
     cursor: pointer;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 500;
     line-height: 1.2;
-    min-width: 62px;
-    transition: background 0.2s ease-out, color 0.2s ease-out;
+    min-width: 56px;
+    border-radius: 6px;
+    transition: background 0.15s, color 0.15s;
   }
 
   .mode-btn:hover {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
   }
 
   .mode-btn.active {
-    background: var(--bg-active);
-    color: var(--text-primary);
+    background: var(--accent);
+    color: var(--accent-contrast);
   }
 
   .mode-btn:focus-visible {
@@ -98,8 +99,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .mode-btn {
-      transition: none;
-    }
+    .mode-btn { transition: none; }
   }
 </style>
