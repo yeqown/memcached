@@ -90,9 +90,6 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -117,17 +114,17 @@ jobs:
 
       - name: Build GUI
         working-directory: gui
-        run: wails build -platform linux/${{ matrix.arch }}
+        run: wails build -platform linux/amd64
 
       - name: Create archive
         working-directory: gui/build/bin
-        run: tar -czvf memcached-gui-linux-${{ matrix.arch }}.tar.gz gui
+        run: tar -czvf memcached-gui-linux-amd64.tar.gz gui
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
-          path: gui/build/bin/memcached-gui-linux-${{ matrix.arch }}.tar.gz
+          name: linux-amd64
+          path: gui/build/bin/memcached-gui-linux-amd64.tar.gz
 
   release:
     name: Create Release
@@ -156,12 +153,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: linux-amd64
-          path: ./release
-
-      - name: Download Linux arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-arm64
           path: ./release
 
       - name: List release files
