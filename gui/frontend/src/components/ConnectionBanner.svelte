@@ -87,15 +87,16 @@
     flex-wrap: wrap;
   }
   .banner-ok {
-    background: var(--success-soft);
+    background: var(--bg-primary);
     color: var(--success);
   }
   .banner-error {
-    background: var(--danger-soft);
+    background: var(--bg-primary);
     border-bottom-color: var(--danger);
     color: var(--danger);
   }
   .banner-idle {
+    background: var(--bg-primary);
     color: var(--text-muted);
   }
   .banner-text { flex-shrink: 0; }
