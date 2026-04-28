@@ -74,31 +74,32 @@
 <style>
   .stats-cards {
     display: flex;
-    gap: 12px;
-    padding: 12px;
+    gap: 10px;
+    padding: 12px 16px;
     overflow-x: auto;
   }
   .stat-card {
-    min-width: 140px;
+    min-width: 130px;
     flex: 1;
-    padding: 10px 12px;
-    background: var(--bg-primary);
+    padding: 12px 14px;
+    background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
   }
   .stat-label {
     font-size: 11px;
+    font-weight: 500;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.3px;
     margin-bottom: 4px;
   }
   .stat-value {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     font-family: var(--font-mono);
     color: var(--text-primary);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
   .progress-bar {
     height: 4px;

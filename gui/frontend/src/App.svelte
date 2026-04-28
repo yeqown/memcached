@@ -96,8 +96,8 @@
   .left-column {
     display: flex;
     flex-direction: column;
-    width: 260px;
-    min-width: 260px;
+    width: 240px;
+    min-width: 240px;
     border-right: 1px solid var(--border);
     overflow: hidden;
   }
@@ -110,8 +110,6 @@
   }
   .right-top {
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
   }
   .right-top :global(.banner) {
     width: 100%;
@@ -127,7 +125,6 @@
     min-height: 192px;
     max-height: 440px;
     border-top: 1px solid var(--border);
-    background: var(--bg-surface);
     overflow: hidden;
   }
 </style>
