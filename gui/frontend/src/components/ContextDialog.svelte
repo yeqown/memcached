@@ -112,18 +112,19 @@
   }
   .dialog {
     background: var(--bg-surface);
-    border: 1px solid var(--border-strong);
-    border-radius: 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
     padding: 24px;
     width: 480px;
     max-height: 80vh;
     overflow-y: auto;
     color: var(--text-primary);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
   }
   h2 {
     margin: 0 0 20px 0;
-    font-size: 18px;
+    font-size: 17px;
+    font-weight: 600;
     color: var(--text-primary);
   }
   .form-group {
@@ -136,33 +137,35 @@
   }
   .server-fieldset legend {
     display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--text-secondary);
-    font-weight: 500;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
   }
   label {
     display: block;
     margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--text-secondary);
+    font-size: 12px;
     font-weight: 500;
+    color: var(--text-muted);
   }
   input[type="text"], input[type="number"] {
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-input);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 13px;
     box-sizing: border-box;
-    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   input:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-focus-ring);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .server-row {
     display: flex;
@@ -170,24 +173,20 @@
     margin-bottom: 8px;
     align-items: center;
   }
-  .server-row input:first-child {
-    flex: 2;
-  }
-  .server-row input:nth-child(2) {
-    flex: 1;
-  }
+  .server-row input:first-child { flex: 2; }
+  .server-row input:nth-child(2) { flex: 1; }
   .btn-icon {
     width: 28px;
     height: 28px;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    transition: background 0.2s ease-out, color 0.2s ease-out;
+    transition: background 0.15s, color 0.15s;
   }
   .btn-danger {
     background: var(--danger-soft);
@@ -200,49 +199,44 @@
   .btn-small {
     background: transparent;
     border: 1px dashed var(--border-strong);
-    color: var(--text-secondary);
+    color: var(--text-muted);
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     width: 100%;
-    transition: border-color 0.2s ease-out, color 0.2s ease-out, background 0.2s ease-out;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
   }
   .btn-small:hover {
     border-color: var(--accent);
     color: var(--accent);
-    background: var(--accent-focus-ring);
+    background: var(--accent-soft);
   }
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
+    gap: 8px;
     margin-top: 20px;
   }
   .btn-primary, .btn-secondary {
-    padding: 8px 20px;
-    border-radius: 6px;
+    padding: 7px 16px;
+    border-radius: 8px;
     border: none;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    transition: background 0.2s ease-out, color 0.2s ease-out;
+    transition: background 0.15s, color 0.15s;
   }
   .btn-primary {
     background: var(--accent);
     color: var(--accent-contrast);
   }
-  .btn-primary:hover {
-    background: var(--accent-hover);
-  }
+  .btn-primary:hover { background: var(--accent-hover); }
   .btn-secondary {
     background: var(--bg-surface-soft);
-    color: var(--text-secondary);
-  }
-  .btn-secondary:hover {
-    background: var(--bg-active);
     color: var(--text-primary);
   }
+  .btn-secondary:hover { background: var(--bg-active); color: var(--text-primary); }
   .btn-icon:focus-visible,
   .btn-small:focus-visible,
   .btn-primary:focus-visible,
@@ -252,12 +246,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    input[type="text"],
-    input[type="number"],
-    .btn-icon,
-    .btn-small,
-    .btn-primary,
-    .btn-secondary {
+    input[type="text"], input[type="number"], .btn-icon, .btn-small, .btn-primary, .btn-secondary {
       transition: none;
     }
   }
