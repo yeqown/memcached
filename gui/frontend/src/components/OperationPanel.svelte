@@ -111,7 +111,7 @@
       <div class="disabled-overlay">Connect to a context first</div>
     {/if}
 
-    {#if activeTab === 'get'}
+    <div class="tab-form" class:hidden={activeTab !== 'get'}>
       <div class="form-row">
         <KeyInput
           id="get-key"
@@ -121,7 +121,9 @@
         />
         <button type="button" on:click={handleGet} disabled={!$connected || !getKey.trim()}>Retrieve</button>
       </div>
-    {:else if activeTab === 'set'}
+    </div>
+
+    <div class="tab-form" class:hidden={activeTab !== 'set'}>
       <div class="form-col">
         <KeyInput
           id="set-key"
@@ -149,7 +151,9 @@
         </div>
         <button type="button" on:click={handleSet} disabled={!$connected || !setKey.trim()}>Store</button>
       </div>
-    {:else if activeTab === 'delete'}
+    </div>
+
+    <div class="tab-form" class:hidden={activeTab !== 'delete'}>
       <div class="form-row">
         <KeyInput
           id="delete-key"
@@ -161,7 +165,7 @@
           Delete
         </button>
       </div>
-    {/if}
+    </div>
   </div>
 </div>
 
@@ -184,6 +188,12 @@
     border-radius: 8px;
     padding: 2px;
     gap: 0;
+  }
+  .tab-form {
+    position: relative;
+  }
+  .tab-form.hidden {
+    display: none;
   }
   .panel-tools {
     flex-shrink: 0;
