@@ -11,17 +11,14 @@
       const result = await Stats()
       if (result && result.success && result.data) {
         const parsed = JSON.parse(result.data)
-        const items: Record<string, string> = {}
-        for (const serverStats of Object.values(parsed) as Record<string, string>[]) {
-          Object.assign(items, serverStats)
-        }
-        const totalItems = items['curr_items'] || '0'
-        const getHits = parseInt(items['get_hits'] || '0', 10)
-        const getMisses = parseInt(items['get_misses'] || '0', 10)
+        // Backend returns flat Statistic struct, not nested server map
+        const totalItems = parsed.curr_items ?? 0
+        const getHits = parsed.get_hits ?? 0
+        const getMisses = parsed.get_misses ?? 0
         const total = getHits + getMisses
         const hitRate = total > 0 ? Math.round((getHits / total) * 100) : 0
-        const bytes = parseInt(items['bytes'] || '0', 10)
-        const maxBytes = parseInt(items['limit_maxbytes'] || '0', 10)
+        const bytes = parsed.bytes ?? 0
+        const maxBytes = parsed.limit_maxbytes ?? 0
         function fmt(b: number): string {
           if (b < 1024) return b + 'B'
           if (b < 1024 * 1024) return (b / 1024).toFixed(0) + 'K'

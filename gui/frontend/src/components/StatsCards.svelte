@@ -26,20 +26,15 @@
     if (!raw) return []
     try {
       const parsed = JSON.parse(raw)
-      const items: Record<string, string> = {}
 
-      for (const serverStats of Object.values(parsed) as Record<string, string>[]) {
-        Object.assign(items, serverStats)
-      }
-
-      const bytes = parseNumber(items['bytes'])
-      const maxBytes = parseNumber(items['limit_maxbytes'])
-      const getHits = parseNumber(items['get_hits'])
-      const getMisses = parseNumber(items['get_misses'])
+      const bytes = parsed.bytes ?? 0
+      const maxBytes = parsed.limit_maxbytes ?? 0
+      const getHits = parsed.get_hits ?? 0
+      const getMisses = parsed.get_misses ?? 0
       const totalGets = getHits + getMisses
       const hitRate = totalGets > 0 ? Math.round((getHits / totalGets) * 100) : 0
-      const currConnections = parseNumber(items['curr_connections'])
-      const totalItems = parseNumber(items['curr_items'])
+      const currConnections = parsed.curr_connections ?? 0
+      const totalItems = parsed.curr_items ?? 0
 
       const memProgress = maxBytes > 0 ? Math.round((bytes / maxBytes) * 100) : 0
 

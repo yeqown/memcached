@@ -88,8 +88,8 @@
   }
 
   .mode-btn.active {
-    background: var(--bg-active);
-    color: var(--text-primary);
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 
   .mode-btn:focus-visible {

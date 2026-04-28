@@ -60,7 +60,6 @@
   $: showMetaSummary = $activeOperationTab === 'get' && isMetaResult
   $: effectiveMode = (() => {
     if ($displayMode === 'json' && isJson) return 'json'
-    if ($displayMode === 'meta' && isMetaResult) return 'meta'
     return 'text'
   })()
 
@@ -116,9 +115,6 @@
         <div class="mode-toggle" role="tablist" aria-label="Value display mode">
           <button type="button" class="mode-btn" class:active={effectiveMode === 'text'} on:click={() => displayMode.set('text')} role="tab" aria-selected={effectiveMode === 'text'}>Text</button>
           <button type="button" class="mode-btn" class:active={effectiveMode === 'json'} on:click={() => displayMode.set('json')} disabled={!isJson} role="tab" aria-selected={effectiveMode === 'json'}>JSON</button>
-          {#if isMetaResult}
-            <button type="button" class="mode-btn" class:active={effectiveMode === 'meta'} on:click={() => displayMode.set('meta')} role="tab" aria-selected={effectiveMode === 'meta'}>Meta</button>
-          {/if}
         </div>
       </div>
       <div class="header-right">
@@ -152,19 +148,6 @@
         <div class="empty">No data to display</div>
       {:else if effectiveMode === 'json' && parsedJson !== null}
         <div class="json-tree"><JsonTree data={parsedJson} depth={0} expanded={true} {searchQuery} {forceExpanded} {forceCollapsed} /></div>
-      {:else if effectiveMode === 'meta' && metaFields.length > 0}
-        <table class="meta-table">
-          {#each metaFields as field}
-            <tr>
-              <td class="meta-label">{field.label}</td>
-              <td class="meta-value">{field.value}</td>
-            </tr>
-          {/each}
-        </table>
-        <div class="meta-raw">
-          <div class="meta-raw-label">Value</div>
-          <pre>{rawValue}</pre>
-        </div>
       {:else}
         <pre>{rawValue}</pre>
       {/if}
@@ -265,8 +248,8 @@
     transition: background 0.15s, color 0.15s;
   }
   .mode-btn.active {
-    background: var(--bg-active);
-    color: var(--text-primary);
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -356,29 +339,6 @@
     word-break: break-all;
   }
   .json-tree { line-height: 1.6; }
-  .meta-table { border-collapse: collapse; width: auto; }
-  .meta-table td {
-    padding: 4px 12px 4px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-  }
-  .meta-label {
-    color: var(--text-muted);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-  .meta-value { color: var(--text-primary); }
-  .meta-raw {
-    margin-top: 12px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-  .meta-raw-label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-bottom: 4px;
-  }
 
   @media (prefers-reduced-motion: reduce) {
     .meta-summary-toggle, .meta-toggle-icon, .mode-btn, .btn-copy, .btn-tool {
