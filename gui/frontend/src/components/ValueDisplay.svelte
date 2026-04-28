@@ -247,9 +247,13 @@
     border-radius: 4px;
     transition: background 0.15s, color 0.15s;
   }
+  .mode-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+  }
   .mode-btn.active {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
   }
   .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }

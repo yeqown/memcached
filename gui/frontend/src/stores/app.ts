@@ -38,7 +38,7 @@ export interface QueryResult {
 export type ConnectionStatus = 'disconnected' | 'connected' | 'error'
 export type DisplayMode = 'text' | 'json' | 'meta'
 export type ThemeMode = 'system' | 'light' | 'dark'
-export type OperationTab = 'get' | 'set' | 'delete' | 'stats'
+export type OperationTab = 'get' | 'set' | 'delete'
 
 // Context list
 export const contexts = writable<McContext[]>([])

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { connected, addLog, displayValue, displayMode, queryResult, activeOperationTab } from '../stores/app'
   import { keyHistory } from '../stores/keyHistory'
-  import { Get, Set, Delete, Stats } from '../../wailsjs/go/service/OperationService.js'
+  import { Get, Set, Delete } from '../../wailsjs/go/service/OperationService.js'
   import ThemeToggle from './ThemeToggle.svelte'
   import KeyInput from './KeyInput.svelte'
 
-  let activeTab: 'get' | 'set' | 'delete' | 'stats' = 'get'
+  let activeTab: 'get' | 'set' | 'delete' = 'get'
   let getKey = ''
   let setKey = ''
   let setValue = ''
@@ -15,14 +15,12 @@
 
   $: activeOperationTab.set(activeTab)
 
-  export function setTab(tab: 'get' | 'set' | 'delete' | 'stats') {
+  export function setTab(tab: 'get' | 'set' | 'delete') {
     activeTab = tab
   }
 
   export function executeCurrent() {
-    if (activeTab === 'stats') {
-      handleStats()
-    } else if (activeTab === 'get') {
+    if (activeTab === 'get') {
       handleGet()
     } else if (activeTab === 'set') {
       handleSet()
@@ -79,29 +77,10 @@
     }
   }
 
-  async function handleStats() {
-    try {
-      addLog({ op: 'STATS', status: 'info', message: 'Fetching stats...' })
-      const result = await Stats()
-      queryResult.set(result)
-      if (result && result.success) {
-        displayValue.set(result.data)
-        displayMode.set('json')
-        addLog({ op: 'STATS', status: 'success', message: 'OK' })
-      } else if (result) {
-        addLog({ op: 'STATS', status: 'error', message: result.error })
-      }
-    } catch (e: any) {
-      queryResult.set(null)
-      addLog({ op: 'STATS', status: 'error', message: e.message || String(e) })
-    }
-  }
-
-  const tabs: Array<{ id: 'get' | 'set' | 'delete' | 'stats'; label: string }> = [
+  const tabs: Array<{ id: 'get' | 'set' | 'delete'; label: string }> = [
     { id: 'get', label: 'Get' },
     { id: 'set', label: 'Set' },
     { id: 'delete', label: 'Delete' },
-    { id: 'stats', label: 'Stats' },
   ]
 </script>
 
@@ -182,8 +161,6 @@
           Delete
         </button>
       </div>
-    {:else if activeTab === 'stats'}
-      <button type="button" on:click={handleStats} disabled={!$connected}>Get Stats</button>
     {/if}
   </div>
 </div>
@@ -223,11 +200,12 @@
     transition: background 0.15s, color 0.15s;
   }
   .tab:hover:not(:disabled) {
-    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
   }
   .tab.active {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
   }
   .tab:focus-visible {
     outline: 2px solid var(--accent);

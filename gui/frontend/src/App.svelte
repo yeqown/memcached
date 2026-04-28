@@ -5,7 +5,6 @@
   import ProtocolLog from './components/ProtocolLog.svelte'
   import ValueDisplay from './components/ValueDisplay.svelte'
   import ConnectionBanner from './components/ConnectionBanner.svelte'
-  import StatsCards from './components/StatsCards.svelte'
   import { activeOperationTab, displayValue, displayMode, queryResult } from './stores/app'
   import { createShortcutHandler, type OperationTab } from './lib/keyboard'
   import { loadString, saveString } from './lib/storage'
@@ -62,9 +61,6 @@
         <ConnectionBanner />
       </div>
       <OperationPanel bind:this={operationPanelRef} />
-      {#if $activeOperationTab === 'stats' && $queryResult && $queryResult.success}
-        <StatsCards data={$queryResult.data} />
-      {/if}
       {#if $activeOperationTab !== 'set' && $activeOperationTab !== 'delete'}
         <div class="result-area">
           <ValueDisplay />

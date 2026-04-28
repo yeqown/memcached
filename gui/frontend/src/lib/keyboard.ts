@@ -18,7 +18,7 @@ export function matchesShortcut(e: KeyboardEvent, key: string): boolean {
   return isCtrlOrCmd(e) && e.key.toLowerCase() === key.toLowerCase()
 }
 
-export type OperationTab = 'get' | 'set' | 'delete' | 'stats'
+export type OperationTab = 'get' | 'set' | 'delete'
 
 export interface ShortcutConfig {
   onTabSwitch?: (tab: OperationTab) => void
@@ -37,9 +37,6 @@ export function createShortcutHandler(config: ShortcutConfig): KeyboardHandler {
     } else if (matchesShortcut(e, '3') && config.onTabSwitch) {
       e.preventDefault()
       config.onTabSwitch('delete')
-    } else if (matchesShortcut(e, '4') && config.onTabSwitch) {
-      e.preventDefault()
-      config.onTabSwitch('stats')
     } else if (matchesShortcut(e, 'enter') && config.onExecute) {
       if (isInputFocused()) {
         e.preventDefault()

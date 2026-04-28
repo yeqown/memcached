@@ -84,12 +84,13 @@
   }
 
   .mode-btn:hover {
-    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
   }
 
   .mode-btn.active {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
   }
 
   .mode-btn:focus-visible {
