@@ -13,10 +13,10 @@
     if (!disabled) open = !open
   }
 
-  function selectCommand(id: CommandId) {
-    selected = id
+  function selectCommand(id: string) {
+    selected = id as CommandId
     open = false
-    dispatch('change', id)
+    dispatch('change', id as CommandId)
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -60,7 +60,7 @@
               type="button"
               class="dropdown-item"
               class:selected={selected === cmd.id}
-              on:click={() => selectCommand(cmd.id as CommandId)}
+              on:click={() => selectCommand(cmd.id)}
               role="option"
               aria-selected={selected === cmd.id}
             >

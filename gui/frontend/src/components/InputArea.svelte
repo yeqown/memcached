@@ -5,11 +5,14 @@
   export let command: CommandId = 'get'
   export let disabled = false
 
-  let key = ''
-  let value = ''
-  let flags = 0
-  let expiry = 0
-  let delta = 1
+  // Store values for each possible input
+  let values: Record<string, string | number> = {
+    key: '',
+    value: '',
+    flags: 0,
+    expiry: 0,
+    delta: 1,
+  }
 
   export function getValues(): Record<string, string | number> {
     const cmd = getCommand(command)
@@ -17,35 +20,26 @@
 
     const result: Record<string, string | number> = {}
     for (const input of cmd.inputs) {
-      if (input.id === 'key') result.key = key
-      else if (input.id === 'value') result.value = value
-      else if (input.id === 'flags') result.flags = flags
-      else if (input.id === 'expiry') result.expiry = expiry
-      else if (input.id === 'delta') result.delta = delta
+      result[input.id] = values[input.id] ?? ''
     }
     return result
   }
 
   export function getKey(): string {
-    return key
+    return values.key as string
   }
 
   export function clearKey() {
-    key = ''
+    values.key = ''
   }
 
+  // Reset default values when command changes
   $: {
     const cmd = getCommand(command)
     if (cmd) {
       for (const input of cmd.inputs) {
-        if (input.id === 'delta' && input.defaultValue !== undefined) {
-          delta = input.defaultValue as number
-        }
-        if (input.id === 'flags' && input.defaultValue !== undefined) {
-          flags = input.defaultValue as number
-        }
-        if (input.id === 'expiry' && input.defaultValue !== undefined) {
-          expiry = input.defaultValue as number
+        if (input.defaultValue !== undefined) {
+          values[input.id] = input.defaultValue
         }
       }
     }
@@ -53,14 +47,14 @@
 </script>
 
 <div class="input-area">
-  {#each getCommand(command)?.inputs || [] as field}
+  {#each getCommand(command)?.inputs || [] as field (field.id)}
     <div class="input-field">
       {#if field.type === 'text'}
         <div class="field">
           <label for="input-{field.id}">{field.label}</label>
           <KeyInput
             id="input-{field.id}"
-            bind:value={key}
+            bind:value={values.key}
             placeholder={field.placeholder || field.label}
             {disabled}
           />
@@ -70,7 +64,7 @@
           <label for="input-{field.id}">{field.label}</label>
           <textarea
             id="input-{field.id}"
-            bind:value={value}
+            bind:value={values.value}
             placeholder={field.placeholder || field.label}
             rows="4"
             {disabled}
@@ -82,7 +76,7 @@
           <input
             id="input-{field.id}"
             type="number"
-            bind:value={field.id === 'delta' ? delta : field.id === 'flags' ? flags : expiry}
+            bind:value={values[field.id]}
             min="0"
             {disabled}
           />
