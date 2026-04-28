@@ -1,4 +1,5 @@
 import type { OperationTab } from '../stores/app'
+export type { OperationTab }
 
 export type KeyboardHandler = (e: KeyboardEvent) => void
 

@@ -61,7 +61,7 @@
         <ConnectionBanner />
       </div>
       <OperationPanel bind:this={operationPanelRef} />
-      <div class="result-area" class:hidden={$activeOperationTab === 'set' || $activeOperationTab === 'delete'}>
+      <div class="result-area" class:hidden={$activeOperationTab === 'set'}>
         <ValueDisplay />
       </div>
     </div>
