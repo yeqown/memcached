@@ -1,3 +1,5 @@
+import type { OperationTab } from '../stores/app'
+
 export type KeyboardHandler = (e: KeyboardEvent) => void
 
 const ACTIVE_INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
@@ -18,31 +20,32 @@ export function matchesShortcut(e: KeyboardEvent, key: string): boolean {
   return isCtrlOrCmd(e) && e.key.toLowerCase() === key.toLowerCase()
 }
 
-export type OperationTab = 'get' | 'set' | 'delete'
-
 export interface ShortcutConfig {
   onTabSwitch?: (tab: OperationTab) => void
   onExecute?: () => void
   onClear?: () => void
 }
 
+const COMMAND_KEYS: OperationTab[] = ['get', 'set', 'delete', 'incr', 'decr', 'stats', 'flushall', 'version']
+
 export function createShortcutHandler(config: ShortcutConfig): KeyboardHandler {
   return (e: KeyboardEvent) => {
-    if (matchesShortcut(e, '1') && config.onTabSwitch) {
-      e.preventDefault()
-      config.onTabSwitch('get')
-    } else if (matchesShortcut(e, '2') && config.onTabSwitch) {
-      e.preventDefault()
-      config.onTabSwitch('set')
-    } else if (matchesShortcut(e, '3') && config.onTabSwitch) {
-      e.preventDefault()
-      config.onTabSwitch('delete')
-    } else if (matchesShortcut(e, 'enter') && config.onExecute) {
+    for (let i = 0; i < COMMAND_KEYS.length; i++) {
+      if (matchesShortcut(e, String(i + 1)) && config.onTabSwitch) {
+        e.preventDefault()
+        config.onTabSwitch(COMMAND_KEYS[i])
+        return
+      }
+    }
+
+    if (matchesShortcut(e, 'enter') && config.onExecute) {
       if (isInputFocused()) {
         e.preventDefault()
         config.onExecute()
       }
-    } else if (matchesShortcut(e, 'l') && config.onClear) {
+    }
+
+    if (matchesShortcut(e, 'l') && config.onClear) {
       if (!isInputFocused()) {
         e.preventDefault()
         config.onClear()
