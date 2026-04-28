@@ -178,35 +178,35 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
   }
   .sidebar-header h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.5px;
   }
   .btn-add {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 6px;
     border: 1px dashed var(--border-strong);
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: 18px;
+    font-size: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: border-color 0.2s ease-out, color 0.2s ease-out, background 0.2s ease-out;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
   }
   .btn-add:hover {
     border-color: var(--accent);
     color: var(--accent);
-    background: var(--accent-focus-ring);
+    background: var(--accent-soft);
   }
   .btn-add:focus-visible {
     outline: 2px solid var(--accent);
@@ -215,7 +215,7 @@
   .context-list {
     flex: 1;
     overflow-y: auto;
-    padding: 6px;
+    padding: 8px;
   }
   .empty {
     text-align: center;
@@ -230,14 +230,14 @@
     padding: 8px 10px;
     border-radius: 8px;
     cursor: pointer;
-    margin-bottom: 4px;
-    transition: background 0.2s ease-out;
+    margin-bottom: 2px;
+    transition: background 0.15s;
   }
   .context-item:hover {
     background: var(--bg-hover);
   }
   .context-item.active {
-    background: var(--bg-active);
+    background: var(--accent-soft);
   }
   .context-item:focus-visible {
     outline: 2px solid var(--accent);
@@ -248,7 +248,7 @@
     min-width: 0;
   }
   .context-name {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
     display: flex;
@@ -267,36 +267,36 @@
   .dot.green { background: var(--success); }
   .dot.gray { background: var(--text-dim); }
   .context-servers {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-muted);
     margin-top: 2px;
     padding-left: 16px;
   }
   .context-actions {
     display: flex;
-    gap: 8px;
+    gap: 4px;
     opacity: 0;
-    transition: opacity 0.2s ease-out;
+    transition: opacity 0.15s;
   }
   .context-item:hover .context-actions,
   .context-item:focus-within .context-actions {
     opacity: 1;
   }
   .btn-tiny {
-    width: 40px;
-    height: 40px;
+    width: 28px;
+    height: 28px;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s ease-out, color 0.2s ease-out;
+    transition: background 0.15s, color 0.15s;
   }
   .btn-tiny:hover {
     background: var(--bg-active);
@@ -311,12 +311,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .btn-add,
-    .context-item,
-    .context-actions,
-    .btn-tiny {
-      transition: none;
-    }
+    .btn-add, .context-item, .context-actions, .btn-tiny { transition: none; }
   }
 </style>
 
