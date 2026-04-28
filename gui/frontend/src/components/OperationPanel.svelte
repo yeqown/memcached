@@ -190,42 +190,43 @@
 
 <style>
   .panel {
-    padding: 12px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-surface);
+    background: var(--bg-primary);
   }
   .panel-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
   }
   .tabs {
-    display: flex;
-    gap: 4px;
-    min-width: 0;
+    display: inline-flex;
+    background: var(--bg-surface-soft);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 0;
   }
   .panel-tools {
     flex-shrink: 0;
   }
   .tab {
-    padding: 4px 12px;
+    padding: 5px 14px;
     border-radius: 6px;
     border: none;
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
-    transition: background 0.2s ease-out, color 0.2s ease-out;
+    transition: background 0.15s, color 0.15s;
   }
   .tab:hover:not(:disabled) {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    color: var(--text-secondary);
   }
   .tab.active {
-    background: var(--bg-active);
+    background: var(--accent-soft);
     color: var(--accent);
   }
   .tab:focus-visible {
@@ -246,7 +247,7 @@
     align-items: center;
     justify-content: center;
     color: var(--text-dim);
-    font-size: 14px;
+    font-size: 13px;
     z-index: 10;
     pointer-events: none;
   }
@@ -254,40 +255,40 @@
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-input);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 13px;
     font-family: var(--font-mono);
     box-sizing: border-box;
-    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+    transition: border-color 0.15s, box-shadow 0.15s;
     resize: vertical;
   }
   textarea:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-focus-ring);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   textarea:disabled { opacity: 0.5; }
   input[type="number"] {
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-input);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: 13px;
     box-sizing: border-box;
-    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   input[type="number"]:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-focus-ring);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .form-row {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
   }
   .form-col {
@@ -303,19 +304,20 @@
   .field label {
     display: block;
     font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
     margin-bottom: 4px;
   }
   button {
-    padding: 8px 20px;
-    border-radius: 6px;
+    padding: 7px 16px;
+    border-radius: 8px;
     border: none;
     background: var(--accent);
     color: var(--accent-contrast);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    transition: background 0.2s ease-out, filter 0.2s ease-out;
+    transition: background 0.15s;
   }
   button:hover:not(:disabled) { background: var(--accent-hover); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
