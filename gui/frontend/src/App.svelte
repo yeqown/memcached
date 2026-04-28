@@ -61,11 +61,9 @@
         <ConnectionBanner />
       </div>
       <OperationPanel bind:this={operationPanelRef} />
-      {#if $activeOperationTab !== 'set' && $activeOperationTab !== 'delete'}
-        <div class="result-area">
-          <ValueDisplay />
-        </div>
-      {/if}
+      <div class="result-area" class:hidden={$activeOperationTab === 'set' || $activeOperationTab === 'delete'}>
+        <ValueDisplay />
+      </div>
     </div>
   </div>
 
@@ -115,6 +113,9 @@
     flex: 1;
     overflow: hidden;
     min-height: 0;
+  }
+  .result-area.hidden {
+    display: none;
   }
   .log-dock-full {
     flex: 0 0 30%;
