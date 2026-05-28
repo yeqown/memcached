@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -140,6 +141,26 @@ func Test_parseValueItems(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func Test_parseValueItemsDecodeValue(t *testing.T) {
+	src := []byte("hello hello hello hello hello hello")
+	compressed, err := compress(src, CompressionAlgorithmDeflate)
+	assert.NoError(t, err)
+	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
+	assert.NoError(t, err)
+
+	lines := [][]byte{
+		[]byte("VALUE key " + strconv.FormatUint(uint64(flags), 10) + " " + strconv.Itoa(len(compressed)) + "\r\n"),
+		append(append([]byte{}, compressed...), []byte("\r\n")...),
+		[]byte("END\r\n"),
+	}
+
+	items, err := parseValueItems(lines, false, false)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Equal(t, src, items[0].Value)
+	assert.Equal(t, flags, items[0].Flags)
 }
 
 func constructParts(raw []byte) [][]byte {

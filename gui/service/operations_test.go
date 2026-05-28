@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	memcached "github.com/yeqown/memcached"
 	"github.com/stretchr/testify/require"
+	memcached "github.com/yeqown/memcached"
 )
 
 type structuredOperationResult struct {
@@ -18,7 +18,7 @@ type structuredOperationResult struct {
 	TTL              int64  `json:"ttl"`
 	LastAccessedTime int64  `json:"lastAccessedTime"`
 	CAS              uint64 `json:"cas"`
-	Flags            uint32 `json:"flags"`
+	Flags            uint16 `json:"flags"`
 	Size             uint64 `json:"size"`
 	HitBefore        bool   `json:"hitBefore"`
 	Opaque           uint64 `json:"opaque"`
@@ -33,27 +33,27 @@ type fakeMemcachedClient struct {
 
 func (f *fakeMemcachedClient) Close() error { return nil }
 
-func (f *fakeMemcachedClient) Set(context.Context, string, []byte, uint32, time.Duration) error {
+func (f *fakeMemcachedClient) Set(context.Context, string, []byte, uint16, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Add(context.Context, string, []byte, uint32, time.Duration) error {
+func (f *fakeMemcachedClient) Add(context.Context, string, []byte, uint16, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Replace(context.Context, string, []byte, uint32, time.Duration) error {
+func (f *fakeMemcachedClient) Replace(context.Context, string, []byte, uint16, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Append(context.Context, string, []byte, uint32, time.Duration) error {
+func (f *fakeMemcachedClient) Append(context.Context, string, []byte, uint16, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Prepend(context.Context, string, []byte, uint32, time.Duration) error {
+func (f *fakeMemcachedClient) Prepend(context.Context, string, []byte, uint16, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Cas(context.Context, string, []byte, uint32, time.Duration, uint64) error {
+func (f *fakeMemcachedClient) Cas(context.Context, string, []byte, uint16, time.Duration, uint64) error {
 	return nil
 }
 

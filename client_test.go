@@ -62,7 +62,7 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 func (su *clientTestSuite) Test_concurrent() {
 	// metaset options
 	msOptions := func(
-		cas uint64, clientFlags uint32,
+		cas uint64, clientFlags uint16,
 	) []MetaSetOption {
 		expiration := 2
 		return []MetaSetOption{

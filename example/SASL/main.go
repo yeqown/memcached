@@ -25,7 +25,7 @@ func main() {
 	}
 	println("Version: ", version)
 
-	if err = client.Set(ctx, "key", []byte("value"), 123, 5*time.Second); err != nil {
+	if err = client.Set(ctx, "key", []byte("value"), uint16(123), 5*time.Second); err != nil {
 		panic(err)
 	}
 }

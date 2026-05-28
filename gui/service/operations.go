@@ -85,7 +85,7 @@ func (s *OperationService) Get(key string) *OperationResult {
 		TTL:              item.TTL,
 		LastAccessedTime: item.LastAccessedTime,
 		CAS:              item.CAS,
-		Flags:            item.Flags,
+		Flags:            item.Flags.AppFlags(),
 		Size:             item.Size,
 		HitBefore:        item.HitBefore,
 		Opaque:           item.Opaque,
@@ -94,7 +94,7 @@ func (s *OperationService) Get(key string) *OperationResult {
 }
 
 // Set stores a key-value pair. expiry is in seconds (0 = no expiry).
-func (s *OperationService) Set(key, value string, flags uint32, expirySeconds int) error {
+func (s *OperationService) Set(key, value string, flags uint16, expirySeconds int) error {
 	normalizedKey, err := normalizeMemcachedKey(key)
 	if err != nil {
 		return err

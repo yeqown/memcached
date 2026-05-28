@@ -15,20 +15,29 @@ type Item struct {
 	Key   string
 	Value []byte
 
-	// Flags is the flags of the value.
-	Flags uint32
+	// Flags is the semantic MC-FLAGS value of the item.
+	Flags MCFlags
 	// CAS is a unique value that is used to check-and-set operation.
 	// It ONLY returns when you use `Gets` command.
 	CAS uint64
 }
 
-func (i Item) String() string {
+func (i *Item) String() string {
 	return "Item{" +
 		"Key:" + i.Key +
 		" Value:" + string(i.Value) +
 		" Flags:" + strconv.FormatUint(uint64(i.Flags), 10) +
 		" CAS:" + strconv.FormatUint(i.CAS, 10) +
 		"}"
+}
+
+func (i *Item) decodeValue() (err error) {
+	i.Value, err = tryDecompressValue(i.Value, i.Flags)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // MetaItem represents a key-value pair with meta information.
@@ -40,9 +49,9 @@ type MetaItem struct {
 	// CAS is a unique value that is used to check-and-set operation.
 	// use MetaGetFlagReturnCAS() or MetaGetFlagReturnCAS() to get this value.
 	CAS uint64
-	// Flags is the flags of the value.
+	// Flags is the semantic MC-FLAGS value of the item.
 	// use MetaGetFlagReturnClientFlags() to get this value.
-	Flags uint32
+	Flags MCFlags
 	// TTL is the time-to-live of the item. -1 means never expire.
 	// use MetaGetFlagReturnTTL() to get this value.
 	TTL int64
@@ -60,7 +69,7 @@ type MetaItem struct {
 	HitBefore bool
 }
 
-func (m MetaItem) String() string {
+func (m *MetaItem) String() string {
 	return "MetaItem{" +
 		"Key:" + string(m.Key) +
 		" Value:" + string(m.Value) +
@@ -72,6 +81,15 @@ func (m MetaItem) String() string {
 		" Opaque:" + strconv.FormatUint(m.Opaque, 10) +
 		" HitBefore:" + strconv.FormatBool(m.HitBefore) +
 		"}"
+}
+
+func (m *MetaItem) decodeValue() (err error) {
+	m.Value, err = tryDecompressValue(m.Value, m.Flags)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // MetaItemDebug represents a key-value pair with meta information for debug.
@@ -117,13 +135,13 @@ func buildFlushAllCommand(noReply bool) (*request, *response) {
 //
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
-func buildStorageCommand(command, key string, value []byte, flags uint32, exptime time.Duration, noReply bool) (*request, *response) {
+func buildStorageCommand(command, key string, value []byte, flags MCFlags, exptime time.Duration, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddString(key). // key
+		AddUint(uint64(flags)). // flags
 		AddUint(uint64(exptime.Seconds())). // exptime
-		AddInt(len(value))                  // bytes
+		AddInt(len(value)) // bytes
 	defer b.release()
 
 	if noReply {
@@ -196,15 +214,15 @@ func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*reques
 
 // cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(
-	key string, value []byte, flags uint32, expTime time.Duration, casUnique uint64, noReply bool,
+	key string, value []byte, flags MCFlags, expTime time.Duration, casUnique uint64, noReply bool,
 ) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString("cas").                   // command
-		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddString("cas"). // command
+		AddString(key). // key
+		AddUint(uint64(flags)). // flags
 		AddUint(uint64(expTime.Seconds())). // exptime
-		AddInt(len(value)).                 // bytes
-		AddUint(casUnique)                  // cas unique
+		AddInt(len(value)). // bytes
+		AddUint(casUnique) // cas unique
 	defer b.release()
 
 	if noReply {
@@ -323,6 +341,9 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, e
 		if len(item.Value) != int(dataLen) {
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
+		if err = item.decodeValue(); err != nil {
+			return nil, err
+		}
 
 		items = append(items, item)
 	}
@@ -367,7 +388,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 			if err != nil {
 				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
 			}
-			item.Flags = uint32(flags)
+			item.Flags = MCFlags(flags)
 		case dataLenIndex:
 			si := i
 			if i == n-1 {

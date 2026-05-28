@@ -61,6 +61,9 @@ type clientOptions struct {
 
 	// telemetryOptions holds the OpenTelemetry configuration options.
 	telemetryOptions []telemetry.Option
+
+	compressAlg          CompressionAlgorithm
+	compressionThreshold int
 }
 
 func newClientOptions() *clientOptions {
@@ -82,6 +85,9 @@ func newClientOptions() *clientOptions {
 		enableSASL:    false,
 		plainUsername: "",
 		plainPassword: "",
+
+		compressAlg:          CompressionAlgorithmNone,
+		compressionThreshold: defaultCompressionThreshold,
 	}
 }
 
@@ -210,5 +216,25 @@ func WithUDPEnabled() ClientOption {
 func WithTelemetry(opts ...telemetry.Option) ClientOption {
 	return func(o *clientOptions) {
 		o.telemetryOptions = opts
+	}
+}
+
+// WithDefaultCompression sets the default compression algorithm for writes.
+func WithDefaultCompression(algorithm CompressionAlgorithm) ClientOption {
+	return func(o *clientOptions) {
+		if !isSupportedCompressionAlgorithm(algorithm) {
+			return
+		}
+		o.compressAlg = algorithm
+	}
+}
+
+// WithCompressionThreshold sets the minimum payload size for attempting compression.
+func WithCompressionThreshold(threshold int) ClientOption {
+	return func(o *clientOptions) {
+		if threshold <= 0 {
+			threshold = defaultCompressionThreshold
+		}
+		o.compressionThreshold = threshold
 	}
 }

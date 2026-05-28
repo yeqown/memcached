@@ -161,8 +161,8 @@ func newContextCurrentCommand() *cobra.Command {
  */
 
 const (
-	magicFlags = 0x0705
-	magicSeed  = 0x2014
+	magicFlags uint16 = 0x0705
+	magicSeed         = 0x2014
 
 	historyTimeFormat = "2006-01-02 15:04:05"
 )

@@ -13,7 +13,7 @@ type metaSetFlags struct {
 	c bool        // c: return CAS value if successfully stored.
 	C uint64      // C(token): compare CAS value when storing item
 	E uint64      // E(token): use token as new CAS value (see meta get for detail)
-	F uint32      // F(token): set client flags to token (32 bit unsigned numeric)
+	F MCFlags     // F(token): set client flags to token (32 bit unsigned numeric)
 	I bool        // I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
 	k bool        // k: return key as a token
 	O uint64      // O(token): opaque value, consumes a token and copies back with response
@@ -22,6 +22,8 @@ type metaSetFlags struct {
 	T uint64      // T(token): Time-To-Live for item, see "Expiration" above.
 	M metaSetMode // M(token): mode switch to change behavior to: add, replace, append, prepend, set(default)
 	N uint64      // N(token): if in append mode, auto vivify on miss with supplied TTL
+
+	hasClientFlags bool
 }
 
 // MetaSetOption is the option to set flags for meta set command.
@@ -48,8 +50,11 @@ func MetaSetFlagNewCAS(casUnique uint64) MetaSetOption {
 }
 
 // MetaSetFlagClientFlags sets the flag to set client flags to token.
-func MetaSetFlagClientFlags(flag uint32) MetaSetOption {
-	return func(flags *metaSetFlags) { flags.F = flag }
+func MetaSetFlagClientFlags(flag uint16) MetaSetOption {
+	return func(flags *metaSetFlags) {
+		flags.F = MCFlags(flag)
+		flags.hasClientFlags = true
+	}
 }
 
 // MetaSetFlagInvalidate sets the flag to set-to-invalid if supplied CAS is older than item's CAS.
@@ -125,7 +130,10 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 	b.AddFlagBool("c", flags.c)
 	b.AddFlagUint("C", flags.C)
 	b.AddFlagUint("E", flags.E)
-	b.AddFlagUint("F", uint64(flags.F))
+	if flags.hasClientFlags || flags.F != 0 {
+		b.buf.WriteString("F" + strconv.FormatUint(uint64(flags.F), 10))
+		b.buf.WriteByte(_SpaceByte)
+	}
 	b.AddFlagBool("I", flags.I)
 	b.AddFlagBool("k", flags.k)
 	b.AddFlagUint("O", flags.O)
@@ -380,7 +388,7 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
 	}
 
 	item.Value = trimCRLF(lines[1])
-	return nil
+	return item.decodeValue()
 }
 
 // CD <flags>*\r\n
@@ -403,7 +411,7 @@ func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
 		case 'c':
 			item.CAS = parseUint(parts[i][1:])
 		case 'f':
-			item.Flags = uint32(parseUint(parts[i][1:]))
+			item.Flags = MCFlags(parseUint(parts[i][1:]))
 		case 't':
 			item.TTL = int64(parseInt(parts[i][1:]))
 		case 'l':

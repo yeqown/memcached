@@ -1,6 +1,7 @@
 package memcached
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -189,6 +190,27 @@ func Test_parseMetaItem(t *testing.T) {
 			assert.Equal(t, tt.wantItem, tt.args.item)
 		})
 	}
+}
+
+func Test_parseMetaItemDecodeValue(t *testing.T) {
+	src := []byte("hello hello hello hello hello hello")
+	compressed, err := compress(src, CompressionAlgorithmDeflate)
+	assert.NoError(t, err)
+	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
+	assert.NoError(t, err)
+
+	item := &MetaItem{}
+	err = parseMetaItem(
+		[][]byte{
+			[]byte("VA 36 f" + strconv.FormatUint(uint64(flags), 10) + "\r\n"),
+			append(append([]byte{}, compressed...), []byte("\r\n")...),
+		},
+		item,
+		false,
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, src, item.Value)
+	assert.Equal(t, flags, item.Flags)
 }
 
 func Test_buildMetaArithmeticCommand(t *testing.T) {
