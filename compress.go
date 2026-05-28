@@ -8,10 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	defaultCompressionThreshold = 1024 // 1KB
-	mcFlagsMagic                = uint32(0xA)
-)
+const defaultCompressionThreshold = 1024 // 1KB
 
 // CompressionAlgorithm identifies the compression algorithm encoded in MC-FLAGS.
 type CompressionAlgorithm uint8
@@ -22,49 +19,6 @@ const (
 	// CompressionAlgorithmDeflate uses DEFLATE compression.
 	CompressionAlgorithmDeflate CompressionAlgorithm = 0x1
 )
-
-// MCFlags is the 32-bit semantic flag word encoded by the MC-COMPRESS spec.
-type MCFlags uint32
-
-func (f MCFlags) Raw() uint32 {
-	return uint32(f)
-}
-
-func (f MCFlags) IsValid() bool {
-	if !f.IsMCFlags() {
-		return true
-	}
-	return isSupportedCompressionAlgorithm(f.CompressionAlgorithm())
-}
-
-func (f MCFlags) IsMCFlags() bool {
-	return ((uint32(f) >> 28) & 0xF) == mcFlagsMagic
-}
-
-func (f MCFlags) IsCompressed() bool {
-	return f.CompressionAlgorithm() != CompressionAlgorithmNone
-}
-
-func (f MCFlags) CompressionAlgorithm() CompressionAlgorithm {
-	if !f.IsMCFlags() {
-		return CompressionAlgorithmNone
-	}
-	return CompressionAlgorithm((uint32(f) >> 24) & 0xF)
-}
-
-func (f MCFlags) AppFlags() uint16 {
-	if !f.IsMCFlags() {
-		return uint16(uint32(f) & 0xFFFF)
-	}
-	return uint16((uint32(f) >> 8) & 0xFFFF)
-}
-
-func (f MCFlags) Reserved() uint8 {
-	if !f.IsMCFlags() {
-		return 0
-	}
-	return uint8(uint32(f) & 0xFF)
-}
 
 func isSupportedCompressionAlgorithm(algorithm CompressionAlgorithm) bool {
 	switch algorithm {
@@ -104,11 +58,14 @@ func decompress(src []byte, algorithm CompressionAlgorithm) ([]byte, error) {
 		return src, nil
 	case CompressionAlgorithmDeflate:
 		reader := flate.NewReader(bytes.NewReader(src))
-		defer reader.Close()
 
 		payload, err := io.ReadAll(reader)
+		closeErr := reader.Close()
 		if err != nil {
 			return nil, errors.Wrap(err, "read deflate payload")
+		}
+		if closeErr != nil {
+			return nil, errors.Wrap(closeErr, "close deflate reader")
 		}
 		return payload, nil
 	default:
@@ -155,17 +112,11 @@ func prepareStorageValue(value []byte, appFlags uint16, compressAlg CompressionA
 }
 
 func tryDecompressValue(value []byte, flags MCFlags) ([]byte, error) {
-	if !flags.IsMCFlags() {
-		return value, nil
-	}
-	if !flags.IsValid() {
-		return nil, errors.Wrap(ErrNotFound, "unknown compression algorithm")
-	}
-	if !flags.IsCompressed() {
+	if flags.unconventional() || !flags.isCompressed() {
 		return value, nil
 	}
 
-	decoded, err := decompress(value, flags.CompressionAlgorithm())
+	decoded, err := decompress(value, flags.compressionAlgorithm())
 	if err != nil {
 		return nil, errors.Wrap(ErrNotFound, "decompression failed")
 	}

@@ -33,7 +33,7 @@ type OperationResult struct {
 	TTL              int64  `json:"ttl,omitempty"`
 	LastAccessedTime int64  `json:"lastAccessedTime,omitempty"`
 	CAS              uint64 `json:"cas,omitempty"`
-	Flags            uint16 `json:"flags,omitempty"`
+	Flags            uint32 `json:"flags,omitempty"`
 	Size             uint64 `json:"size,omitempty"`
 	HitBefore        bool   `json:"hitBefore,omitempty"`
 	Opaque           uint64 `json:"opaque,omitempty"`

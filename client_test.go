@@ -30,6 +30,22 @@ func (su *clientTestSuite) TearDownSuite() {
 	su.Require().NoError(err)
 }
 
+func (su *clientTestSuite) newCompressedClient() *client {
+	c, err := newClientWithContext(
+		context.Background(),
+		"localhost:11211",
+		WithDefaultCompression(CompressionAlgorithmDeflate),
+		WithCompressionThreshold(1),
+	)
+	require.NoError(su.T(), err)
+
+	cc := c.(*client)
+	su.T().Cleanup(func() {
+		require.NoError(su.T(), cc.Close())
+	})
+	return cc
+}
+
 func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 	key := "Test_concurrent_dispatchRequest"
 	// prepare data
@@ -143,6 +159,78 @@ func (su *clientTestSuite) Test_concurrent() {
 	wg.Wait()
 
 	su.T().Log("Test_concurrent finished")
+}
+
+func (su *clientTestSuite) Test_compressionClassicReadCommandsRoundTrip() {
+	ctx := context.Background()
+	client := su.newCompressedClient()
+
+	value := []byte("hello hello hello hello hello hello")
+	appFlags := uint16(0x1234)
+	key1 := "Test_compressionClassicReadCommandsRoundTrip_1"
+	key2 := "Test_compressionClassicReadCommandsRoundTrip_2"
+
+	su.Require().NoError(client.Set(ctx, key1, value, appFlags, 0))
+	su.Require().NoError(client.Set(ctx, key2, value, appFlags, 0))
+
+	assertItem := func(item *Item) {
+		su.Require().NotNil(item)
+		su.Equal(value, item.Value)
+		su.False(item.Flags.unconventional())
+		su.True(item.Flags.isCompressed())
+		su.Equal(uint32(appFlags), item.Flags.AppFlags())
+	}
+
+	item, err := client.Get(ctx, key1)
+	su.Require().NoError(err)
+	assertItem(item)
+
+	items, err := client.Gets(ctx, key1, key2)
+	su.Require().NoError(err)
+	su.Require().Len(items, 2)
+	for _, item := range items {
+		assertItem(item)
+		su.NotZero(item.CAS)
+	}
+
+	item, err = client.GetAndTouch(ctx, time.Second, key1)
+	su.Require().NoError(err)
+	assertItem(item)
+
+	items, err = client.GetAndTouches(ctx, time.Second, key1, key2)
+	su.Require().NoError(err)
+	su.Require().Len(items, 2)
+	for _, item := range items {
+		assertItem(item)
+		su.NotZero(item.CAS)
+	}
+}
+
+func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
+	ctx := context.Background()
+	client := su.newCompressedClient()
+
+	key := []byte("Test_compressionMetaReadTransparency")
+	value := []byte("hello hello hello hello hello hello")
+	appFlags := uint16(0x2345)
+
+	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(appFlags))
+	su.Require().NoError(err)
+	su.False(stored.Flags.unconventional())
+	su.True(stored.Flags.isCompressed())
+	su.Equal(uint32(appFlags), stored.Flags.AppFlags())
+
+	item, err := client.MetaGet(ctx, key, MetaGetFlagReturnValue())
+	su.Require().NoError(err)
+	su.Equal(value, item.Value)
+	su.Zero(item.Flags)
+
+	item, err = client.MetaGet(ctx, key, MetaGetFlagReturnValue(), MetaGetFlagReturnClientFlags())
+	su.Require().NoError(err)
+	su.Equal(value, item.Value)
+	su.False(item.Flags.unconventional())
+	su.True(item.Flags.isCompressed())
+	su.Equal(uint32(appFlags), item.Flags.AppFlags())
 }
 
 func TestClientSuite(t *testing.T) {

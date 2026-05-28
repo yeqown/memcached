@@ -19,40 +19,14 @@ func TestCompressionRoundTripDeflate(t *testing.T) {
 	assert.Equal(t, src, decoded)
 }
 
-func TestEncodeDecodeMCFlags(t *testing.T) {
-	flags, err := buildMCFlags(0, CompressionAlgorithmDeflate)
-	require.NoError(t, err)
-	assert.Equal(t, MCFlags(0xA1000000), flags)
-	assert.True(t, flags.IsMCFlags())
-	assert.True(t, flags.IsValid())
-	assert.Equal(t, CompressionAlgorithmDeflate, flags.CompressionAlgorithm())
-	assert.Equal(t, uint16(0), flags.AppFlags())
-	assert.Equal(t, uint8(0), flags.Reserved())
-}
-
-func TestEncodeMCFlagsSpecExample(t *testing.T) {
-	flags, err := buildMCFlags(0, CompressionAlgorithm(0x5))
-	assert.Error(t, err)
-	assert.Zero(t, flags)
-}
-
-func TestEncodeMCFlagsPreservesAppFlags(t *testing.T) {
-	flags, err := buildMCFlags(0x1234, CompressionAlgorithmNone)
-	require.NoError(t, err)
-
-	assert.True(t, flags.IsMCFlags())
-	assert.Equal(t, uint16(0x1234), flags.AppFlags())
-	assert.Equal(t, CompressionAlgorithmNone, flags.CompressionAlgorithm())
-}
-
 func TestPrepareStorageValueFallbackAndEncode(t *testing.T) {
 	small := []byte("small payload")
 	preparedValue, preparedFlags, err := prepareStorageValue(small, 0x12, CompressionAlgorithmDeflate, defaultCompressionThreshold)
 	require.NoError(t, err)
 	assert.Equal(t, small, preparedValue)
-	assert.True(t, preparedFlags.IsMCFlags())
-	assert.Equal(t, CompressionAlgorithmNone, preparedFlags.CompressionAlgorithm())
-	assert.Equal(t, uint16(0x12), preparedFlags.AppFlags())
+	assert.False(t, preparedFlags.unconventional())
+	assert.Equal(t, CompressionAlgorithmNone, preparedFlags.compressionAlgorithm())
+	assert.Equal(t, uint32(0x12), preparedFlags.AppFlags())
 }
 
 func TestDecodeRetrievedValueCompressed(t *testing.T) {

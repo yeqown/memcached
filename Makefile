@@ -2,7 +2,7 @@
         gui-dev gui-build gui-test gui-clean
 
 lint:
-	@go run github.com/golangci/golangci-lint/cmd/golangci-lint run ./...
+	@GOTOOLCHAIN=go1.26.0 go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8 run ./...
 
 test:
 	@echo "Running tests"

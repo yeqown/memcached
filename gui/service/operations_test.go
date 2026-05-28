@@ -18,7 +18,7 @@ type structuredOperationResult struct {
 	TTL              int64  `json:"ttl"`
 	LastAccessedTime int64  `json:"lastAccessedTime"`
 	CAS              uint64 `json:"cas"`
-	Flags            uint16 `json:"flags"`
+	Flags            uint32 `json:"flags"`
 	Size             uint64 `json:"size"`
 	HitBefore        bool   `json:"hitBefore"`
 	Opaque           uint64 `json:"opaque"`

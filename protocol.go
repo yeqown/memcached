@@ -10,6 +10,45 @@ import (
 	"github.com/pkg/errors"
 )
 
+const mcFlagsMagic = uint32(0xA)
+
+// MCFlags is the 32-bit semantic flag word encoded by the MC-COMPRESS spec.
+type MCFlags uint32
+
+func (f MCFlags) raw() uint32 {
+	return uint32(f)
+}
+
+func (f MCFlags) unconventional() bool {
+	return ((uint32(f) >> 28) & 0xF) != mcFlagsMagic
+}
+
+func (f MCFlags) isCompressed() bool {
+	return f.compressionAlgorithm() != CompressionAlgorithmNone
+}
+
+func (f MCFlags) compressionAlgorithm() CompressionAlgorithm {
+	if f.unconventional() {
+		return CompressionAlgorithmNone
+	}
+	return CompressionAlgorithm((uint32(f) >> 24) & 0xF)
+}
+
+// AppFlags returns the application-visible flags payload.
+func (f MCFlags) AppFlags() uint32 {
+	if f.unconventional() {
+		return uint32(f)
+	}
+	return (uint32(f) >> 8) & 0xFFFF
+}
+
+func (f MCFlags) reserved() uint8 {
+	if f.unconventional() {
+		return 0
+	}
+	return uint8(uint32(f) & 0xFF)
+}
+
 // Item represents a key-value pair to be got or stored.
 type Item struct {
 	Key   string
@@ -138,10 +177,10 @@ func buildFlushAllCommand(noReply bool) (*request, *response) {
 func buildStorageCommand(command, key string, value []byte, flags MCFlags, exptime time.Duration, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
 		AddString(command).
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
+		AddString(key).                     // key
+		AddUint(uint64(flags)).             // flags
 		AddUint(uint64(exptime.Seconds())). // exptime
-		AddInt(len(value)) // bytes
+		AddInt(len(value))                  // bytes
 	defer b.release()
 
 	if noReply {
@@ -217,12 +256,12 @@ func buildCasCommand(
 	key string, value []byte, flags MCFlags, expTime time.Duration, casUnique uint64, noReply bool,
 ) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString("cas"). // command
-		AddString(key). // key
-		AddUint(uint64(flags)). // flags
+		AddString("cas").                   // command
+		AddString(key).                     // key
+		AddUint(uint64(flags)).             // flags
 		AddUint(uint64(expTime.Seconds())). // exptime
-		AddInt(len(value)). // bytes
-		AddUint(casUnique) // cas unique
+		AddInt(len(value)).                 // bytes
+		AddUint(casUnique)                  // cas unique
 	defer b.release()
 
 	if noReply {
@@ -265,18 +304,18 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 }
 
 // buildGetAndTouchCommand constructs get and touch command.
-// gat/gats <key> <exptime>\r\n
+// gat/gats <exptime> <key>*\r\n
 func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString(command)
+		AddString(command).
+		AddUint(uint64(expiry.Seconds()))
 	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
 	}
 
-	b.AddUint(uint64(expiry.Seconds())).
-		AddCRLF()
+	b.AddCRLF()
 
 	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)

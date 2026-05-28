@@ -142,12 +142,12 @@ func (c *client) storageCommand(ctx context.Context, command, key string, value 
 		return err
 	}
 
-	preparedValue, preparedFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
+	preparedValue, finalFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
 	if err != nil {
 		return err
 	}
 
-	req, resp := buildStorageCommand(command, key, preparedValue, preparedFlags, expiry, c.options.noReply)
+	req, resp := buildStorageCommand(command, key, preparedValue, finalFlags, expiry, c.options.noReply)
 	defer releaseReqAndResp(req, resp)
 
 	if err = c.dispatchRequest(ctx, req, resp); err != nil {
@@ -186,12 +186,12 @@ func (c *client) Cas(ctx context.Context, key string, value []byte, appFlags uin
 		return err
 	}
 
-	preparedValue, preparedFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
+	preparedValue, finalFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
 	if err != nil {
 		return err
 	}
 
-	req, resp := buildCasCommand(key, preparedValue, preparedFlags, expiry, cas, c.options.noReply)
+	req, resp := buildCasCommand(key, preparedValue, finalFlags, expiry, cas, c.options.noReply)
 	defer releaseReqAndResp(req, resp)
 
 	if err = c.dispatchRequest(ctx, req, resp); err != nil {
@@ -448,12 +448,12 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 		applyFn(msFlags)
 	}
 
-	appFlags := msFlags.F.AppFlags()
-	preparedValue, preparedFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
+	appFlags := uint16(msFlags.F.AppFlags())
+	preparedValue, finalFlags, err := prepareStorageValue(value, appFlags, c.options.compressAlg, c.options.compressionThreshold)
 	if err != nil {
 		return nil, err
 	}
-	msFlags.F = preparedFlags
+	msFlags.F = finalFlags
 	msFlags.hasClientFlags = true
 
 	req, resp := buildMetaSetCommand(key, preparedValue, msFlags)
@@ -465,7 +465,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	item := &MetaItem{
 		Key:   key,
 		TTL:   int64(msFlags.T),
-		Flags: preparedFlags,
+		Flags: finalFlags,
 	}
 	err = parseMetaItem(resp.rawLines, item, msFlags.q)
 	if err != nil {

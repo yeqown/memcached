@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"testing"
 
+	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_parseFlags(t *testing.T) {
@@ -211,6 +213,39 @@ func Test_parseMetaItemDecodeValue(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, src, item.Value)
 	assert.Equal(t, flags, item.Flags)
+}
+
+func Test_parseMetaItemUnknownCompressionAlgorithmReturnsMiss(t *testing.T) {
+	item := &MetaItem{}
+	err := parseMetaItem(
+		[][]byte{
+			[]byte("VA 7 f" + strconv.FormatUint(uint64(MCFlags(0xAF000000)), 10) + "\r\n"),
+			[]byte("payload\r\n"),
+		},
+		item,
+		false,
+	)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotFound))
+	assert.Nil(t, item.Value)
+}
+
+func Test_parseMetaItemInvalidCompressedPayloadReturnsMiss(t *testing.T) {
+	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
+	require.NoError(t, err)
+
+	item := &MetaItem{}
+	err = parseMetaItem(
+		[][]byte{
+			[]byte("VA 11 f" + strconv.FormatUint(uint64(flags), 10) + "\r\n"),
+			[]byte("not-deflate\r\n"),
+		},
+		item,
+		false,
+	)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotFound))
+	assert.Nil(t, item.Value)
 }
 
 func Test_buildMetaArithmeticCommand(t *testing.T) {
