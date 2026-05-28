@@ -1,6 +1,6 @@
 module benchmark
 
-go 1.22.8
+go 1.26.0
 
 require (
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
@@ -12,4 +12,5 @@ require (
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 )
