@@ -9,6 +9,7 @@ This is a golang package for [Memcached](https://memcached.org/). It is a simple
 ### Features
 
 - [x] Completed Memcached text protocol, includes meta text protocol.
+- [x] Protocol-level value compression with MC-COMPRESS-compatible MC-FLAGS encoding.
 - [ ] Integrated serialization and deserialization function
 - [x] Cluster support, multiple hash algorithm support, include: crc32, murmur3, redezvous and also custom hash algorithm.
 - [x] Fully connection pool features support.
@@ -86,6 +87,44 @@ func main() {
 }
 ```
 
+### Compression
+
+The client can encode protocol-level compression metadata in the Memcached `flags` field using the MC-COMPRESS layout documented in [docs/MC-COMPRESS-SPEC-v1.0.md](./docs/MC-COMPRESS-SPEC-v1.0.md).
+
+- Reads automatically detect compliant MC-FLAGS values and transparently decompress supported payloads.
+- Writes can opt into compression with `WithDefaultCompression` and `WithCompressionThreshold`.
+- `APP-FLAGS` are preserved in the 16-bit application-visible portion of the encoded flags word.
+- Values smaller than the threshold, or payloads that do not shrink after compression, are stored as plain values.
+- `Append` and `Prepend` are rejected when default compression is enabled.
+
+```go
+client, err := memcached.New(
+    "localhost:11211",
+    memcached.WithDefaultCompression(memcached.CompressionAlgorithmDeflate),
+    memcached.WithCompressionThreshold(1024),
+)
+if err != nil {
+    panic(err)
+}
+
+if err = client.Set(ctx, "article:1", payload, 7, time.Hour); err != nil {
+    panic(err)
+}
+
+item, err := client.Get(ctx, "article:1")
+if err != nil {
+    panic(err)
+}
+
+println("app flags:", item.Flags.AppFlags())
+println("value size:", len(item.Value))
+```
+
+Currently supported algorithms:
+
+- `CompressionAlgorithmNone`
+- `CompressionAlgorithmDeflate`
+
 ### Support Commands
 
 Now, we have implemented some commands, and we will implement more commands in the future.
@@ -93,17 +132,17 @@ Now, we have implemented some commands, and we will implement more commands in t
 | Command        | Status | API Usage                                                                                                           | Description                                                       |
 |----------------|--------|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
 | ----           | -----  | STORAGE COMMANDS                                                                                                    | ---                                                               |
-| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error`                      | Set a key-value pair to memcached                                 |
-| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error`                      | Add a key-value pair to memcached                                 |
-| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error`                  | Replace a key-value pair to memcached                             |
-| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error`                   | Append a value to the key                                         |
-| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error`                  | Prepend a value to the key                                        |
-| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration, cas uint64) error`          | Compare and set a key-value pair to memcached                     |
+| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                   | Set a key-value pair to memcached                                 |
+| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                   | Add a key-value pair to memcached                                 |
+| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`               | Replace a key-value pair to memcached                             |
+| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                | Append a value to the key                                         |
+| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`               | Prepend a value to the key                                        |
+| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration, cas uint64) error`       | Compare and set a key-value pair to memcached                     |
 | ----           | -----  | RETRIEVAL COMMANDS                                                                                                  | ---                                                               |
 | Gets           | ✅      | `Gets(ctx context.Context, keys ...string) ([]*Item, error)`                                                        | Get a value by key from memcached with cas value                  |
 | Get            | ✅      | `Get(ctx context.Context, key string) (*Item, error)`                                                               | Get a value by key from memcached                                 |
-| GetAndTouch    | ✅      | `GetAndTouch(ctx context.Context, expiry uint32, key string) (*Item, error)`                                        | Get a value by key from memcached and touch the key's expire time |
-| GetAndTouches  | ✅      | `GetAndTouches(ctx context.Context, expiry uint32, keys ...string) ([]*Item, error)`                                | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouch    | ✅      | `GetAndTouch(ctx context.Context, expiry time.Duration, key string) (*Item, error)`                                 | Get a value by key from memcached and touch the key's expire time |
+| GetAndTouches  | ✅      | `GetAndTouches(ctx context.Context, expiry time.Duration, keys ...string) ([]*Item, error)`                         | Get a value by key from memcached and touch the key's expire time |
 | -----          | -----  | OTHER COMMANDS                                                                                                      | ---                                                               |
 | Delete         | ✅      | `Delete(ctx context.Context, key string) error`                                                                     | Delete a key-value pair from memcached                            |
 | Incr           | ✅      | `Incr(ctx context.Context, key string, delta uint64) (uint64, error)`                                               | Increment a key's value                                           |
@@ -122,7 +161,7 @@ Now, we have implemented some commands, and we will implement more commands in t
 
 #### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.26 or higher
 - Python (for pre-commit hooks) or just `brew install pre-commit` on MacOS
 - Docker (for running memcached in tests)
 
