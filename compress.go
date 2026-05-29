@@ -2,13 +2,16 @@ package memcached
 
 import (
 	"bytes"
-	"compress/flate"
+	"compress/zlib"
 	"io"
+	"log"
 
 	"github.com/pkg/errors"
 )
 
-const defaultCompressionThreshold = 1024 // 1KB
+const defaultCompressionThreshold = 1024   // 1KB
+const maxDecompressedValueSize = 128 << 20 // 128MB
+const maxCompressionExpansionRatio = 100   // 100x compression expansion ratio
 
 // CompressionAlgorithm identifies the compression algorithm encoded in MC-FLAGS.
 type CompressionAlgorithm uint8
@@ -35,16 +38,16 @@ func compress(src []byte, algorithm CompressionAlgorithm) ([]byte, error) {
 		return src, nil
 	case CompressionAlgorithmDeflate:
 		var buf bytes.Buffer
-		writer, err := flate.NewWriter(&buf, flate.DefaultCompression)
+		writer, err := zlib.NewWriterLevel(&buf, 6)
 		if err != nil {
-			return nil, errors.Wrap(err, "create deflate writer")
+			return nil, errors.Wrap(err, "create zlib writer")
 		}
 		if _, err = writer.Write(src); err != nil {
 			_ = writer.Close()
-			return nil, errors.Wrap(err, "write deflate payload")
+			return nil, errors.Wrap(err, "write zlib payload")
 		}
 		if err = writer.Close(); err != nil {
-			return nil, errors.Wrap(err, "close deflate writer")
+			return nil, errors.Wrap(err, "close zlib writer")
 		}
 		return buf.Bytes(), nil
 	default:
@@ -57,20 +60,35 @@ func decompress(src []byte, algorithm CompressionAlgorithm) ([]byte, error) {
 	case CompressionAlgorithmNone:
 		return src, nil
 	case CompressionAlgorithmDeflate:
-		reader := flate.NewReader(bytes.NewReader(src))
+		reader, err := zlib.NewReader(bytes.NewReader(src))
+		if err != nil {
+			return nil, errors.Wrap(err, "create zlib reader")
+		}
 
-		payload, err := io.ReadAll(reader)
+		limit := decompressedValueSizeLimit(len(src))
+		payload, err := io.ReadAll(io.LimitReader(reader, limit+1))
 		closeErr := reader.Close()
 		if err != nil {
-			return nil, errors.Wrap(err, "read deflate payload")
+			return nil, errors.Wrap(err, "read zlib payload")
 		}
 		if closeErr != nil {
-			return nil, errors.Wrap(closeErr, "close deflate reader")
+			return nil, errors.Wrap(closeErr, "close zlib reader")
+		}
+		if int64(len(payload)) > limit {
+			return nil, errors.Wrap(ErrInvalidValue, "decompressed payload too large")
 		}
 		return payload, nil
 	default:
 		return nil, errors.Wrap(ErrNotSupported, "compression algorithm")
 	}
+}
+
+func decompressedValueSizeLimit(compressedSize int) int64 {
+	limit := int64(compressedSize) * maxCompressionExpansionRatio
+	if limit > maxDecompressedValueSize {
+		return maxDecompressedValueSize
+	}
+	return limit
 }
 
 func buildMCFlags(appFlags uint16, algorithm CompressionAlgorithm) (MCFlags, error) {
@@ -111,13 +129,15 @@ func prepareStorageValue(value []byte, appFlags uint16, compressAlg CompressionA
 	return compressed, flags1, nil
 }
 
-func tryDecompressValue(value []byte, flags MCFlags) ([]byte, error) {
+func tryDecompressValue(value []byte, flags MCFlags, key string) ([]byte, error) {
 	if flags.unconventional() || !flags.isCompressed() {
 		return value, nil
 	}
 
-	decoded, err := decompress(value, flags.compressionAlgorithm())
+	algorithm := flags.compressionAlgorithm()
+	decoded, err := decompress(value, algorithm)
 	if err != nil {
+		log.Printf("memcached: decompression failed: key=%q car_id=%d err=%v", key, uint8(algorithm), err)
 		return nil, errors.Wrap(ErrNotFound, "decompression failed")
 	}
 	return decoded, nil

@@ -233,6 +233,45 @@ func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
 	su.Equal(uint32(appFlags), item.Flags.AppFlags())
 }
 
+func TestCompressionDisablesAppendPrepend(t *testing.T) {
+	client := &client{
+		options: &clientOptions{
+			compressAlg: CompressionAlgorithmDeflate,
+		},
+	}
+
+	err := client.Append(context.Background(), "key", []byte("value"), 0, 0)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+
+	err = client.Prepend(context.Background(), "key", []byte("value"), 0, 0)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+}
+
+func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
+	client := &client{
+		options: &clientOptions{
+			compressAlg: CompressionAlgorithmDeflate,
+		},
+	}
+
+	errModes := []metaSetMode{MetaSetModeAppend, MetaSetModePrepend}
+	for _, mode := range errModes {
+		t.Run(string(mode), func(t *testing.T) {
+			item, err := client.MetaSet(
+				context.Background(),
+				[]byte("key"),
+				[]byte("value"),
+				MetaSetFlagModeSwitch(mode),
+			)
+			assert.Nil(t, item)
+			require.Error(t, err)
+			assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+		})
+	}
+}
+
 func TestClientSuite(t *testing.T) {
 	suite.Run(t, new(clientTestSuite))
 }

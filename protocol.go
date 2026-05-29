@@ -3,7 +3,7 @@ package memcached
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
+	"log"
 	"strconv"
 	"time"
 
@@ -71,7 +71,7 @@ func (i *Item) String() string {
 }
 
 func (i *Item) decodeValue() (err error) {
-	i.Value, err = tryDecompressValue(i.Value, i.Flags)
+	i.Value, err = tryDecompressValue(i.Value, i.Flags, i.Key)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (m *MetaItem) String() string {
 }
 
 func (m *MetaItem) decodeValue() (err error) {
-	m.Value, err = tryDecompressValue(m.Value, m.Flags)
+	m.Value, err = tryDecompressValue(m.Value, m.Flags, string(m.Key))
 	if err != nil {
 		return err
 	}
@@ -645,33 +645,21 @@ func parseStats(lines [][]byte) (*Statistic, error) {
 		case "rusage_user", "rusage_system":
 			v, err := strconv.ParseFloat(string(fields[2]), 64)
 			if err != nil {
-				slog.Warn("memcached: parse float failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse float failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v
 		case "hash_is_expanding", "accepting_conns":
 			v, err := strconv.ParseBool(string(fields[2]))
 			if err != nil {
-				slog.Warn("memcached: parse bool failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse bool failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v
 		default:
 			v, err := strconv.ParseInt(string(fields[2]), 10, 64)
 			if err != nil {
-				slog.Warn("memcached: parse int failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse int failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v

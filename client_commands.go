@@ -174,10 +174,16 @@ func (c *client) Replace(ctx context.Context, key string, value []byte, appFlags
 }
 
 func (c *client) Append(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error {
+	if c.options.compressAlg != CompressionAlgorithmNone {
+		return errors.Wrap(ErrNotSupported, "append with compression enabled")
+	}
 	return c.storageCommand(ctx, "append", key, value, appFlags, expiry)
 }
 
 func (c *client) Prepend(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error {
+	if c.options.compressAlg != CompressionAlgorithmNone {
+		return errors.Wrap(ErrNotSupported, "prepend with compression enabled")
+	}
 	return c.storageCommand(ctx, "prepend", key, value, appFlags, expiry)
 }
 
@@ -446,6 +452,13 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	msFlags := &metaSetFlags{}
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
+	}
+
+	// if compression is enabled, append/prepend is not supported.
+	if c.options.compressAlg != CompressionAlgorithmNone {
+		if msFlags.M == MetaSetModeAppend || msFlags.M == MetaSetModePrepend {
+			return nil, errors.Wrap(ErrNotSupported, "meta append/prepend with compression enabled")
+		}
 	}
 
 	appFlags := uint16(msFlags.F.AppFlags())
