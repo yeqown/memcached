@@ -92,16 +92,21 @@ func main() {
 The client can encode protocol-level compression metadata in the Memcached `flags` field using the MC-COMPRESS layout documented in [docs/MC-COMPRESS-SPEC-v1.0.md](./docs/MC-COMPRESS-SPEC-v1.0.md).
 
 - Reads automatically detect compliant MC-FLAGS values and transparently decompress supported payloads.
-- Writes can opt into compression with `WithDefaultCompression` and `WithCompressionThreshold`.
+- Writes can opt into the built-in MC-COMPRESS behavior by installing `codec.NewCompressCodec(...)` through `WithCodec(...)`.
+- You can replace the built-in behavior with your own `WithCodec(...)` implementation to customize how `value` and `flags` are encoded and decoded, using `key` only as context.
 - `APP-FLAGS` are preserved in the 16-bit application-visible portion of the encoded flags word.
 - Values smaller than the threshold, or payloads that do not shrink after compression, are stored as plain values.
-- `Append` and `Prepend` are rejected when default compression is enabled.
+- `Append` and `Prepend` are rejected when the built-in compression codec is enabled.
 
 ```go
+import (
+    "github.com/yeqown/memcached"
+    memcodec "github.com/yeqown/memcached/codec"
+)
+
 client, err := memcached.New(
     "localhost:11211",
-    memcached.WithDefaultCompression(memcached.CompressionAlgorithmDeflate),
-    memcached.WithCompressionThreshold(1024),
+    memcached.WithCodec(memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1024)),
 )
 if err != nil {
     panic(err)
@@ -116,14 +121,28 @@ if err != nil {
     panic(err)
 }
 
-println("app flags:", item.Flags.AppFlags())
+println("app flags:", memcodec.AppFlags(item.Flags))
 println("value size:", len(item.Value))
 ```
 
 Currently supported algorithms:
 
-- `CompressionAlgorithmNone`
-- `CompressionAlgorithmDeflate`
+- `memcodec.CompressionAlgorithmNone`
+- `memcodec.CompressionAlgorithmDeflate`
+- `memcodec.CompressionAlgorithmLZ4`
+- `memcodec.CompressionAlgorithmSnappy`
+- `memcodec.CompressionAlgorithmZstd`
+
+A custom codec can be installed like this:
+
+```go
+client, err := memcached.New(
+    "localhost:11211",
+    memcached.WithCodec(myCodec),
+)
+```
+
+The codec receives `key` as context, but can only return transformed `value` and `flags`. Other memcached metadata such as CAS, TTL, size, opaque values, and meta protocol tokens remain under the client's control.
 
 ### Support Commands
 
@@ -132,12 +151,12 @@ Now, we have implemented some commands, and we will implement more commands in t
 | Command        | Status | API Usage                                                                                                           | Description                                                       |
 |----------------|--------|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
 | ----           | -----  | STORAGE COMMANDS                                                                                                    | ---                                                               |
-| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                   | Set a key-value pair to memcached                                 |
-| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                   | Add a key-value pair to memcached                                 |
-| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`               | Replace a key-value pair to memcached                             |
-| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`                | Append a value to the key                                         |
-| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration) error`               | Prepend a value to the key                                        |
-| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, appFlags uint16, expiry time.Duration, cas uint64) error`       | Compare and set a key-value pair to memcached                     |
+| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                   | Set a key-value pair to memcached                                 |
+| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                   | Add a key-value pair to memcached                                 |
+| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`               | Replace a key-value pair to memcached                             |
+| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                | Append a value to the key                                         |
+| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`               | Prepend a value to the key                                        |
+| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration, cas uint64) error`       | Compare and set a key-value pair to memcached                     |
 | ----           | -----  | RETRIEVAL COMMANDS                                                                                                  | ---                                                               |
 | Gets           | ✅      | `Gets(ctx context.Context, keys ...string) ([]*Item, error)`                                                        | Get a value by key from memcached with cas value                  |
 | Get            | ✅      | `Get(ctx context.Context, key string) (*Item, error)`                                                               | Get a value by key from memcached                                 |

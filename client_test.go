@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 type clientTestSuite struct {
@@ -34,8 +36,7 @@ func (su *clientTestSuite) newCompressedClient() *client {
 	c, err := newClientWithContext(
 		context.Background(),
 		"localhost:11211",
-		WithDefaultCompression(CompressionAlgorithmDeflate),
-		WithCompressionThreshold(1),
+		WithCodec(memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)),
 	)
 	require.NoError(su.T(), err)
 
@@ -78,7 +79,7 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 func (su *clientTestSuite) Test_concurrent() {
 	// metaset options
 	msOptions := func(
-		cas uint64, clientFlags uint16,
+		cas uint64, clientFlags uint32,
 	) []MetaSetOption {
 		expiration := 2
 		return []MetaSetOption{
@@ -166,19 +167,19 @@ func (su *clientTestSuite) Test_compressionClassicReadCommandsRoundTrip() {
 	client := su.newCompressedClient()
 
 	value := []byte("hello hello hello hello hello hello")
-	appFlags := uint16(0x1234)
+	flag := uint32(0x1234)
 	key1 := "Test_compressionClassicReadCommandsRoundTrip_1"
 	key2 := "Test_compressionClassicReadCommandsRoundTrip_2"
 
-	su.Require().NoError(client.Set(ctx, key1, value, appFlags, 0))
-	su.Require().NoError(client.Set(ctx, key2, value, appFlags, 0))
+	su.Require().NoError(client.Set(ctx, key1, value, flag, 0))
+	su.Require().NoError(client.Set(ctx, key2, value, flag, 0))
 
 	assertItem := func(item *Item) {
 		su.Require().NotNil(item)
 		su.Equal(value, item.Value)
-		su.False(item.Flags.unconventional())
-		su.True(item.Flags.isCompressed())
-		su.Equal(uint32(appFlags), item.Flags.AppFlags())
+		su.False(memcodec.IsUnconventional(item.Flags))
+		su.True(memcodec.IsCompressed(item.Flags))
+		su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
 	}
 
 	item, err := client.Get(ctx, key1)
@@ -212,33 +213,32 @@ func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
 
 	key := []byte("Test_compressionMetaReadTransparency")
 	value := []byte("hello hello hello hello hello hello")
-	appFlags := uint16(0x2345)
+	flag := uint32(0x2345)
 
-	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(appFlags))
+	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(flag))
 	su.Require().NoError(err)
-	su.False(stored.Flags.unconventional())
-	su.True(stored.Flags.isCompressed())
-	su.Equal(uint32(appFlags), stored.Flags.AppFlags())
+	su.False(memcodec.IsUnconventional(stored.Flags))
+	su.True(memcodec.IsCompressed(stored.Flags))
+	su.Equal(uint32(flag), memcodec.AppFlags(stored.Flags))
 
 	item, err := client.MetaGet(ctx, key, MetaGetFlagReturnValue())
 	su.Require().NoError(err)
 	su.Equal(value, item.Value)
-	su.Zero(item.Flags)
+	su.False(memcodec.IsUnconventional(item.Flags))
+	su.True(memcodec.IsCompressed(item.Flags))
+	su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
 
 	item, err = client.MetaGet(ctx, key, MetaGetFlagReturnValue(), MetaGetFlagReturnClientFlags())
 	su.Require().NoError(err)
 	su.Equal(value, item.Value)
-	su.False(item.Flags.unconventional())
-	su.True(item.Flags.isCompressed())
-	su.Equal(uint32(appFlags), item.Flags.AppFlags())
+	su.False(memcodec.IsUnconventional(item.Flags))
+	su.True(memcodec.IsCompressed(item.Flags))
+	su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
 }
 
 func TestCompressionDisablesAppendPrepend(t *testing.T) {
-	client := &client{
-		options: &clientOptions{
-			compressAlg: CompressionAlgorithmDeflate,
-		},
-	}
+	client := &client{options: newClientOptions()}
+	client.options.codec = memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 0)
 
 	err := client.Append(context.Background(), "key", []byte("value"), 0, 0)
 	require.Error(t, err)
@@ -250,11 +250,8 @@ func TestCompressionDisablesAppendPrepend(t *testing.T) {
 }
 
 func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
-	client := &client{
-		options: &clientOptions{
-			compressAlg: CompressionAlgorithmDeflate,
-		},
-	}
+	client := &client{options: newClientOptions()}
+	client.options.codec = memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 0)
 
 	errModes := []metaSetMode{MetaSetModeAppend, MetaSetModePrepend}
 	for _, mode := range errModes {
@@ -270,6 +267,55 @@ func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
 			assert.True(t, pkgerrors.Is(err, ErrNotSupported))
 		})
 	}
+}
+
+type prependOnlyRestrictedCodec struct{}
+
+func (prependOnlyRestrictedCodec) Encode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+	return value, flags, nil
+}
+
+func (prependOnlyRestrictedCodec) Decode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+	return value, flags, nil
+}
+
+func (prependOnlyRestrictedCodec) SupportsOperation(operation string) error {
+	if operation == "prepend" {
+		return ErrNotSupported
+	}
+	return nil
+}
+
+func TestCodecCapabilitiesApplyPerTextStorageOperation(t *testing.T) {
+	codec := prependOnlyRestrictedCodec{}
+
+	require.NoError(t, checkCodecSupportsOperation(codec, "append"))
+	require.ErrorIs(t, checkCodecSupportsOperation(codec, "prepend"), ErrNotSupported)
+}
+
+func TestCodecCapabilitiesApplyPerMetaSetOperation(t *testing.T) {
+	c := &client{options: newClientOptions()}
+	c.options.codec = prependOnlyRestrictedCodec{}
+
+	flags := &metaSetFlags{}
+	MetaSetFlagModeSwitch(MetaSetModeAppend)(flags)
+	_, _, err := buildMetaSetCommand([]byte("foo"), []byte("bar"), flags, c.options.codec)
+	require.NoError(t, err)
+
+	flags = &metaSetFlags{}
+	MetaSetFlagModeSwitch(MetaSetModePrepend)(flags)
+	_, _, err = buildMetaSetCommand([]byte("foo"), []byte("bar"), flags, c.options.codec)
+	require.ErrorIs(t, err, ErrNotSupported)
+}
+
+func TestNewCompressCodecInstallsCompressionBehavior(t *testing.T) {
+	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+
+	encodedValue, encodedFlags, err := codec.Encode([]byte("foo"), []byte("hello hello hello hello hello hello"), 0x12)
+	require.NoError(t, err)
+	assert.NotEqual(t, []byte("hello hello hello hello hello hello"), encodedValue)
+	assert.True(t, memcodec.IsCompressed(encodedFlags))
+	assert.Equal(t, uint32(0x12), memcodec.AppFlags(encodedFlags))
 }
 
 func TestClientSuite(t *testing.T) {

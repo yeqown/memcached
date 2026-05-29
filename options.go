@@ -3,6 +3,7 @@ package memcached
 import (
 	"time"
 
+	memcodec "github.com/yeqown/memcached/codec"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -62,8 +63,7 @@ type clientOptions struct {
 	// telemetryOptions holds the OpenTelemetry configuration options.
 	telemetryOptions []telemetry.Option
 
-	compressAlg          CompressionAlgorithm
-	compressionThreshold int
+	codec Codec
 }
 
 func newClientOptions() *clientOptions {
@@ -86,8 +86,7 @@ func newClientOptions() *clientOptions {
 		plainUsername: "",
 		plainPassword: "",
 
-		compressAlg:          CompressionAlgorithmNone,
-		compressionThreshold: defaultCompressionThreshold,
+		codec: memcodec.Noop,
 	}
 }
 
@@ -219,22 +218,12 @@ func WithTelemetry(opts ...telemetry.Option) ClientOption {
 	}
 }
 
-// WithDefaultCompression sets the default compression algorithm for writes.
-func WithDefaultCompression(algorithm CompressionAlgorithm) ClientOption {
+// WithCodec sets the codec used to transform value and flags.
+func WithCodec(codec Codec) ClientOption {
 	return func(o *clientOptions) {
-		if !isSupportedCompressionAlgorithm(algorithm) {
+		if codec == nil {
 			return
 		}
-		o.compressAlg = algorithm
-	}
-}
-
-// WithCompressionThreshold sets the minimum payload size for attempting compression.
-func WithCompressionThreshold(threshold int) ClientOption {
-	return func(o *clientOptions) {
-		if threshold <= 0 {
-			threshold = defaultCompressionThreshold
-		}
-		o.compressionThreshold = threshold
+		o.codec = codec
 	}
 }

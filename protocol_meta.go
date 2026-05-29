@@ -13,7 +13,7 @@ type metaSetFlags struct {
 	c bool        // c: return CAS value if successfully stored.
 	C uint64      // C(token): compare CAS value when storing item
 	E uint64      // E(token): use token as new CAS value (see meta get for detail)
-	F MCFlags     // F(token): set client flags to token (32 bit unsigned numeric)
+	F uint32      // F(token): set client flags to token (32 bit unsigned numeric)
 	I bool        // I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
 	k bool        // k: return key as a token
 	O uint64      // O(token): opaque value, consumes a token and copies back with response
@@ -22,8 +22,6 @@ type metaSetFlags struct {
 	T uint64      // T(token): Time-To-Live for item, see "Expiration" above.
 	M metaSetMode // M(token): mode switch to change behavior to: add, replace, append, prepend, set(default)
 	N uint64      // N(token): if in append mode, auto vivify on miss with supplied TTL
-
-	hasClientFlags bool
 }
 
 // MetaSetOption is the option to set flags for meta set command.
@@ -50,10 +48,9 @@ func MetaSetFlagNewCAS(casUnique uint64) MetaSetOption {
 }
 
 // MetaSetFlagClientFlags sets the flag to set client flags to token.
-func MetaSetFlagClientFlags(flag uint16) MetaSetOption {
+func MetaSetFlagClientFlags(flag uint32) MetaSetOption {
 	return func(flags *metaSetFlags) {
-		flags.F = MCFlags(flag)
-		flags.hasClientFlags = true
+		flags.F = flag
 	}
 }
 
@@ -115,7 +112,22 @@ func MetaSetFlagAutoVivify(ttl uint64) MetaSetOption {
 
 // ms <key> <datalen> <flags>*\r\n
 // <data block>\r\n
-func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *response) {
+func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*request, *response, error) {
+	operation := string(flags.M)
+	if operation == "" {
+		operation = string(MetaSetModeSet)
+	}
+	if err := checkCodecSupportsOperation(codec, operation); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
+	// codec hook
+	evalue, eflags, err := codec.Encode(key, value, flags.F)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "encode value and flags")
+	}
+	flags.F = eflags
+
 	if flags.b {
 		key = base64Encode(key)
 	}
@@ -123,17 +135,14 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 	b := newProtocolBuilder().
 		AddString("ms").
 		AddBytes(key).
-		AddInt(len(value))
+		AddInt(len(evalue))
 	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
 	b.AddFlagBool("c", flags.c)
 	b.AddFlagUint("C", flags.C)
 	b.AddFlagUint("E", flags.E)
-	if flags.hasClientFlags || flags.F != 0 {
-		b.buf.WriteString("F" + strconv.FormatUint(uint64(flags.F), 10))
-		b.buf.WriteByte(_SpaceByte)
-	}
+	b.AddFlagUint("F", uint64(flags.F))
 	b.AddFlagBool("I", flags.I)
 	b.AddFlagBool("k", flags.k)
 	b.AddFlagUint("O", flags.O)
@@ -144,7 +153,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 	b.AddFlagUint("N", flags.N)
 
 	raw := b.AddCRLF().
-		AddBytes(value).
+		AddBytes(evalue).
 		AddCRLF().
 		build()
 
@@ -157,7 +166,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 type metaGetFlags struct {
@@ -342,7 +351,7 @@ func buildMetaGetCommand(key []byte, flags *metaGetFlags) (*request, *response) 
 //	VA(value).
 //
 // VA is specified as: VA <size> <flags>*\r\n<data block>\r\n.
-func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
+func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) error {
 	if noReply && len(lines) == 0 {
 		return nil
 	}
@@ -387,8 +396,12 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
 		return errors.Wrap(ErrMalformedResponse, "missing value")
 	}
 
-	item.Value = trimCRLF(lines[1])
-	return item.decodeValue()
+	var err error
+	if item.Value, item.Flags, err = codec.Decode(item.Key, trimCRLF(lines[1]), item.Flags); err != nil {
+		return errors.Wrap(err, "codec decode")
+	}
+
+	return nil
 }
 
 // CD <flags>*\r\n
@@ -411,9 +424,9 @@ func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
 		case 'c':
 			item.CAS = parseUint(parts[i][1:])
 		case 'f':
-			item.Flags = MCFlags(parseUint(parts[i][1:]))
+			item.Flags = uint32(parseUint(parts[i][1:]))
 		case 't':
-			item.TTL = int64(parseInt(parts[i][1:]))
+			item.TTL = parseInt(parts[i][1:])
 		case 'l':
 			item.LastAccessedTime = int64(parseUint(parts[i][1:]))
 		case 's':

@@ -33,27 +33,27 @@ type fakeMemcachedClient struct {
 
 func (f *fakeMemcachedClient) Close() error { return nil }
 
-func (f *fakeMemcachedClient) Set(context.Context, string, []byte, uint16, time.Duration) error {
+func (f *fakeMemcachedClient) Set(context.Context, string, []byte, uint32, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Add(context.Context, string, []byte, uint16, time.Duration) error {
+func (f *fakeMemcachedClient) Add(context.Context, string, []byte, uint32, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Replace(context.Context, string, []byte, uint16, time.Duration) error {
+func (f *fakeMemcachedClient) Replace(context.Context, string, []byte, uint32, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Append(context.Context, string, []byte, uint16, time.Duration) error {
+func (f *fakeMemcachedClient) Append(context.Context, string, []byte, uint32, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Prepend(context.Context, string, []byte, uint16, time.Duration) error {
+func (f *fakeMemcachedClient) Prepend(context.Context, string, []byte, uint32, time.Duration) error {
 	return nil
 }
 
-func (f *fakeMemcachedClient) Cas(context.Context, string, []byte, uint16, time.Duration, uint64) error {
+func (f *fakeMemcachedClient) Cas(context.Context, string, []byte, uint32, time.Duration, uint64) error {
 	return nil
 }
 

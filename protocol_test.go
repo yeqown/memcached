@@ -8,7 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 func Test_parseValueItems(t *testing.T) {
@@ -133,7 +133,7 @@ func Test_parseValueItems(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine, tt.args.withCAS)
+			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine, tt.args.withCAS, memcodec.Noop)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -145,11 +145,10 @@ func Test_parseValueItems(t *testing.T) {
 	}
 }
 
-func Test_parseValueItemsDecodeValue(t *testing.T) {
+func Test_parseValueItemsPreservesEncodedValue(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	compressed, err := compress(src, CompressionAlgorithmDeflate)
-	assert.NoError(t, err)
-	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
+	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+	compressed, flags, err := codec.Encode([]byte("key"), src, 0x12)
 	assert.NoError(t, err)
 
 	lines := [][]byte{
@@ -158,10 +157,10 @@ func Test_parseValueItemsDecodeValue(t *testing.T) {
 		[]byte("END\r\n"),
 	}
 
-	items, err := parseValueItems(lines, false, false)
+	items, err := parseValueItems(lines, false, false, memcodec.Noop)
 	assert.NoError(t, err)
 	assert.Len(t, items, 1)
-	assert.Equal(t, src, items[0].Value)
+	assert.Equal(t, compressed, items[0].Value)
 	assert.Equal(t, flags, items[0].Flags)
 }
 
@@ -173,120 +172,6 @@ func Test_buildGetAndTouchesCommand(t *testing.T) {
 	assert.Equal(t, endIndicatorSpecificEndLine, resp.endIndicator)
 	assert.Equal(t, _EndCRLFBytes, resp.specEndLine)
 	assert.Len(t, resp.rawLines, 0)
-}
-
-func TestEncodeDecodeMCFlags(t *testing.T) {
-	flags, err := buildMCFlags(0, CompressionAlgorithmDeflate)
-	require.NoError(t, err)
-	assert.Equal(t, MCFlags(0xA1000000), flags)
-	assert.False(t, flags.unconventional())
-	assert.True(t, isSupportedCompressionAlgorithm(flags.compressionAlgorithm()))
-	assert.Equal(t, CompressionAlgorithmDeflate, flags.compressionAlgorithm())
-	assert.Equal(t, uint32(0), flags.AppFlags())
-	assert.Equal(t, uint8(0), flags.reserved())
-}
-
-func TestEncodeMCFlagsSpecExample(t *testing.T) {
-	flags, err := buildMCFlags(0, CompressionAlgorithm(0x5))
-	assert.Error(t, err)
-	assert.Zero(t, flags)
-}
-
-func TestEncodeMCFlagsPreservesAppFlags(t *testing.T) {
-	flags, err := buildMCFlags(0x1234, CompressionAlgorithmNone)
-	require.NoError(t, err)
-
-	assert.False(t, flags.unconventional())
-	assert.Equal(t, uint32(0x1234), flags.AppFlags())
-	assert.Equal(t, CompressionAlgorithmNone, flags.compressionAlgorithm())
-}
-
-func TestMCFlagsMethods(t *testing.T) {
-	uncompressed, err := buildMCFlags(0x1234, CompressionAlgorithmNone)
-	require.NoError(t, err)
-
-	deflate, err := buildMCFlags(0x00FF, CompressionAlgorithmDeflate)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name                   string
-		flags                  MCFlags
-		wantRaw                uint32
-		wantUnconventional     bool
-		wantSupportedAlgorithm bool
-		wantIsCompressed       bool
-		wantAlgorithm          CompressionAlgorithm
-		wantAppFlags           uint32
-		wantReserved           uint8
-	}{
-		{
-			name:                   "legacy flags fallback to full uint32",
-			flags:                  MCFlags(0x12345678),
-			wantRaw:                0x12345678,
-			wantUnconventional:     true,
-			wantSupportedAlgorithm: true,
-			wantIsCompressed:       false,
-			wantAlgorithm:          CompressionAlgorithmNone,
-			wantAppFlags:           0x12345678,
-			wantReserved:           0,
-		},
-		{
-			name:                   "valid mcflags uncompressed",
-			flags:                  uncompressed,
-			wantRaw:                0xA0123400,
-			wantUnconventional:     false,
-			wantSupportedAlgorithm: true,
-			wantIsCompressed:       false,
-			wantAlgorithm:          CompressionAlgorithmNone,
-			wantAppFlags:           0x1234,
-			wantReserved:           0,
-		},
-		{
-			name:                   "valid mcflags deflate",
-			flags:                  deflate,
-			wantRaw:                0xA100FF00,
-			wantUnconventional:     false,
-			wantSupportedAlgorithm: true,
-			wantIsCompressed:       true,
-			wantAlgorithm:          CompressionAlgorithmDeflate,
-			wantAppFlags:           0x00FF,
-			wantReserved:           0,
-		},
-		{
-			name:                   "valid mcflags preserves reserved bits",
-			flags:                  MCFlags(0xA11234AB),
-			wantRaw:                0xA11234AB,
-			wantUnconventional:     false,
-			wantSupportedAlgorithm: true,
-			wantIsCompressed:       true,
-			wantAlgorithm:          CompressionAlgorithmDeflate,
-			wantAppFlags:           0x1234,
-			wantReserved:           0xAB,
-		},
-		{
-			name:                   "invalid mcflags reports unsupported algorithm",
-			flags:                  MCFlags(0xAF1234AB),
-			wantRaw:                0xAF1234AB,
-			wantUnconventional:     false,
-			wantSupportedAlgorithm: false,
-			wantIsCompressed:       true,
-			wantAlgorithm:          CompressionAlgorithm(0xF),
-			wantAppFlags:           0x1234,
-			wantReserved:           0xAB,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantRaw, tt.flags.raw())
-			assert.Equal(t, tt.wantUnconventional, tt.flags.unconventional())
-			assert.Equal(t, tt.wantSupportedAlgorithm, isSupportedCompressionAlgorithm(tt.flags.compressionAlgorithm()))
-			assert.Equal(t, tt.wantIsCompressed, tt.flags.isCompressed())
-			assert.Equal(t, tt.wantAlgorithm, tt.flags.compressionAlgorithm())
-			assert.Equal(t, tt.wantAppFlags, tt.flags.AppFlags())
-			assert.Equal(t, tt.wantReserved, tt.flags.reserved())
-		})
-	}
 }
 
 func constructParts(raw []byte) [][]byte {

@@ -10,43 +10,26 @@ import (
 	"github.com/pkg/errors"
 )
 
-const mcFlagsMagic = uint32(0xA)
-
-// MCFlags is the 32-bit semantic flag word encoded by the MC-COMPRESS spec.
-type MCFlags uint32
-
-func (f MCFlags) raw() uint32 {
-	return uint32(f)
+// Codec transforms value and flags at the protocol boundary.
+//
+// The key is passed as read-only context so codecs can choose behavior per key,
+// but codecs must not rewrite it. Protocol metadata such as CAS, TTL, size,
+// opaque tokens, and meta flags other than client flags remain owned by the
+// memcached client.
+type Codec interface {
+	// Encode transforms a value and raw 32-bit client flags before storage.
+	Encode(key, value []byte, flag uint32) (encodedValue []byte, encodedFlags uint32, err error)
+	// Decode transforms a value and raw 32-bit client flags after retrieval.
+	Decode(key, value []byte, flag uint32) (decodedValue []byte, decodedFlags uint32, err error)
+	// SupportsOperation reports whether the codec can preserve semantics for an operation.
+	SupportsOperation(operation string) error
 }
 
-func (f MCFlags) unconventional() bool {
-	return ((uint32(f) >> 28) & 0xF) != mcFlagsMagic
-}
-
-func (f MCFlags) isCompressed() bool {
-	return f.compressionAlgorithm() != CompressionAlgorithmNone
-}
-
-func (f MCFlags) compressionAlgorithm() CompressionAlgorithm {
-	if f.unconventional() {
-		return CompressionAlgorithmNone
+func checkCodecSupportsOperation(codec Codec, operation string) error {
+	if err := codec.SupportsOperation(operation); err != nil {
+		return errors.Wrap(ErrNotSupported, err.Error())
 	}
-	return CompressionAlgorithm((uint32(f) >> 24) & 0xF)
-}
-
-// AppFlags returns the application-visible flags payload.
-func (f MCFlags) AppFlags() uint32 {
-	if f.unconventional() {
-		return uint32(f)
-	}
-	return (uint32(f) >> 8) & 0xFFFF
-}
-
-func (f MCFlags) reserved() uint8 {
-	if f.unconventional() {
-		return 0
-	}
-	return uint8(uint32(f) & 0xFF)
+	return nil
 }
 
 // Item represents a key-value pair to be got or stored.
@@ -54,8 +37,8 @@ type Item struct {
 	Key   string
 	Value []byte
 
-	// Flags is the semantic MC-FLAGS value of the item.
-	Flags MCFlags
+	// Flags is the raw 32-bit flags value returned by the server.
+	Flags uint32
 	// CAS is a unique value that is used to check-and-set operation.
 	// It ONLY returns when you use `Gets` command.
 	CAS uint64
@@ -70,15 +53,6 @@ func (i *Item) String() string {
 		"}"
 }
 
-func (i *Item) decodeValue() (err error) {
-	i.Value, err = tryDecompressValue(i.Value, i.Flags, i.Key)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // MetaItem represents a key-value pair with meta information.
 type MetaItem struct {
 	Key   []byte
@@ -88,9 +62,9 @@ type MetaItem struct {
 	// CAS is a unique value that is used to check-and-set operation.
 	// use MetaGetFlagReturnCAS() or MetaGetFlagReturnCAS() to get this value.
 	CAS uint64
-	// Flags is the semantic MC-FLAGS value of the item.
+	// Flags is the raw 32-bit flags value returned by the server.
 	// use MetaGetFlagReturnClientFlags() to get this value.
-	Flags MCFlags
+	Flags uint32
 	// TTL is the time-to-live of the item. -1 means never expire.
 	// use MetaGetFlagReturnTTL() to get this value.
 	TTL int64
@@ -120,15 +94,6 @@ func (m *MetaItem) String() string {
 		" Opaque:" + strconv.FormatUint(m.Opaque, 10) +
 		" HitBefore:" + strconv.FormatBool(m.HitBefore) +
 		"}"
-}
-
-func (m *MetaItem) decodeValue() (err error) {
-	m.Value, err = tryDecompressValue(m.Value, m.Flags, string(m.Key))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // MetaItemDebug represents a key-value pair with meta information for debug.
@@ -174,13 +139,30 @@ func buildFlushAllCommand(noReply bool) (*request, *response) {
 //
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
-func buildStorageCommand(command, key string, value []byte, flags MCFlags, exptime time.Duration, noReply bool) (*request, *response) {
+func buildStorageCommand(
+	command, key string,
+	value []byte,
+	flags uint32,
+	exptime time.Duration,
+	noReply bool,
+	codec Codec,
+) (*request, *response, error) {
+
+	if err := checkCodecSupportsOperation(codec, command); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
+	evalue, eflags, err := codec.Encode([]byte(key), value, flags)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	b := newProtocolBuilder().
 		AddString(command).
 		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(eflags)).            // flags
 		AddUint(uint64(exptime.Seconds())). // exptime
-		AddInt(len(value))                  // bytes
+		AddInt(len(evalue))                 // bytes
 	defer b.release()
 
 	if noReply {
@@ -188,7 +170,7 @@ func buildStorageCommand(command, key string, value []byte, flags MCFlags, expti
 	}
 
 	raw := b.AddCRLF().
-		AddBytes(value). // data block
+		AddBytes(evalue). // data block
 		AddCRLF().
 		build()
 
@@ -201,7 +183,7 @@ func buildStorageCommand(command, key string, value []byte, flags MCFlags, expti
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 // delete <key> [noreply]\r\n
@@ -251,16 +233,21 @@ func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*reques
 	return req, resp
 }
 
-// cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
+// cas <key> <flag> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(
-	key string, value []byte, flags MCFlags, expTime time.Duration, casUnique uint64, noReply bool,
-) (*request, *response) {
+	key string, value []byte, flag uint32, expTime time.Duration, casUnique uint64, noReply bool, codec Codec,
+) (*request, *response, error) {
+	evalue, eflag, err := codec.Encode([]byte(key), value, flag)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	b := newProtocolBuilder().
 		AddString("cas").                   // command
 		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(eflag)).             // flags
 		AddUint(uint64(expTime.Seconds())). // exptime
-		AddInt(len(value)).                 // bytes
+		AddInt(len(evalue)).                // bytes
 		AddUint(casUnique)                  // cas unique
 	defer b.release()
 
@@ -269,7 +256,7 @@ func buildCasCommand(
 	}
 
 	raw := b.AddCRLF().
-		AddBytes(value). // data block
+		AddBytes(evalue). // data block
 		AddCRLF().
 		build()
 
@@ -282,7 +269,7 @@ func buildCasCommand(
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 // buildGetsCommand constructs gets command.
@@ -333,7 +320,7 @@ func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...str
 // <data block>\r\n
 // ...
 // END\r\n
-func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, err error) {
+func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) (_ []*Item, err error) {
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
@@ -380,10 +367,13 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, e
 		if len(item.Value) != int(dataLen) {
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
-		if err = item.decodeValue(); err != nil {
+
+		decodedValue, decodedFlags, err := codec.Decode([]byte(item.Key), item.Value, uint32(item.Flags))
+		if err != nil {
 			return nil, err
 		}
-
+		item.Value = decodedValue
+		item.Flags = decodedFlags
 		items = append(items, item)
 	}
 
@@ -427,7 +417,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 			if err != nil {
 				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
 			}
-			item.Flags = MCFlags(flags)
+			item.Flags = uint32(flags)
 		case dataLenIndex:
 			si := i
 			if i == n-1 {

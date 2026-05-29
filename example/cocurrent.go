@@ -33,7 +33,7 @@ func main() {
 			for counter := 0; counter < limits; counter++ {
 				key := "example:cas"
 				// set
-				err = client.Set(ctx, key, []byte("value2"), uint16(123), 10*time.Second)
+				err = client.Set(ctx, key, []byte("value2"), uint32(123), 10*time.Second)
 				if err != nil {
 					panic("write: " + err.Error())
 				}

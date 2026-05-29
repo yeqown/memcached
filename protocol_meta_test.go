@@ -4,9 +4,10 @@ import (
 	"strconv"
 	"testing"
 
-	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 func Test_parseFlags(t *testing.T) {
@@ -182,7 +183,7 @@ func Test_parseMetaItem(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := parseMetaItem(tt.args.lines, tt.args.item, tt.args.noReply)
+			err := parseMetaItem(tt.args.lines, tt.args.item, tt.args.noReply, memcodec.Noop)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -194,11 +195,10 @@ func Test_parseMetaItem(t *testing.T) {
 	}
 }
 
-func Test_parseMetaItemDecodeValue(t *testing.T) {
+func Test_parseMetaItemPreservesEncodedValue(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	compressed, err := compress(src, CompressionAlgorithmDeflate)
-	assert.NoError(t, err)
-	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
+	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+	compressed, flags, err := codec.Encode([]byte("foo"), src, 0x12)
 	assert.NoError(t, err)
 
 	item := &MetaItem{}
@@ -209,43 +209,11 @@ func Test_parseMetaItemDecodeValue(t *testing.T) {
 		},
 		item,
 		false,
+		memcodec.Noop,
 	)
 	assert.NoError(t, err)
-	assert.Equal(t, src, item.Value)
+	assert.Equal(t, compressed, item.Value)
 	assert.Equal(t, flags, item.Flags)
-}
-
-func Test_parseMetaItemUnknownCompressionAlgorithmReturnsMiss(t *testing.T) {
-	item := &MetaItem{}
-	err := parseMetaItem(
-		[][]byte{
-			[]byte("VA 7 f" + strconv.FormatUint(uint64(MCFlags(0xAF000000)), 10) + "\r\n"),
-			[]byte("payload\r\n"),
-		},
-		item,
-		false,
-	)
-	require.Error(t, err)
-	assert.True(t, pkgerrors.Is(err, ErrNotFound))
-	assert.Nil(t, item.Value)
-}
-
-func Test_parseMetaItemInvalidCompressedPayloadReturnsMiss(t *testing.T) {
-	flags, err := buildMCFlags(0x12, CompressionAlgorithmDeflate)
-	require.NoError(t, err)
-
-	item := &MetaItem{}
-	err = parseMetaItem(
-		[][]byte{
-			[]byte("VA 11 f" + strconv.FormatUint(uint64(flags), 10) + "\r\n"),
-			[]byte("not-deflate\r\n"),
-		},
-		item,
-		false,
-	)
-	require.Error(t, err)
-	assert.True(t, pkgerrors.Is(err, ErrNotFound))
-	assert.Nil(t, item.Value)
 }
 
 func Test_buildMetaArithmeticCommand(t *testing.T) {
@@ -383,6 +351,14 @@ func Test_buildMetaGetCommand(t *testing.T) {
 	}
 }
 
+func Test_buildMetaGetCommandDoesNotApplyCodecToKey(t *testing.T) {
+	flags := &metaGetFlags{v: true, f: true}
+	req, _ := buildMetaGetCommand([]byte("foo"), flags)
+
+	assert.Equal(t, []byte("foo"), req.key)
+	assert.Contains(t, string(req.raw), "mg foo")
+}
+
 func Test_buildMetaSetCommand(t *testing.T) {
 	key := []byte("foo")
 	value := []byte("bar")
@@ -433,11 +409,18 @@ func Test_buildMetaSetCommand(t *testing.T) {
 			wantRequestRaw:    []byte("ms foo 3 c C1 E2 F3 I k O4 s T5 Mreplace N6\r\nbar\r\n"),
 			wantRespIndicator: endIndicatorLimitedLines,
 		},
+		{
+			name:              "omits F0",
+			flags:             &metaSetFlags{},
+			wantRequestRaw:    []byte("ms foo 3\r\nbar\r\n"),
+			wantRespIndicator: endIndicatorLimitedLines,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, resp := buildMetaSetCommand(key, value, tt.flags)
+			req, resp, err := buildMetaSetCommand(key, value, tt.flags, memcodec.Noop)
+			require.NoError(t, err)
 			assert.Equal(t, string(tt.wantRequestRaw), string(req.raw))
 			assert.Equal(t, tt.wantRespIndicator, resp.endIndicator)
 		})
