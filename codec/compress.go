@@ -1,7 +1,9 @@
+// Package codec defines value transformation hooks for memcached requests.
 package codec
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"errors"
 	"io"
@@ -16,13 +18,13 @@ var (
 	errNotSupported = errors.New("compression algorithm: not supported")
 	errInvalidValue = errors.New("decompressed payload too large")
 	errInvalidFlags = errors.New("app flag exceed MC-COMPRESS 16-bit range")
+	errInvalidLevel = errors.New("compression level: invalid")
 	errNotFound     = errors.New("decompression failed")
 )
 
 const (
 	// The minimal size to compress is 10KB which is used to avoid negative optimization maybe cpu cost more than reduced size.
 	defaultCompressionThreshold = 10240
-	defaultCompressionLevel     = 6
 
 	maxDecompressedValueSize     = 128 << 20 // 128MB
 	maxCompressionExpansionRatio = 100       // 100x compression expansion ratio
@@ -34,19 +36,25 @@ const (
 type Compression uint8
 
 const (
-	CompressionAlgorithmNone    Compression = 0x0
+	// CompressionAlgorithmNone stores the value without compression.
+	CompressionAlgorithmNone Compression = 0x0
+	// CompressionAlgorithmDeflate stores the value using deflate compression.
 	CompressionAlgorithmDeflate Compression = 0x1
-	CompressionAlgorithmLZ4     Compression = 0x2
-	CompressionAlgorithmSnappy  Compression = 0x3
-	CompressionAlgorithmZstd    Compression = 0x4
+	// CompressionAlgorithmLZ4 stores the value using LZ4 compression.
+	CompressionAlgorithmLZ4 Compression = 0x2
+	// CompressionAlgorithmSnappy stores the value using Snappy compression.
+	CompressionAlgorithmSnappy Compression = 0x4
+	// CompressionAlgorithmZstd stores the value using Zstd compression.
+	CompressionAlgorithmZstd Compression = 0x5
 )
 
-// compressCodec stores compressed values using the MC-COMPRESS flag layout.
-//
-// The high nibble marks conventional MC-COMPRESS flags, the next nibble stores
-// the compression algorithm, and the 16-bit app flag field is preserved for
-// callers. Values are only stored compressed when they meet the threshold and
-// the compressed payload is smaller than the original.
+// CompressCodec transforms values using MC-COMPRESS flags.
+type CompressCodec interface {
+	Encode(key, value []byte, flag uint32) ([]byte, uint32, error)
+	Decode(key, value []byte, flag uint32) ([]byte, uint32, error)
+	SupportsOperation(operation string) error
+}
+
 type compressCodec struct {
 	compression      Compression
 	compressionLevel int
@@ -54,11 +62,28 @@ type compressCodec struct {
 }
 
 // NewCompressCodec creates a codec that stores values with MC-COMPRESS flags.
-func NewCompressCodec(algorithm Compression, threshold int) *compressCodec {
+func NewCompressCodec(algorithm Compression, threshold, level int) (CompressCodec, error) {
+	// Validate levels at construction so Encode can keep the compression path branch-free.
 	switch algorithm {
-	case CompressionAlgorithmNone, CompressionAlgorithmDeflate, CompressionAlgorithmLZ4, CompressionAlgorithmSnappy, CompressionAlgorithmZstd:
+	case CompressionAlgorithmNone:
+	case CompressionAlgorithmDeflate:
+		if level != flate.DefaultCompression && level != flate.NoCompression && level != flate.HuffmanOnly && (level < flate.BestSpeed || level > flate.BestCompression) {
+			return nil, errInvalidLevel
+		}
+	case CompressionAlgorithmLZ4:
+		if level < 0 || level > 9 {
+			return nil, errInvalidLevel
+		}
+	case CompressionAlgorithmSnappy:
+		if level != 0 {
+			return nil, errInvalidLevel
+		}
+	case CompressionAlgorithmZstd:
+		if level < 1 || level > 22 {
+			return nil, errInvalidLevel
+		}
 	default:
-		algorithm = CompressionAlgorithmNone
+		return nil, errNotSupported
 	}
 
 	if threshold <= 0 {
@@ -66,9 +91,9 @@ func NewCompressCodec(algorithm Compression, threshold int) *compressCodec {
 	}
 	return &compressCodec{
 		compression:      algorithm,
-		compressionLevel: defaultCompressionLevel,
+		compressionLevel: level,
 		threshold:        threshold,
-	}
+	}, nil
 }
 
 func (c *compressCodec) Encode(_ []byte, value []byte, flag uint32) ([]byte, uint32, error) {
@@ -97,6 +122,7 @@ func (c *compressCodec) Encode(_ []byte, value []byte, flag uint32) ([]byte, uin
 	return compressed, flag, nil
 }
 
+// Decode restores compressed values marked with MC-COMPRESS flags.
 func (c *compressCodec) Decode(key, value []byte, flags uint32) ([]byte, uint32, error) {
 	cflag := compressFlag(flags)
 	if cflag.unconventional() || !cflag.isCompressed() {
@@ -113,6 +139,7 @@ func (c *compressCodec) Decode(key, value []byte, flags uint32) ([]byte, uint32,
 	return decoded, uint32(cflag), nil
 }
 
+// SupportsOperation rejects operations that cannot preserve compressed value semantics.
 func (c *compressCodec) SupportsOperation(operation string) error {
 	if c.compression == CompressionAlgorithmNone {
 		return nil
@@ -157,22 +184,6 @@ func compressDeflate(src []byte, level int) ([]byte, error) {
 }
 
 func compressLZ4(src []byte, level int) ([]byte, error) {
-	var buf bytes.Buffer
-	writer := lz4.NewWriter(&buf)
-	if err := writer.Apply(lz4.CompressionLevelOption(lz4CompressionLevel(level))); err != nil {
-		return nil, err
-	}
-	if _, err := writer.Write(src); err != nil {
-		_ = writer.Close()
-		return nil, err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func lz4CompressionLevel(level int) lz4.CompressionLevel {
 	levels := [...]lz4.CompressionLevel{
 		lz4.Fast,
 		lz4.Level1,
@@ -185,13 +196,20 @@ func lz4CompressionLevel(level int) lz4.CompressionLevel {
 		lz4.Level8,
 		lz4.Level9,
 	}
-	if level < 0 {
-		return lz4.Fast
+
+	var buf bytes.Buffer
+	writer := lz4.NewWriter(&buf)
+	if err := writer.Apply(lz4.CompressionLevelOption(levels[level])); err != nil {
+		return nil, err
 	}
-	if level >= len(levels) {
-		return lz4.Level9
+	if _, err := writer.Write(src); err != nil {
+		_ = writer.Close()
+		return nil, err
 	}
-	return levels[level]
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func compressSnappy(src []byte, _ int) ([]byte, error) {
@@ -205,7 +223,7 @@ func compressZstd(src []byte, level int) ([]byte, error) {
 		return nil, err
 	}
 	if _, err = writer.Write(src); err != nil {
-		writer.Close()
+		_ = writer.Close()
 		return nil, err
 	}
 	if err = writer.Close(); err != nil {
@@ -301,14 +319,17 @@ func newCompressFlag(appFlags uint32, algorithm Compression) compressFlag {
 	return compressFlag(((conventionalFlagsMagic & 0xF) << 28) | ((uint32(algorithm) & 0xF) << 24) | (appFlags << 8))
 }
 
+// IsUnconventional reports whether flag does not use the MC-COMPRESS layout.
 func IsUnconventional(flag uint32) bool {
 	return compressFlag(flag).unconventional()
 }
 
+// AppFlags returns caller-owned flags preserved in the MC-COMPRESS layout.
 func AppFlags(flag uint32) uint32 {
 	return compressFlag(flag).appFlags()
 }
 
+// IsCompressed reports whether flag identifies a compressed value.
 func IsCompressed(flag uint32) bool {
 	return compressFlag(flag).isCompressed()
 }

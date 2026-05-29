@@ -12,7 +12,7 @@ import (
 
 func TestCompressionRoundTripDeflate(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	compressed, err := compress(src, CompressionAlgorithmDeflate, defaultCompressionLevel)
+	compressed, err := compress(src, CompressionAlgorithmDeflate, 6)
 	require.NoError(t, err)
 	require.NotEqual(t, src, compressed)
 
@@ -35,7 +35,7 @@ func TestCompressionRoundTripAlgorithms(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			compressed, err := compress(src, tt.algorithm, defaultCompressionLevel)
+			compressed, err := compress(src, tt.algorithm, 6)
 			require.NoError(t, err)
 			require.NotEqual(t, src, compressed)
 
@@ -48,7 +48,7 @@ func TestCompressionRoundTripAlgorithms(t *testing.T) {
 
 func TestCompressionDeflateUsesZlibFormat(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	compressed, err := compress(src, CompressionAlgorithmDeflate, defaultCompressionLevel)
+	compressed, err := compress(src, CompressionAlgorithmDeflate, 6)
 	require.NoError(t, err)
 
 	reader, err := zlib.NewReader(bytes.NewReader(compressed))
@@ -105,7 +105,8 @@ func TestDecompressRejectsOversizedPayload(t *testing.T) {
 }
 
 func TestEncodeFallbackForSmallPayload(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmDeflate, defaultCompressionThreshold)
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, defaultCompressionThreshold, 6)
+	require.NoError(t, err)
 	small := []byte("small payload")
 	encodedValue, encodedFlags, err := codec.Encode([]byte("key"), small, 0x12)
 	require.NoError(t, err)
@@ -116,15 +117,81 @@ func TestEncodeFallbackForSmallPayload(t *testing.T) {
 }
 
 func TestEncodeRejectsAppFlagsOutsideMCCompressRange(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmNone, 0)
-	_, _, err := codec.Encode([]byte("key"), []byte("value"), 0x10000)
+	codec, err := NewCompressCodec(CompressionAlgorithmNone, 0, 6)
+	require.NoError(t, err)
+	_, _, err = codec.Encode([]byte("key"), []byte("value"), 0x10000)
 	require.Error(t, err)
 }
 
+func TestNewCompressCodecStoresCompressionLevel(t *testing.T) {
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, flate.BestCompression)
+	require.NoError(t, err)
+	compressCodec := codec.(*compressCodec)
+	assert.Equal(t, flate.BestCompression, compressCodec.compressionLevel)
+}
+
+func TestNewCompressCodecRejectsInvalidCompressionLevel(t *testing.T) {
+	tests := []struct {
+		name      string
+		algorithm Compression
+		level     int
+	}{
+		{name: "deflate below huffman only", algorithm: CompressionAlgorithmDeflate, level: flate.HuffmanOnly - 1},
+		{name: "deflate above best compression", algorithm: CompressionAlgorithmDeflate, level: flate.BestCompression + 1},
+		{name: "lz4 below fast", algorithm: CompressionAlgorithmLZ4, level: -1},
+		{name: "lz4 above level9", algorithm: CompressionAlgorithmLZ4, level: 10},
+		{name: "snappy rejects explicit level", algorithm: CompressionAlgorithmSnappy, level: 1},
+		{name: "zstd below level1", algorithm: CompressionAlgorithmZstd, level: 0},
+		{name: "zstd above level22", algorithm: CompressionAlgorithmZstd, level: 23},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			codec, err := NewCompressCodec(tt.algorithm, 1, tt.level)
+			assert.Nil(t, codec)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCompressDoesNotValidateCompressionLevel(t *testing.T) {
+	compressed, err := compress([]byte("hello hello hello hello"), CompressionAlgorithmSnappy, 1)
+	require.NoError(t, err)
+	require.NotEmpty(t, compressed)
+}
+
+func TestNewCompressCodecAcceptsSupportedCompressionLevels(t *testing.T) {
+	tests := []struct {
+		name      string
+		algorithm Compression
+		level     int
+	}{
+		{name: "none zero", algorithm: CompressionAlgorithmNone, level: 0},
+		{name: "deflate huffman only", algorithm: CompressionAlgorithmDeflate, level: flate.HuffmanOnly},
+		{name: "deflate default", algorithm: CompressionAlgorithmDeflate, level: flate.DefaultCompression},
+		{name: "deflate best speed", algorithm: CompressionAlgorithmDeflate, level: flate.BestSpeed},
+		{name: "deflate best compression", algorithm: CompressionAlgorithmDeflate, level: flate.BestCompression},
+		{name: "lz4 fast", algorithm: CompressionAlgorithmLZ4, level: 0},
+		{name: "lz4 level9", algorithm: CompressionAlgorithmLZ4, level: 9},
+		{name: "snappy zero", algorithm: CompressionAlgorithmSnappy, level: 0},
+		{name: "zstd level1", algorithm: CompressionAlgorithmZstd, level: 1},
+		{name: "zstd level22", algorithm: CompressionAlgorithmZstd, level: 22},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			codec, err := NewCompressCodec(tt.algorithm, 1, tt.level)
+			require.NoError(t, err)
+			require.NotNil(t, codec)
+		})
+	}
+}
+
 func TestDecodeRetrievedValueCompressed(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmDeflate, 1)
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, 6)
+	require.NoError(t, err)
 	src := []byte("hello hello hello hello hello hello")
-	compressed, err := compress(src, CompressionAlgorithmDeflate, defaultCompressionLevel)
+	compressed, err := compress(src, CompressionAlgorithmDeflate, 6)
 	require.NoError(t, err)
 	flags := newCompressFlag(0x44, CompressionAlgorithmDeflate)
 
@@ -135,7 +202,8 @@ func TestDecodeRetrievedValueCompressed(t *testing.T) {
 }
 
 func TestDecodeRetrievedValueUnknownAlgorithmReturnsMiss(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmDeflate, 1)
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, 6)
+	require.NoError(t, err)
 	flags := uint32(0xAF000000)
 	decoded, decodedFlags, err := codec.Decode([]byte("key"), []byte("payload"), flags)
 	assert.Nil(t, decoded)
@@ -145,7 +213,8 @@ func TestDecodeRetrievedValueUnknownAlgorithmReturnsMiss(t *testing.T) {
 }
 
 func TestDecodeRetrievedValueInvalidPayloadReturnsMiss(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmDeflate, 1)
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, 6)
+	require.NoError(t, err)
 	flags := newCompressFlag(0x44, CompressionAlgorithmDeflate)
 
 	decoded, decodedFlags, err := codec.Decode([]byte("key"), []byte("not-deflate"), uint32(flags))
@@ -156,7 +225,8 @@ func TestDecodeRetrievedValueInvalidPayloadReturnsMiss(t *testing.T) {
 }
 
 func TestDecodeRetrievedValueNonMCFlags(t *testing.T) {
-	codec := NewCompressCodec(CompressionAlgorithmDeflate, 1)
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, 6)
+	require.NoError(t, err)
 	value := []byte("plain")
 	decoded, decodedFlags, err := codec.Decode([]byte("key"), value, 123)
 	require.NoError(t, err)

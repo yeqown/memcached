@@ -104,9 +104,14 @@ import (
     memcodec "github.com/yeqown/memcached/codec"
 )
 
+compressionCodec, err := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1024, 6)
+if err != nil {
+    panic(err)
+}
+
 client, err := memcached.New(
     "localhost:11211",
-    memcached.WithCodec(memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1024)),
+    memcached.WithCodec(compressionCodec),
 )
 if err != nil {
     panic(err)

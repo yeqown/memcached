@@ -20,6 +20,13 @@ type clientTestSuite struct {
 	client *client
 }
 
+func mustCompressCodec(t *testing.T, algorithm memcodec.Compression, threshold, level int) memcodec.CompressCodec {
+	t.Helper()
+	codec, err := memcodec.NewCompressCodec(algorithm, threshold, level)
+	require.NoError(t, err)
+	return codec
+}
+
 func (su *clientTestSuite) SetupSuite() {
 	addrs := "localhost:11211"
 	c, err := newClientWithContext(context.Background(), addrs)
@@ -36,7 +43,7 @@ func (su *clientTestSuite) newCompressedClient() *client {
 	c, err := newClientWithContext(
 		context.Background(),
 		"localhost:11211",
-		WithCodec(memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)),
+		WithCodec(mustCompressCodec(su.T(), memcodec.CompressionAlgorithmDeflate, 1, 6)),
 	)
 	require.NoError(su.T(), err)
 
@@ -238,7 +245,7 @@ func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
 
 func TestCompressionDisablesAppendPrepend(t *testing.T) {
 	client := &client{options: newClientOptions()}
-	client.options.codec = memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 0)
+	client.options.codec = mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 0, 6)
 
 	err := client.Append(context.Background(), "key", []byte("value"), 0, 0)
 	require.Error(t, err)
@@ -251,7 +258,7 @@ func TestCompressionDisablesAppendPrepend(t *testing.T) {
 
 func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
 	client := &client{options: newClientOptions()}
-	client.options.codec = memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 0)
+	client.options.codec = mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 0, 6)
 
 	errModes := []metaSetMode{MetaSetModeAppend, MetaSetModePrepend}
 	for _, mode := range errModes {
@@ -309,7 +316,7 @@ func TestCodecCapabilitiesApplyPerMetaSetOperation(t *testing.T) {
 }
 
 func TestNewCompressCodecInstallsCompressionBehavior(t *testing.T) {
-	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
 
 	encodedValue, encodedFlags, err := codec.Encode([]byte("foo"), []byte("hello hello hello hello hello hello"), 0x12)
 	require.NoError(t, err)

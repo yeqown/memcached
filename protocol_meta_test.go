@@ -197,7 +197,7 @@ func Test_parseMetaItem(t *testing.T) {
 
 func Test_parseMetaItemPreservesEncodedValue(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
 	compressed, flags, err := codec.Encode([]byte("foo"), src, 0x12)
 	assert.NoError(t, err)
 

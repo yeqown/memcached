@@ -147,7 +147,7 @@ func Test_parseValueItems(t *testing.T) {
 
 func Test_parseValueItemsPreservesEncodedValue(t *testing.T) {
 	src := []byte("hello hello hello hello hello hello")
-	codec := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1)
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
 	compressed, flags, err := codec.Encode([]byte("key"), src, 0x12)
 	assert.NoError(t, err)
 
