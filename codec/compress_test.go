@@ -198,7 +198,7 @@ func TestDecodeRetrievedValueCompressed(t *testing.T) {
 	decoded, decodedFlags, err := codec.Decode([]byte("key"), compressed, uint32(flags))
 	require.NoError(t, err)
 	assert.Equal(t, src, decoded)
-	assert.Equal(t, uint32(flags), decodedFlags)
+	assert.Equal(t, uint32(0x44), decodedFlags)
 }
 
 func TestDecodeRetrievedValueUnknownAlgorithmReturnsMiss(t *testing.T) {
@@ -232,6 +232,18 @@ func TestDecodeRetrievedValueNonMCFlags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, value, decoded)
 	assert.Equal(t, uint32(123), decodedFlags)
+}
+
+func TestDecodeRetrievedValueConventionalUncompressedFlags(t *testing.T) {
+	codec, err := NewCompressCodec(CompressionAlgorithmDeflate, 1, 6)
+	require.NoError(t, err)
+	value := []byte("plain")
+	flags := uint32(newCompressFlag(0x44, CompressionAlgorithmNone))
+
+	decoded, decodedFlags, err := codec.Decode([]byte("key"), value, flags)
+	require.NoError(t, err)
+	assert.Equal(t, value, decoded)
+	assert.Equal(t, uint32(0x44), decodedFlags)
 }
 
 func TestMCFlagsHelpers(t *testing.T) {

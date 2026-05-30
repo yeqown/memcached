@@ -125,8 +125,11 @@ func (c *compressCodec) Encode(_ []byte, value []byte, flag uint32) ([]byte, uin
 // Decode restores compressed values marked with MC-COMPRESS flags.
 func (c *compressCodec) Decode(key, value []byte, flags uint32) ([]byte, uint32, error) {
 	cflag := compressFlag(flags)
-	if cflag.unconventional() || !cflag.isCompressed() {
+	if cflag.unconventional() {
 		return value, uint32(cflag), nil
+	}
+	if !cflag.isCompressed() {
+		return value, cflag.appFlags(), nil
 	}
 
 	algorithm := cflag.compressionAlgorithm()
@@ -136,7 +139,7 @@ func (c *compressCodec) Decode(key, value []byte, flags uint32) ([]byte, uint32,
 		return nil, 0, errNotFound
 	}
 
-	return decoded, uint32(cflag), nil
+	return decoded, cflag.appFlags(), nil
 }
 
 // SupportsOperation rejects operations that cannot preserve compressed value semantics.

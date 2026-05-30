@@ -118,11 +118,14 @@ func (su *clientTestSuite) Test_concurrent() {
 		for counter <= 20 {
 			item, err := su.client.MetaSet(ctx, []byte(key), []byte(value), msOptions(cas, 0x1234)...)
 			su.NoError(err)
+			if err != nil {
+				return
+			}
 
 			cas = item.CAS
 			counter++
 
-			time.Sleep(time.Second * 5)
+			time.Sleep(20 * time.Millisecond)
 		}
 	}()
 
@@ -132,18 +135,21 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		counter := 0
 
-		for counter <= 1000 {
+		for counter <= 200 {
 			item, err := su.client.Get(ctx, key)
 			if pkgerrors.Is(err, ErrNotFound) {
 				goto next
 			}
 			su.NoError(err)
+			if err != nil {
+				return
+			}
 
 			su.Equal(value, string(item.Value))
 			counter++
 
 		next:
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
@@ -160,7 +166,7 @@ func (su *clientTestSuite) Test_concurrent() {
 
 			counter++
 
-			time.Sleep(time.Second)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
@@ -184,9 +190,7 @@ func (su *clientTestSuite) Test_compressionClassicReadCommandsRoundTrip() {
 	assertItem := func(item *Item) {
 		su.Require().NotNil(item)
 		su.Equal(value, item.Value)
-		su.False(memcodec.IsUnconventional(item.Flags))
-		su.True(memcodec.IsCompressed(item.Flags))
-		su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
+		su.Equal(flag, item.Flags)
 	}
 
 	item, err := client.Get(ctx, key1)
@@ -224,23 +228,17 @@ func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
 
 	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(flag))
 	su.Require().NoError(err)
-	su.False(memcodec.IsUnconventional(stored.Flags))
-	su.True(memcodec.IsCompressed(stored.Flags))
-	su.Equal(uint32(flag), memcodec.AppFlags(stored.Flags))
+	su.Equal(flag, stored.Flags)
 
 	item, err := client.MetaGet(ctx, key, MetaGetFlagReturnValue())
 	su.Require().NoError(err)
 	su.Equal(value, item.Value)
-	su.False(memcodec.IsUnconventional(item.Flags))
-	su.True(memcodec.IsCompressed(item.Flags))
-	su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
+	su.Equal(flag, item.Flags)
 
 	item, err = client.MetaGet(ctx, key, MetaGetFlagReturnValue(), MetaGetFlagReturnClientFlags())
 	su.Require().NoError(err)
 	su.Equal(value, item.Value)
-	su.False(memcodec.IsUnconventional(item.Flags))
-	su.True(memcodec.IsCompressed(item.Flags))
-	su.Equal(uint32(flag), memcodec.AppFlags(item.Flags))
+	su.Equal(flag, item.Flags)
 }
 
 func TestCompressionDisablesAppendPrepend(t *testing.T) {

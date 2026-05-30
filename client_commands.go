@@ -443,6 +443,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
 	}
+	clientFlags := msFlags.F
 
 	req, resp, err := buildMetaSetCommand(key, value, msFlags, c.options.codec)
 	if err != nil {
@@ -456,7 +457,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	item := &MetaItem{
 		Key:   key,
 		TTL:   int64(msFlags.T),
-		Flags: msFlags.F,
+		Flags: clientFlags,
 	}
 	err = parseMetaItem(resp.rawLines, item, msFlags.q, c.options.codec)
 	if err != nil {

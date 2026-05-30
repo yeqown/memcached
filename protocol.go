@@ -37,7 +37,7 @@ type Item struct {
 	Key   string
 	Value []byte
 
-	// Flags is the raw 32-bit flags value returned by the server.
+	// Flags is the caller-facing flags value after codec decode.
 	Flags uint32
 	// CAS is a unique value that is used to check-and-set operation.
 	// It ONLY returns when you use `Gets` command.
@@ -62,8 +62,8 @@ type MetaItem struct {
 	// CAS is a unique value that is used to check-and-set operation.
 	// use MetaGetFlagReturnCAS() or MetaGetFlagReturnCAS() to get this value.
 	CAS uint64
-	// Flags is the raw 32-bit flags value returned by the server.
-	// use MetaGetFlagReturnClientFlags() to get this value.
+	// Flags is the caller-facing flags value after codec decode when a value is returned.
+	// use MetaGetFlagReturnClientFlags() to request it from the server.
 	Flags uint32
 	// TTL is the time-to-live of the item. -1 means never expire.
 	// use MetaGetFlagReturnTTL() to get this value.

@@ -216,6 +216,27 @@ func Test_parseMetaItemPreservesEncodedValue(t *testing.T) {
 	assert.Equal(t, flags, item.Flags)
 }
 
+func Test_parseMetaItemDecodesAppFlags(t *testing.T) {
+	src := []byte("hello hello hello hello hello hello")
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
+	compressed, flags, err := codec.Encode([]byte("foo"), src, 0x12)
+	assert.NoError(t, err)
+
+	item := &MetaItem{}
+	err = parseMetaItem(
+		[][]byte{
+			[]byte("VA 36 f" + strconv.FormatUint(uint64(flags), 10) + "\r\n"),
+			append(append([]byte{}, compressed...), []byte("\r\n")...),
+		},
+		item,
+		false,
+		codec,
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, src, item.Value)
+	assert.Equal(t, uint32(0x12), item.Flags)
+}
+
 func Test_buildMetaArithmeticCommand(t *testing.T) {
 	key := []byte("foo")
 	delta := uint64(64)
