@@ -237,6 +237,10 @@ func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*reques
 func buildCasCommand(
 	key string, value []byte, flag uint32, expTime time.Duration, casUnique uint64, noReply bool, codec Codec,
 ) (*request, *response, error) {
+	if err := checkCodecSupportsOperation(codec, "cas"); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
 	evalue, eflag, err := codec.Encode([]byte(key), value, flag)
 	if err != nil {
 		return nil, nil, err

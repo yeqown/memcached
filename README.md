@@ -91,10 +91,11 @@ func main() {
 
 The client can encode protocol-level compression metadata in the Memcached `flags` field using the MC-COMPRESS layout documented in [docs/MC-COMPRESS-SPEC-v1.0.md](./docs/MC-COMPRESS-SPEC-v1.0.md).
 
-- Reads automatically detect compliant MC-FLAGS values, transparently decompress supported payloads, and return the caller's application flags.
+- Reads automatically detect compliant MC-FLAGS values, transparently decompress supported payloads, and return caller-facing flags after decode.
 - Writes can opt into the built-in MC-COMPRESS behavior by installing `codec.NewCompressCodec(...)` through `WithCodec(...)`.
 - You can replace the built-in behavior with your own `WithCodec(...)` implementation to customize how `value` and `flags` are encoded and decoded, using `key` only as context.
 - `APP-FLAGS` are preserved in the 16-bit application-visible portion of the encoded flags word while stored on the wire.
+- `MetaGet` automatically requests server flags when a codec is configured so decode always has the metadata it needs.
 - Values smaller than the threshold, or payloads that do not shrink after compression, are stored as plain values.
 - `Append` and `Prepend` are rejected when the built-in compression codec is enabled.
 
@@ -126,7 +127,7 @@ if err != nil {
     panic(err)
 }
 
-println("app flags:", item.Flags)
+println("flags:", item.Flags)
 println("value size:", len(item.Value))
 ```
 

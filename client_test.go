@@ -285,7 +285,7 @@ func (prependOnlyRestrictedCodec) Decode(_ []byte, value []byte, flags uint32) (
 }
 
 func (prependOnlyRestrictedCodec) SupportsOperation(operation string) error {
-	if operation == "prepend" {
+	if operation == "prepend" || operation == "cas" {
 		return ErrNotSupported
 	}
 	return nil
@@ -296,6 +296,14 @@ func TestCodecCapabilitiesApplyPerTextStorageOperation(t *testing.T) {
 
 	require.NoError(t, checkCodecSupportsOperation(codec, "append"))
 	require.ErrorIs(t, checkCodecSupportsOperation(codec, "prepend"), ErrNotSupported)
+}
+
+func TestCodecCapabilitiesApplyPerCasOperation(t *testing.T) {
+	c := &client{options: newClientOptions()}
+	c.options.codec = prependOnlyRestrictedCodec{}
+
+	_, _, err := buildCasCommand("foo", []byte("bar"), 0, 0, 1, false, c.options.codec)
+	require.ErrorIs(t, err, ErrNotSupported)
 }
 
 func TestCodecCapabilitiesApplyPerMetaSetOperation(t *testing.T) {
