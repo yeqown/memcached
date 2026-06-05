@@ -49,7 +49,9 @@ func MetaSetFlagNewCAS(casUnique uint64) MetaSetOption {
 
 // MetaSetFlagClientFlags sets the flag to set client flags to token.
 func MetaSetFlagClientFlags(flag uint32) MetaSetOption {
-	return func(flags *metaSetFlags) { flags.F = flag }
+	return func(flags *metaSetFlags) {
+		flags.F = flag
+	}
 }
 
 // MetaSetFlagInvalidate sets the flag to set-to-invalid if supplied CAS is older than item's CAS.
@@ -110,7 +112,22 @@ func MetaSetFlagAutoVivify(ttl uint64) MetaSetOption {
 
 // ms <key> <datalen> <flags>*\r\n
 // <data block>\r\n
-func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *response) {
+func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*request, *response, error) {
+	operation := string(flags.M)
+	if operation == "" {
+		operation = string(MetaSetModeSet)
+	}
+	if err := checkCodecSupportsOperation(codec, operation); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
+	// codec hook
+	evalue, eflags, err := codec.Encode(key, value, flags.F)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "encode value and flags")
+	}
+	flags.F = eflags
+
 	if flags.b {
 		key = base64Encode(key)
 	}
@@ -118,7 +135,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 	b := newProtocolBuilder().
 		AddString("ms").
 		AddBytes(key).
-		AddInt(len(value))
+		AddInt(len(evalue))
 	defer b.release()
 
 	b.AddFlagBool("b", flags.b)
@@ -136,7 +153,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 	b.AddFlagUint("N", flags.N)
 
 	raw := b.AddCRLF().
-		AddBytes(value).
+		AddBytes(evalue).
 		AddCRLF().
 		build()
 
@@ -149,7 +166,7 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags) (*request, *res
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 type metaGetFlags struct {
@@ -334,7 +351,7 @@ func buildMetaGetCommand(key []byte, flags *metaGetFlags) (*request, *response) 
 //	VA(value).
 //
 // VA is specified as: VA <size> <flags>*\r\n<data block>\r\n.
-func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
+func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) error {
 	if noReply && len(lines) == 0 {
 		return nil
 	}
@@ -379,7 +396,11 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool) error {
 		return errors.Wrap(ErrMalformedResponse, "missing value")
 	}
 
-	item.Value = trimCRLF(lines[1])
+	var err error
+	if item.Value, item.Flags, err = codec.Decode(item.Key, trimCRLF(lines[1]), item.Flags); err != nil {
+		return errors.Wrap(err, "codec decode")
+	}
+
 	return nil
 }
 
@@ -405,7 +426,7 @@ func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
 		case 'f':
 			item.Flags = uint32(parseUint(parts[i][1:]))
 		case 't':
-			item.TTL = int64(parseInt(parts[i][1:]))
+			item.TTL = parseInt(parts[i][1:])
 		case 'l':
 			item.LastAccessedTime = int64(parseUint(parts[i][1:]))
 		case 's':

@@ -2,10 +2,13 @@ package memcached
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 func Test_parseValueItems(t *testing.T) {
@@ -130,7 +133,7 @@ func Test_parseValueItems(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine, tt.args.withCAS)
+			got, err := parseValueItems(tt.args.lines, tt.args.withoutEndLine, tt.args.withCAS, memcodec.Noop)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
@@ -140,6 +143,54 @@ func Test_parseValueItems(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func Test_parseValueItemsPreservesEncodedValue(t *testing.T) {
+	src := []byte("hello hello hello hello hello hello")
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
+	compressed, flags, err := codec.Encode([]byte("key"), src, 0x12)
+	assert.NoError(t, err)
+
+	lines := [][]byte{
+		[]byte("VALUE key " + strconv.FormatUint(uint64(flags), 10) + " " + strconv.Itoa(len(compressed)) + "\r\n"),
+		append(append([]byte{}, compressed...), []byte("\r\n")...),
+		[]byte("END\r\n"),
+	}
+
+	items, err := parseValueItems(lines, false, false, memcodec.Noop)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Equal(t, compressed, items[0].Value)
+	assert.Equal(t, flags, items[0].Flags)
+}
+
+func Test_parseValueItemsDecodesAppFlags(t *testing.T) {
+	src := []byte("hello hello hello hello hello hello")
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
+	compressed, flags, err := codec.Encode([]byte("key"), src, 0x12)
+	assert.NoError(t, err)
+
+	lines := [][]byte{
+		[]byte("VALUE key " + strconv.FormatUint(uint64(flags), 10) + " " + strconv.Itoa(len(compressed)) + "\r\n"),
+		append(append([]byte{}, compressed...), []byte("\r\n")...),
+		[]byte("END\r\n"),
+	}
+
+	items, err := parseValueItems(lines, false, false, codec)
+	assert.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Equal(t, src, items[0].Value)
+	assert.Equal(t, uint32(0x12), items[0].Flags)
+}
+
+func Test_buildGetAndTouchesCommand(t *testing.T) {
+	req, resp := buildGetAndTouchesCommand("gats", time.Second, "key1", "key2")
+	defer releaseReqAndResp(req, resp)
+
+	assert.Equal(t, []byte("gats 1 key1 key2\r\n"), req.raw)
+	assert.Equal(t, endIndicatorSpecificEndLine, resp.endIndicator)
+	assert.Equal(t, _EndCRLFBytes, resp.specEndLine)
+	assert.Len(t, resp.rawLines, 0)
 }
 
 func constructParts(raw []byte) [][]byte {

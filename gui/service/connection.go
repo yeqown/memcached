@@ -15,11 +15,11 @@ import (
 
 // ConnectionService manages memcached contexts and connections.
 type ConnectionService struct {
-	mu         sync.Mutex
-	client     memcached.Client
-	configDir  string
-	connected  bool
-	activeCtx  *Context
+	mu        sync.Mutex
+	client    memcached.Client
+	configDir string
+	connected bool
+	activeCtx *Context
 }
 
 // NewConnectionService creates a new ConnectionService.

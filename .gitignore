@@ -1,6 +1,8 @@
 __pycache__/
 .venv/
 .idea/
+.DS_Store
+AGENTS.md
 
 contexts.json
 
@@ -12,3 +14,6 @@ docs/superpowers/specs/
 # Go work file
 go.work.sum
 go.sum
+
+# Claude Code
+.claude/worktree

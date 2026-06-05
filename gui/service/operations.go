@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	memcached "github.com/yeqown/memcached"
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 // OperationService exposes memcached operations to the frontend.
@@ -85,7 +86,7 @@ func (s *OperationService) Get(key string) *OperationResult {
 		TTL:              item.TTL,
 		LastAccessedTime: item.LastAccessedTime,
 		CAS:              item.CAS,
-		Flags:            item.Flags,
+		Flags:            memcodec.AppFlags(item.Flags),
 		Size:             item.Size,
 		HitBefore:        item.HitBefore,
 		Opaque:           item.Opaque,

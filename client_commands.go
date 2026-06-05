@@ -17,33 +17,33 @@ type basicTextProtocolCommander interface {
 	//
 	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
+	Set(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error
 	// Add is used to store the given key-value pair if the key does not exist.
 	//
 	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
+	Add(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error
 	// Replace is used to update the value of an existing item.
 	//
 	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
+	Replace(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error
 	// Append is used to append the value to an existing item.
 	//
 	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
+	Append(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error
 	// Prepend is used to prepend the value to an existing item.
 	//
 	// Flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error
+	Prepend(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error
 
 	// Cas is used to update the value of an existing item and also check-and-set operation.
 	//
 	// flags is an arbitrary 32-bit unsigned integer (written out in decimal) that
 	// the server stores along with the data and sends back when the item is retrieved.
-	Cas(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration, cas uint64) error
+	Cas(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration, cas uint64) error
 
 	/**
 	Retrieval commands: get and gets
@@ -137,60 +137,64 @@ type rawTextProtocolCommander interface {
  * Storage commands: set, add, replace, append, prepend, cas
  */
 
-func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flags uint32, expiry time.Duration) error {
+func (c *client) storageCommand(ctx context.Context, command, key string, value []byte, flag uint32, expiry time.Duration) error {
 	if err := validateKeyAndValue([]byte(key), nil); err != nil {
 		return err
 	}
 
-	req, resp := buildStorageCommand(command, key, value, flags, expiry, c.options.noReply)
+	req, resp, err := buildStorageCommand(command, key, value, flag, expiry, c.options.noReply, c.options.codec)
+	if err != nil {
+		return errors.Wrap(err, "build storage command failed")
+	}
 	defer releaseReqAndResp(req, resp)
 
-	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+	if err = c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 
-	// expect STORED\r\n
-	if err := resp.expect(_StoredCRLFBytes); err != nil {
+	if err = resp.expect(_StoredCRLFBytes); err != nil {
 		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
 	return nil
 }
 
-func (c *client) Set(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
-	return c.storageCommand(ctx, "set", key, value, flags, expiry)
+func (c *client) Set(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error {
+	return c.storageCommand(ctx, "set", key, value, flag, expiry)
 }
 
-func (c *client) Add(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
-	return c.storageCommand(ctx, "add", key, value, flags, expiry)
+func (c *client) Add(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error {
+	return c.storageCommand(ctx, "add", key, value, flag, expiry)
 }
 
-func (c *client) Replace(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
-	return c.storageCommand(ctx, "replace", key, value, flags, expiry)
+func (c *client) Replace(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error {
+	return c.storageCommand(ctx, "replace", key, value, flag, expiry)
 }
 
-func (c *client) Append(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
-	return c.storageCommand(ctx, "append", key, value, flags, expiry)
+func (c *client) Append(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error {
+	return c.storageCommand(ctx, "append", key, value, flag, expiry)
 }
 
-func (c *client) Prepend(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration) error {
-	return c.storageCommand(ctx, "prepend", key, value, flags, expiry)
+func (c *client) Prepend(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error {
+	return c.storageCommand(ctx, "prepend", key, value, flag, expiry)
 }
 
-func (c *client) Cas(ctx context.Context, key string, value []byte, flags uint32, expiry time.Duration, cas uint64) error {
+func (c *client) Cas(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration, cas uint64) error {
 	if err := validateKeyAndValue([]byte(key), value); err != nil {
 		return err
 	}
 
-	req, resp := buildCasCommand(key, value, flags, expiry, cas, c.options.noReply)
+	req, resp, err := buildCasCommand(key, value, flag, expiry, cas, c.options.noReply, c.options.codec)
+	if err != nil {
+		return err
+	}
 	defer releaseReqAndResp(req, resp)
 
-	if err := c.dispatchRequest(ctx, req, resp); err != nil {
+	if err = c.dispatchRequest(ctx, req, resp); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 
-	// expect STORED\r\n
-	if err := resp.expect(_StoredCRLFBytes); err != nil {
+	if err = resp.expect(_StoredCRLFBytes); err != nil {
 		return errors.Wrap(ErrMalformedResponse, err.Error())
 	}
 
@@ -213,8 +217,7 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 		return nil, errors.Wrap(err, "request failed")
 	}
 
-	// parse response
-	items, err := parseValueItems(resp.rawLines, false, false)
+	items, err := parseValueItems(resp.rawLines, false, false, c.options.codec)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse values failed")
 	}
@@ -237,8 +240,7 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 		return nil, errors.Wrap(err, "request failed")
 	}
 
-	// parse response
-	items, err := parseValueItems(resp.rawLines, false, true)
+	items, err := parseValueItems(resp.rawLines, false, true, c.options.codec)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
@@ -261,8 +263,7 @@ func (c *client) GetAndTouch(ctx context.Context, expiry time.Duration, key stri
 		return nil, errors.Wrap(err, "request failed")
 	}
 
-	// parse response
-	items, err := parseValueItems(resp.rawLines, false, false)
+	items, err := parseValueItems(resp.rawLines, false, false, c.options.codec)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
@@ -287,7 +288,7 @@ func (c *client) GetAndTouches(ctx context.Context, expiry time.Duration, keys .
 	}
 
 	// parse response
-	items, err := parseValueItems(resp.rawLines, false, true)
+	items, err := parseValueItems(resp.rawLines, false, true, c.options.codec)
 	if err != nil {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
@@ -442,8 +443,12 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
 	}
+	clientFlags := msFlags.F
 
-	req, resp := buildMetaSetCommand(key, value, msFlags)
+	req, resp, err := buildMetaSetCommand(key, value, msFlags, c.options.codec)
+	if err != nil {
+		return nil, err
+	}
 	defer releaseReqAndResp(req, resp)
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
 		return nil, errors.Wrap(err, "request failed")
@@ -452,9 +457,9 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	item := &MetaItem{
 		Key:   key,
 		TTL:   int64(msFlags.T),
-		Flags: msFlags.F,
+		Flags: clientFlags,
 	}
-	err := parseMetaItem(resp.rawLines, item, msFlags.q)
+	err = parseMetaItem(resp.rawLines, item, msFlags.q, c.options.codec)
 	if err != nil {
 		return nil, err
 	}
@@ -472,6 +477,11 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 		applyFn(mgFlags)
 	}
 
+	// If you use specified customize Codec, then client always request flags by default.
+	if c.options.codec != nil {
+		mgFlags.f = true
+	}
+
 	req, resp := buildMetaGetCommand(key, mgFlags)
 	defer releaseReqAndResp(req, resp)
 
@@ -482,7 +492,7 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 	item := &MetaItem{
 		Key: key,
 	}
-	if err := parseMetaItem(resp.rawLines, item, mgFlags.q); err != nil {
+	if err := parseMetaItem(resp.rawLines, item, mgFlags.q, c.options.codec); err != nil {
 		return nil, err
 	}
 
@@ -509,7 +519,7 @@ func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDele
 	item := &MetaItem{
 		Key: key,
 	}
-	if err := parseMetaItem(resp.rawLines, item, mdFlags.q); err != nil {
+	if err := parseMetaItem(resp.rawLines, item, mdFlags.q, c.options.codec); err != nil {
 		return nil, err
 	}
 
@@ -536,7 +546,7 @@ func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, o
 	item := &MetaItem{
 		Key: key,
 	}
-	if err := parseMetaItem(resp.rawLines, item, maFlags.q); err != nil {
+	if err := parseMetaItem(resp.rawLines, item, maFlags.q, c.options.codec); err != nil {
 		return nil, err
 	}
 

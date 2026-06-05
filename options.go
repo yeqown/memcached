@@ -3,6 +3,7 @@ package memcached
 import (
 	"time"
 
+	memcodec "github.com/yeqown/memcached/codec"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -61,6 +62,8 @@ type clientOptions struct {
 
 	// telemetryOptions holds the OpenTelemetry configuration options.
 	telemetryOptions []telemetry.Option
+
+	codec Codec
 }
 
 func newClientOptions() *clientOptions {
@@ -82,6 +85,8 @@ func newClientOptions() *clientOptions {
 		enableSASL:    false,
 		plainUsername: "",
 		plainPassword: "",
+
+		codec: memcodec.Noop,
 	}
 }
 
@@ -210,5 +215,15 @@ func WithUDPEnabled() ClientOption {
 func WithTelemetry(opts ...telemetry.Option) ClientOption {
 	return func(o *clientOptions) {
 		o.telemetryOptions = opts
+	}
+}
+
+// WithCodec sets the codec used to transform value and flags.
+func WithCodec(codec Codec) ClientOption {
+	return func(o *clientOptions) {
+		if codec == nil {
+			return
+		}
+		o.codec = codec
 	}
 }

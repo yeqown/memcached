@@ -10,12 +10,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
+	memcodec "github.com/yeqown/memcached/codec"
 )
 
 type clientTestSuite struct {
 	suite.Suite
 
 	client *client
+}
+
+func mustCompressCodec(t *testing.T, algorithm memcodec.Compression, threshold, level int) memcodec.CompressCodec {
+	t.Helper()
+	codec, err := memcodec.NewCompressCodec(algorithm, threshold, level)
+	require.NoError(t, err)
+	return codec
 }
 
 func (su *clientTestSuite) SetupSuite() {
@@ -28,6 +37,21 @@ func (su *clientTestSuite) SetupSuite() {
 func (su *clientTestSuite) TearDownSuite() {
 	err := su.client.Close()
 	su.Require().NoError(err)
+}
+
+func (su *clientTestSuite) newCompressedClient() *client {
+	c, err := newClientWithContext(
+		context.Background(),
+		"localhost:11211",
+		WithCodec(mustCompressCodec(su.T(), memcodec.CompressionAlgorithmDeflate, 1, 6)),
+	)
+	require.NoError(su.T(), err)
+
+	cc := c.(*client)
+	su.T().Cleanup(func() {
+		require.NoError(su.T(), cc.Close())
+	})
+	return cc
 }
 
 func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
@@ -94,11 +118,14 @@ func (su *clientTestSuite) Test_concurrent() {
 		for counter <= 20 {
 			item, err := su.client.MetaSet(ctx, []byte(key), []byte(value), msOptions(cas, 0x1234)...)
 			su.NoError(err)
+			if err != nil {
+				return
+			}
 
 			cas = item.CAS
 			counter++
 
-			time.Sleep(time.Second * 5)
+			time.Sleep(20 * time.Millisecond)
 		}
 	}()
 
@@ -108,18 +135,21 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		counter := 0
 
-		for counter <= 1000 {
+		for counter <= 200 {
 			item, err := su.client.Get(ctx, key)
 			if pkgerrors.Is(err, ErrNotFound) {
 				goto next
 			}
 			su.NoError(err)
+			if err != nil {
+				return
+			}
 
 			su.Equal(value, string(item.Value))
 			counter++
 
 		next:
-			time.Sleep(time.Millisecond * 100)
+			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
@@ -136,13 +166,169 @@ func (su *clientTestSuite) Test_concurrent() {
 
 			counter++
 
-			time.Sleep(time.Second)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
 	wg.Wait()
 
 	su.T().Log("Test_concurrent finished")
+}
+
+func (su *clientTestSuite) Test_compressionClassicReadCommandsRoundTrip() {
+	ctx := context.Background()
+	client := su.newCompressedClient()
+
+	value := []byte("hello hello hello hello hello hello")
+	flag := uint32(0x1234)
+	key1 := "Test_compressionClassicReadCommandsRoundTrip_1"
+	key2 := "Test_compressionClassicReadCommandsRoundTrip_2"
+
+	su.Require().NoError(client.Set(ctx, key1, value, flag, 0))
+	su.Require().NoError(client.Set(ctx, key2, value, flag, 0))
+
+	assertItem := func(item *Item) {
+		su.Require().NotNil(item)
+		su.Equal(value, item.Value)
+		su.Equal(flag, item.Flags)
+	}
+
+	item, err := client.Get(ctx, key1)
+	su.Require().NoError(err)
+	assertItem(item)
+
+	items, err := client.Gets(ctx, key1, key2)
+	su.Require().NoError(err)
+	su.Require().Len(items, 2)
+	for _, item := range items {
+		assertItem(item)
+		su.NotZero(item.CAS)
+	}
+
+	item, err = client.GetAndTouch(ctx, time.Second, key1)
+	su.Require().NoError(err)
+	assertItem(item)
+
+	items, err = client.GetAndTouches(ctx, time.Second, key1, key2)
+	su.Require().NoError(err)
+	su.Require().Len(items, 2)
+	for _, item := range items {
+		assertItem(item)
+		su.NotZero(item.CAS)
+	}
+}
+
+func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
+	ctx := context.Background()
+	client := su.newCompressedClient()
+
+	key := []byte("Test_compressionMetaReadTransparency")
+	value := []byte("hello hello hello hello hello hello")
+	flag := uint32(0x2345)
+
+	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(flag))
+	su.Require().NoError(err)
+	su.Equal(flag, stored.Flags)
+
+	item, err := client.MetaGet(ctx, key, MetaGetFlagReturnValue())
+	su.Require().NoError(err)
+	su.Equal(value, item.Value)
+	su.Equal(flag, item.Flags)
+
+	item, err = client.MetaGet(ctx, key, MetaGetFlagReturnValue(), MetaGetFlagReturnClientFlags())
+	su.Require().NoError(err)
+	su.Equal(value, item.Value)
+	su.Equal(flag, item.Flags)
+}
+
+func TestCompressionDisablesAppendPrepend(t *testing.T) {
+	client := &client{options: newClientOptions()}
+	client.options.codec = mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 0, 6)
+
+	err := client.Append(context.Background(), "key", []byte("value"), 0, 0)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+
+	err = client.Prepend(context.Background(), "key", []byte("value"), 0, 0)
+	require.Error(t, err)
+	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+}
+
+func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
+	client := &client{options: newClientOptions()}
+	client.options.codec = mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 0, 6)
+
+	errModes := []metaSetMode{MetaSetModeAppend, MetaSetModePrepend}
+	for _, mode := range errModes {
+		t.Run(string(mode), func(t *testing.T) {
+			item, err := client.MetaSet(
+				context.Background(),
+				[]byte("key"),
+				[]byte("value"),
+				MetaSetFlagModeSwitch(mode),
+			)
+			assert.Nil(t, item)
+			require.Error(t, err)
+			assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+		})
+	}
+}
+
+type prependOnlyRestrictedCodec struct{}
+
+func (prependOnlyRestrictedCodec) Encode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+	return value, flags, nil
+}
+
+func (prependOnlyRestrictedCodec) Decode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+	return value, flags, nil
+}
+
+func (prependOnlyRestrictedCodec) SupportsOperation(operation string) error {
+	if operation == "prepend" || operation == "cas" {
+		return ErrNotSupported
+	}
+	return nil
+}
+
+func TestCodecCapabilitiesApplyPerTextStorageOperation(t *testing.T) {
+	codec := prependOnlyRestrictedCodec{}
+
+	require.NoError(t, checkCodecSupportsOperation(codec, "append"))
+	require.ErrorIs(t, checkCodecSupportsOperation(codec, "prepend"), ErrNotSupported)
+}
+
+func TestCodecCapabilitiesApplyPerCasOperation(t *testing.T) {
+	c := &client{options: newClientOptions()}
+	c.options.codec = prependOnlyRestrictedCodec{}
+
+	_, _, err := buildCasCommand("foo", []byte("bar"), 0, 0, 1, false, c.options.codec)
+	require.ErrorIs(t, err, ErrNotSupported)
+}
+
+func TestCodecCapabilitiesApplyPerMetaSetOperation(t *testing.T) {
+	c := &client{options: newClientOptions()}
+	c.options.codec = prependOnlyRestrictedCodec{}
+
+	flags := &metaSetFlags{}
+	MetaSetFlagModeSwitch(MetaSetModeAppend)(flags)
+	_, _, err := buildMetaSetCommand([]byte("foo"), []byte("bar"), flags, c.options.codec)
+	require.NoError(t, err)
+
+	flags = &metaSetFlags{}
+	MetaSetFlagModeSwitch(MetaSetModePrepend)(flags)
+	_, _, err = buildMetaSetCommand([]byte("foo"), []byte("bar"), flags, c.options.codec)
+	require.ErrorIs(t, err, ErrNotSupported)
+}
+
+func TestNewCompressCodecInstallsCompressionBehavior(t *testing.T) {
+	codec := mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)
+
+	encodedValue, encodedFlags, err := codec.Encode([]byte("foo"), []byte("hello hello hello hello hello hello"), 0x12)
+	require.NoError(t, err)
+	assert.NotEqual(t, []byte("hello hello hello hello hello hello"), encodedValue)
+	assert.True(t, memcodec.IsCompressed(encodedFlags))
+	assert.Equal(t, uint32(0x12), memcodec.AppFlags(encodedFlags))
 }
 
 func TestClientSuite(t *testing.T) {

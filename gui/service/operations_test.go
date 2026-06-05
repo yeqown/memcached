@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	memcached "github.com/yeqown/memcached"
 	"github.com/stretchr/testify/require"
+	memcached "github.com/yeqown/memcached"
 )
 
 type structuredOperationResult struct {

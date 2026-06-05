@@ -39,4 +39,3 @@ type OperationResult struct {
 	Opaque           uint64 `json:"opaque,omitempty"`
 	ValueKind        string `json:"valueKind,omitempty"`
 }
-

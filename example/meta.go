@@ -254,6 +254,6 @@ func metaDebug(client memcached.Client) {
 		panic(err)
 	}
 
-	//&{Key:ignored, TTL:10 LastAssessTime:0 CAS:33 HitBefore:false SlabClassID:1 Size:80}
+	// &{Key:ignored, TTL:10 LastAssessTime:0 CAS:33 HitBefore:false SlabClassID:1 Size:80}
 	fmt.Printf("debug item: %+v\n", itemDebug)
 }

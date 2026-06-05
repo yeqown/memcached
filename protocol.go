@@ -3,26 +3,48 @@ package memcached
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
+	"log"
 	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
+// Codec transforms value and flags at the protocol boundary.
+//
+// The key is passed as read-only context so codecs can choose behavior per key,
+// but codecs must not rewrite it. Protocol metadata such as CAS, TTL, size,
+// opaque tokens, and meta flags other than client flags remain owned by the
+// memcached client.
+type Codec interface {
+	// Encode transforms a value and raw 32-bit client flags before storage.
+	Encode(key, value []byte, flag uint32) (encodedValue []byte, encodedFlags uint32, err error)
+	// Decode transforms a value and raw 32-bit client flags after retrieval.
+	Decode(key, value []byte, flag uint32) (decodedValue []byte, decodedFlags uint32, err error)
+	// SupportsOperation reports whether the codec can preserve semantics for an operation.
+	SupportsOperation(operation string) error
+}
+
+func checkCodecSupportsOperation(codec Codec, operation string) error {
+	if err := codec.SupportsOperation(operation); err != nil {
+		return errors.Wrap(ErrNotSupported, err.Error())
+	}
+	return nil
+}
+
 // Item represents a key-value pair to be got or stored.
 type Item struct {
 	Key   string
 	Value []byte
 
-	// Flags is the flags of the value.
+	// Flags is the caller-facing flags value after codec decode.
 	Flags uint32
 	// CAS is a unique value that is used to check-and-set operation.
 	// It ONLY returns when you use `Gets` command.
 	CAS uint64
 }
 
-func (i Item) String() string {
+func (i *Item) String() string {
 	return "Item{" +
 		"Key:" + i.Key +
 		" Value:" + string(i.Value) +
@@ -40,8 +62,8 @@ type MetaItem struct {
 	// CAS is a unique value that is used to check-and-set operation.
 	// use MetaGetFlagReturnCAS() or MetaGetFlagReturnCAS() to get this value.
 	CAS uint64
-	// Flags is the flags of the value.
-	// use MetaGetFlagReturnClientFlags() to get this value.
+	// Flags is the caller-facing flags value after codec decode when a value is returned.
+	// use MetaGetFlagReturnClientFlags() to request it from the server.
 	Flags uint32
 	// TTL is the time-to-live of the item. -1 means never expire.
 	// use MetaGetFlagReturnTTL() to get this value.
@@ -60,7 +82,7 @@ type MetaItem struct {
 	HitBefore bool
 }
 
-func (m MetaItem) String() string {
+func (m *MetaItem) String() string {
 	return "MetaItem{" +
 		"Key:" + string(m.Key) +
 		" Value:" + string(m.Value) +
@@ -117,13 +139,30 @@ func buildFlushAllCommand(noReply bool) (*request, *response) {
 //
 // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
 // <data block>\r\n
-func buildStorageCommand(command, key string, value []byte, flags uint32, exptime time.Duration, noReply bool) (*request, *response) {
+func buildStorageCommand(
+	command, key string,
+	value []byte,
+	flags uint32,
+	exptime time.Duration,
+	noReply bool,
+	codec Codec,
+) (*request, *response, error) {
+
+	if err := checkCodecSupportsOperation(codec, command); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
+	evalue, eflags, err := codec.Encode([]byte(key), value, flags)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	b := newProtocolBuilder().
 		AddString(command).
 		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(eflags)).            // flags
 		AddUint(uint64(exptime.Seconds())). // exptime
-		AddInt(len(value))                  // bytes
+		AddInt(len(evalue))                 // bytes
 	defer b.release()
 
 	if noReply {
@@ -131,7 +170,7 @@ func buildStorageCommand(command, key string, value []byte, flags uint32, exptim
 	}
 
 	raw := b.AddCRLF().
-		AddBytes(value). // data block
+		AddBytes(evalue). // data block
 		AddCRLF().
 		build()
 
@@ -144,7 +183,7 @@ func buildStorageCommand(command, key string, value []byte, flags uint32, exptim
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 // delete <key> [noreply]\r\n
@@ -194,16 +233,25 @@ func buildTouchCommand(key string, expTime time.Duration, noReply bool) (*reques
 	return req, resp
 }
 
-// cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
+// cas <key> <flag> <exptime> <bytes> <cas unique> [noreply]\r\n
 func buildCasCommand(
-	key string, value []byte, flags uint32, expTime time.Duration, casUnique uint64, noReply bool,
-) (*request, *response) {
+	key string, value []byte, flag uint32, expTime time.Duration, casUnique uint64, noReply bool, codec Codec,
+) (*request, *response, error) {
+	if err := checkCodecSupportsOperation(codec, "cas"); err != nil {
+		return nil, nil, errors.Wrap(err, "codec does not support operation")
+	}
+
+	evalue, eflag, err := codec.Encode([]byte(key), value, flag)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	b := newProtocolBuilder().
 		AddString("cas").                   // command
 		AddString(key).                     // key
-		AddUint(uint64(flags)).             // flags
+		AddUint(uint64(eflag)).             // flags
 		AddUint(uint64(expTime.Seconds())). // exptime
-		AddInt(len(value)).                 // bytes
+		AddInt(len(evalue)).                // bytes
 		AddUint(casUnique)                  // cas unique
 	defer b.release()
 
@@ -212,7 +260,7 @@ func buildCasCommand(
 	}
 
 	raw := b.AddCRLF().
-		AddBytes(value). // data block
+		AddBytes(evalue). // data block
 		AddCRLF().
 		build()
 
@@ -225,7 +273,7 @@ func buildCasCommand(
 		resp = buildLimitedLineResponse(1)
 	}
 
-	return req, resp
+	return req, resp, nil
 }
 
 // buildGetsCommand constructs gets command.
@@ -247,18 +295,18 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 }
 
 // buildGetAndTouchCommand constructs get and touch command.
-// gat/gats <key> <exptime>\r\n
+// gat/gats <exptime> <key>*\r\n
 func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...string) (*request, *response) {
 	b := newProtocolBuilder().
-		AddString(command)
+		AddString(command).
+		AddUint(uint64(expiry.Seconds()))
 	defer b.release()
 
 	for _, key := range keys {
 		b.AddString(key)
 	}
 
-	b.AddUint(uint64(expiry.Seconds())).
-		AddCRLF()
+	b.AddCRLF()
 
 	req := buildRequest([]byte(command), nil, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
@@ -276,7 +324,7 @@ func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...str
 // <data block>\r\n
 // ...
 // END\r\n
-func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, err error) {
+func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) (_ []*Item, err error) {
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
@@ -324,6 +372,12 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool) (_ []*Item, e
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
 
+		decodedValue, decodedFlags, err := codec.Decode([]byte(item.Key), item.Value, uint32(item.Flags))
+		if err != nil {
+			return nil, err
+		}
+		item.Value = decodedValue
+		item.Flags = decodedFlags
 		items = append(items, item)
 	}
 
@@ -585,33 +639,21 @@ func parseStats(lines [][]byte) (*Statistic, error) {
 		case "rusage_user", "rusage_system":
 			v, err := strconv.ParseFloat(string(fields[2]), 64)
 			if err != nil {
-				slog.Warn("memcached: parse float failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse float failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v
 		case "hash_is_expanding", "accepting_conns":
 			v, err := strconv.ParseBool(string(fields[2]))
 			if err != nil {
-				slog.Warn("memcached: parse bool failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse bool failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v
 		default:
 			v, err := strconv.ParseInt(string(fields[2]), 10, 64)
 			if err != nil {
-				slog.Warn("memcached: parse int failed",
-					"key", key,
-					"value", string(fields[2]),
-					"err", err,
-				)
+				log.Printf("memcached: parse int failed: key=%q value=%q err=%v", key, string(fields[2]), err)
 				continue
 			}
 			transitionMap[key] = v
