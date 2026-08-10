@@ -95,12 +95,14 @@
     {#if metaExpanded}
       <div id="get-meta-panel" class="meta-summary-body" aria-live="polite">
         <table class="meta-table">
-          {#each metaFields as field}
-            <tr>
-              <td class="meta-label">{field.label}</td>
-              <td class="meta-value">{field.value}</td>
-            </tr>
-          {/each}
+          <tbody>
+            {#each metaFields as field}
+              <tr>
+                <td class="meta-label">{field.label}</td>
+                <td class="meta-value">{field.value}</td>
+              </tr>
+            {/each}
+          </tbody>
         </table>
       </div>
     {/if}

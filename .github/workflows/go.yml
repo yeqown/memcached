@@ -11,17 +11,19 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
 
       - name: golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
-          golangci-lint run --timeout=5m ./...
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          for module in . benchmark cmd/memcached-cli example gui; do
+            (cd "$module" && GOWORK=off golangci-lint run --timeout=5m ./...)
+          done
 
   test:
     name: Test
@@ -33,21 +35,37 @@ jobs:
           - 11211:11211
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
-        go-version: '1.26'
+        go-version: '1.26.5'
 
-    - name: Get dependencies
-      run: go mod download
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: '24'
 
-    - name: Run Tests
+    - name: Check frontend
+      working-directory: gui/frontend
+      run: |
+        npm ci
+        npm run check
+        npm run build
+        npm audit --audit-level=low
+
+    - name: Run tests in all Go modules
+      run: |
+        for module in . benchmark cmd/memcached-cli example gui; do
+          (cd "$module" && GOWORK=off go test -race -count=1 ./...)
+        done
+
+    - name: Generate root-module coverage
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v7
       with:
-        file: ./coverage.txt
+        files: ./coverage.txt
         flags: unittests

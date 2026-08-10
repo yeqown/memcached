@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/yeqown/memcached"
@@ -162,9 +164,9 @@ func newContextCurrentCommand() *cobra.Command {
 
 const (
 	magicFlags uint32 = 0x0705
-	magicSeed         = 0x2014
+	magicSeed  uint64 = 0x2014
 
-	historyTimeFormat = "2006-01-02 15:04:05"
+	historyTimeFormat string = "2006-01-02 15:04:05"
 )
 
 func newKVGetCommand() *cobra.Command {
@@ -193,14 +195,12 @@ func newKVGetCommand() *cobra.Command {
 				memcached.MetaGetFlagReturnHitBefore(),
 			)
 			if err != nil {
-				return ignoreMemcachedError(err)
+				return ignoreMemcachedError(os.Stdout, err)
 			}
 
-			history.addRecord("get", args)
+			recordHistory(cmd, history, "get", args)
 
-			printMetaItem(item)
-
-			return nil
+			return printMetaItem(item)
 		},
 	}
 }
@@ -224,10 +224,10 @@ func newKVSetCommand() *cobra.Command {
 
 			err = client.Set(cmd.Context(), args[0], []byte(args[1]), magicFlags, expiration)
 			if err != nil {
-				return ignoreMemcachedError(err)
+				return ignoreMemcachedError(os.Stdout, err)
 			}
 
-			history.addRecord("set", args)
+			recordHistory(cmd, history, "set", args)
 
 			fmt.Printf("OK\n")
 			return nil
@@ -254,10 +254,10 @@ func newKVDeleteCommand() *cobra.Command {
 
 			err = client.Delete(cmd.Context(), args[0])
 			if err != nil {
-				return ignoreMemcachedError(err)
+				return ignoreMemcachedError(os.Stdout, err)
 			}
 
-			history.addRecord("delete", args)
+			recordHistory(cmd, history, "delete", args)
 
 			fmt.Printf("OK\n")
 			return nil
@@ -295,18 +295,16 @@ func newKVGetsCommand() *cobra.Command {
 					memcached.MetaGetFlagReturnHitBefore(),
 				)
 				if err != nil {
-					fmt.Printf("Encounter an error while getting key '%s': %v\n", key, errors.Cause(err))
+					fmt.Printf("Encounter an error while getting key '%s': %v\n", key, rootErr(err))
 					continue
 				}
 
 				items = append(items, item)
 			}
 
-			history.addRecord("gets", args)
+			recordHistory(cmd, history, "gets", args)
 
-			printMetaItems(items)
-
-			return nil
+			return printMetaItems(items)
 		},
 	}
 }
@@ -330,10 +328,10 @@ func newKVTouchCommand() *cobra.Command {
 			}
 
 			if err := client.Touch(cmd.Context(), args[0], expiration); err != nil {
-				return ignoreMemcachedError(err)
+				return ignoreMemcachedError(os.Stdout, err)
 			}
 
-			history.addRecord("touch", args)
+			recordHistory(cmd, history, "touch", args)
 
 			fmt.Println("OK")
 			return nil
@@ -392,10 +390,10 @@ func newKVFlushAllCommand() *cobra.Command {
 
 		imme:
 			if err := client.FlushAll(cmd.Context()); err != nil {
-				return ignoreMemcachedError(err)
+				return ignoreMemcachedError(os.Stdout, err)
 			}
 
-			history.addRecord("flushall", args)
+			recordHistory(cmd, history, "flushall", args)
 
 			fmt.Println("OK")
 			return nil
@@ -406,25 +404,45 @@ func newKVFlushAllCommand() *cobra.Command {
 	return cmd
 }
 
-func printMetaItems(items []*memcached.MetaItem) {
-	for idx, item := range items {
-		fmt.Printf(" ================= The [%d] item =================\n", idx)
-		printMetaItem(item)
-	}
+func printMetaItems(items []*memcached.MetaItem) error {
+	return writeMetaItems(os.Stdout, items)
 }
 
-func printMetaItem(item *memcached.MetaItem) {
-	lastAccessAt := time.Now().Add(-time.Duration(item.LastAccessedTime) * time.Second)
+func printMetaItem(item *memcached.MetaItem) error {
+	return writeMetaItem(os.Stdout, item)
+}
 
-	fmt.Printf("Key:              %s\n", item.Key)
-	fmt.Printf("Flags:            %d (0x%x)\n", item.Flags, item.Flags)
-	fmt.Printf("CAS:              %d (0x%x)\n", item.CAS, item.CAS)
-	fmt.Printf("ClientFlags:      %d (0x%x)\n", item.Flags, item.Flags)
-	fmt.Printf("LastAccessedTime: %s (%s)\n", lastAccessAt.Format(time.RFC3339), formatSeconds(int(item.LastAccessedTime), "before", "never"))
-	fmt.Printf("HitBefore:        %s\n", map[bool]string{true: "✅", false: "❌"}[item.HitBefore])
-	fmt.Printf("TTL:              %d (%s)\n", item.TTL, formatSeconds(int(item.TTL), "later", "never expires"))
-	fmt.Printf("Value:            %s\n", item.Value)
-	fmt.Println()
+func writeMetaItems(w io.Writer, items []*memcached.MetaItem) error {
+	for idx, item := range items {
+		if _, err := io.WriteString(w, fmt.Sprintf(" ================= The [%d] item =================\n", idx)); err != nil {
+			return err
+		}
+		if err := writeMetaItem(w, item); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeMetaItem(w io.Writer, item *memcached.MetaItem) error {
+	lastAccessAt := time.Now().Add(-time.Duration(item.LastAccessedTime) * time.Second)
+	output := fmt.Sprintf("Key:              %s\n", item.Key) +
+		fmt.Sprintf("Flags:            %d (0x%x)\n", item.Flags, item.Flags) +
+		fmt.Sprintf("CAS:              %d (0x%x)\n", item.CAS, item.CAS) +
+		fmt.Sprintf("ClientFlags:      %d (0x%x)\n", item.Flags, item.Flags) +
+		fmt.Sprintf("LastAccessedTime: %s (%s)\n", lastAccessAt.Format(time.RFC3339), formatSeconds(int(item.LastAccessedTime), "before", "never")) +
+		fmt.Sprintf("HitBefore:        %s\n", map[bool]string{true: "✅", false: "❌"}[item.HitBefore]) +
+		fmt.Sprintf("TTL:              %d (%s)\n", item.TTL, formatSeconds(int(item.TTL), "later", "never expires")) +
+		fmt.Sprintf("Value:            %s\n\n", item.Value)
+	_, err := io.WriteString(w, output)
+	return err
+}
+
+func recordHistory(cmd *cobra.Command, history *kvCommandHistoryManager, command string, args []string) {
+	if err := history.addRecord(command, args); err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to record %s command in history: %v\n", command, err)
+	}
 }
 
 func formatSeconds(seconds int, suffix, zeroString string) (readable string) {
@@ -458,14 +476,14 @@ func formatSeconds(seconds int, suffix, zeroString string) (readable string) {
 	return readable + " " + suffix
 }
 
-func ignoreMemcachedError(err error) error {
+func ignoreMemcachedError(w io.Writer, err error) error {
 	if err == nil {
 		return nil
 	}
 
 	logger.Debugf("ignoreMemcachedError handling err: %v", err)
 
-	var memErrs = []error{
+	memErrs := []error{
 		memcached.ErrNonexistentCommand,
 		memcached.ErrClientError,
 		memcached.ErrServerError,
@@ -486,8 +504,8 @@ func ignoreMemcachedError(err error) error {
 
 	for _, memErr := range memErrs {
 		if errors.Is(err, memErr) {
-			fmt.Printf("Memcached Error: %v\n", errors.Cause(err))
-			return nil
+			_, writeErr := fmt.Fprintf(w, "Memcached Error: %v\n", rootErr(err))
+			return writeErr
 		}
 	}
 
@@ -510,7 +528,9 @@ func newHistoryEnableCommand() *cobra.Command {
 			manager := getContextManager(cmd, false)
 			manager.historyEnabled = true
 			manager.historyMaxLines = int(historyMaxLines)
-			manager.save()
+			if err := manager.save(); err != nil {
+				return fmt.Errorf("save history settings: %w", err)
+			}
 			fmt.Println("History enabled!")
 			return nil
 		},
@@ -530,7 +550,9 @@ func newHistoryDisableCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			manager := getContextManager(cmd, false)
 			manager.historyEnabled = false
-			manager.save()
+			if err := manager.save(); err != nil {
+				return fmt.Errorf("save history settings: %w", err)
+			}
 			fmt.Println("History disabled!")
 			return nil
 		},

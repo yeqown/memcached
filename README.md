@@ -152,6 +152,9 @@ The codec receives `key` as context, but can only return transformed `value` and
 
 ### Support Commands
 
+The public API exposes typed text- and meta-protocol commands only. There is no
+arbitrary raw command passthrough; callers should use the methods below.
+
 Now, we have implemented some commands, and we will implement more commands in the future.
 
 | Command        | Status | API Usage                                                                                                           | Description                                                       |
@@ -186,7 +189,7 @@ Now, we have implemented some commands, and we will implement more commands in t
 
 #### Prerequisites
 
-- Go 1.26 or higher
+- Go 1.26.5 or higher
 - Python (for pre-commit hooks) or just `brew install pre-commit` on MacOS
 - Docker (for running memcached in tests)
 
@@ -207,7 +210,7 @@ Now, we have implemented some commands, and we will implement more commands in t
     ```
 3. Install golangci-lint:
     ```bash
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
     ```
 
 #### Running Tests

@@ -1,13 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { keyHistory } from '../stores/keyHistory'
 
   export let value = ''
   export let placeholder = 'Key'
   export let disabled = false
   export let id = ''
-
-  const dispatch = createEventDispatcher()
 
   let showSuggestions = false
   let selectedIndex = 0
@@ -62,15 +59,18 @@
     {disabled}
     on:keydown={handleKeydown}
     on:blur={handleBlur}
+    role="combobox"
     aria-label={placeholder}
     aria-autocomplete="list"
     aria-expanded={showSuggestions}
+    aria-controls="{id}-suggestions"
   />
   {#if showSuggestions}
-    <ul class="suggestions" role="listbox">
+    <ul id="{id}-suggestions" class="suggestions" role="listbox">
       {#each suggestions as suggestion, i}
         <li
           role="option"
+          aria-selected={i === selectedIndex}
           class:selected={i === selectedIndex}
           on:mousedown|preventDefault={() => {
             value = suggestion

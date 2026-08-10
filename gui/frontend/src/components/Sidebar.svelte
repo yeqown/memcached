@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { contexts, activeContextId, connected, addLog, connectionStatus, connectionError, activeContextName } from '../stores/app'
+  import {
+    contexts,
+    activeContextId,
+    connected,
+    addLog,
+    connectionStatus,
+    connectionError,
+    activeContextName,
+    type McContext,
+  } from '../stores/app'
   import {
     LoadContexts,
     SaveContext,
@@ -10,7 +19,7 @@
   import ContextDialog from './ContextDialog.svelte'
 
   let showDialog = false
-  let editingContext = null
+  let editingContext: McContext | null = null
 
   async function load() {
     try {
@@ -83,7 +92,7 @@
     }
   }
 
-  function handleEdit(ctx: any) {
+  function handleEdit(ctx: McContext) {
     editingContext = ctx
     showDialog = true
   }
@@ -314,4 +323,3 @@
     .btn-add, .context-item, .context-actions, .btn-tiny { transition: none; }
   }
 </style>
-

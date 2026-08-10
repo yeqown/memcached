@@ -17,7 +17,6 @@ var (
 	attrDBSystem     = attribute.Key("db.system")
 	attrDBOperation  = attribute.Key("db.operation")
 	attrNetPeerName  = attribute.Key("net.peer.name")
-	attrNetPeerPort  = attribute.Key("net.peer.port")
 	attrNetTransport = attribute.Key("net.transport")
 	attrMemcachedKey = attribute.Key("memcached.key")
 )

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	rainycape "github.com/rainycape/memcache"
 	"github.com/yeqown/memcached"
 )
 
@@ -22,7 +21,11 @@ func BenchmarkYeqownMemcached(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer client.Close()
+	b.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			b.Errorf("close client: %v", err)
+		}
+	})
 
 	ctx := context.Background()
 
@@ -45,30 +48,6 @@ func BenchmarkBradfitzGomemcache(b *testing.B) {
 	}
 	client.Timeout = 3 * time.Second
 	client.MaxIdleConns = 10
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := client.Set(item); err != nil {
-			b.Fatal(err)
-		}
-		if _, err := client.Get(testKey); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkRainycapeMemcache(b *testing.B) {
-	b.Skipf("It's a binary package, not support benchmark.")
-
-	client, err := rainycape.New("localhost:11211")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer client.Close()
-	item := &rainycape.Item{
-		Key:   testKey,
-		Value: testValue,
-	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

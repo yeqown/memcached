@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ type contextManager struct {
 	mu              sync.RWMutex
 	contexts        map[string]*Context
 	current         string
+	configDir       string
 	path            string
 	historyMaxLines int
 	historyEnabled  bool
@@ -32,8 +34,8 @@ func newContextManager() (*contextManager, error) {
 		return nil, err
 	}
 
-	path := filepath.Join(home, ".memcached-cli", "config.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	configDir := filepath.Join(home, ".memcached-cli")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return nil, err
 	}
 
@@ -41,7 +43,8 @@ func newContextManager() (*contextManager, error) {
 		mu:              sync.RWMutex{},
 		contexts:        make(map[string]*Context, 4),
 		current:         "",
-		path:            path,
+		configDir:       configDir,
+		path:            "config.json",
 		historyMaxLines: 10000,
 		historyEnabled:  true,
 		currentClient:   nil,
@@ -55,19 +58,26 @@ func newContextManager() (*contextManager, error) {
 }
 
 func (m *contextManager) close() error {
-	m.save()
-
+	saveErr := m.save()
 	if m.currentClient != nil {
-		return m.currentClient.Close()
+		return errors.Join(saveErr, m.currentClient.Close())
 	}
 
-	return nil
+	return saveErr
 }
 
 // initialize loads CLI config file and initialize current client while
 // the current is not empty.
-func (m *contextManager) initialize() error {
-	data, err := os.ReadFile(m.path)
+func (m *contextManager) initialize() (retErr error) {
+	root, err := os.OpenRoot(m.configDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		retErr = errors.Join(retErr, root.Close())
+	}()
+
+	data, err := root.ReadFile(m.path)
 	if err != nil {
 		return err
 	}
@@ -84,6 +94,7 @@ func (m *contextManager) initialize() error {
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.contexts = stored.Contexts
 	m.current = stored.Current
 	m.historyMaxLines = stored.HistoryMaxLines
@@ -102,15 +113,13 @@ func (m *contextManager) initialize() error {
 		}
 	}
 
-	m.mu.Unlock()
-
 	return nil
 }
 
 // save writes contexts to disk
-func (m *contextManager) save() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *contextManager) save() (retErr error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.resetCurrent != nil {
 		m.current = m.resetCurrent()
@@ -134,7 +143,18 @@ func (m *contextManager) save() error {
 		return err
 	}
 
-	return os.WriteFile(m.path, data, 0644)
+	root, err := os.OpenRoot(m.configDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		retErr = errors.Join(retErr, root.Close())
+	}()
+
+	if err := root.WriteFile(m.path, data, 0o600); err != nil {
+		return err
+	}
+	return root.Chmod(m.path, 0o600)
 }
 
 // addTemporaryContext creates a new temporary context for interactive use
@@ -145,9 +165,8 @@ func (m *contextManager) save() error {
 //
 // The temporary context is used to store the current context name, so it can be
 // used to switch back to the original context when the CLI exits.
-func (m *contextManager) addTemporaryContext(servers, hashStrategy string) {
+func (m *contextManager) addTemporaryContext(servers, hashStrategy string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	ctx := &Context{
 		Name:      "temporary", // temporary context name
@@ -157,11 +176,26 @@ func (m *contextManager) addTemporaryContext(servers, hashStrategy string) {
 		LastUsed:  time.Now(),
 	}
 
+	originalCurrent := m.current
+	originalTemporary, hadTemporary := m.contexts[ctx.Name]
+	previousClient := m.currentClient
+	m.currentClient = nil
 	m.contexts[ctx.Name] = ctx
 	m.resetCurrent = func() string {
-		return m.current
+		if hadTemporary {
+			m.contexts[ctx.Name] = originalTemporary
+		} else {
+			delete(m.contexts, ctx.Name)
+		}
+		return originalCurrent
 	}
 	m.current = ctx.Name
+	m.mu.Unlock()
+
+	if previousClient != nil {
+		return previousClient.Close()
+	}
+	return nil
 }
 
 // CreateContext creates a new context with the given name and configuration

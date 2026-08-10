@@ -25,9 +25,9 @@
 
   $: kind = typeOf(data)
   $: isContainer = kind === 'object' || kind === 'array'
-  $: entries = isContainer
+  $: entries = (isContainer
     ? (kind === 'array' ? data.map((v: any, i: number) => [String(i), v]) : Object.entries(data))
-    : []
+    : []) as Array<[string, any]>
   $: count = entries.length
   $: effectiveExpanded = forceExpanded ? true : (forceCollapsed ? false : expanded)
   $: matchesSearch = !searchQuery || nodeMatches(data, searchQuery, kind)
@@ -46,9 +46,9 @@
     if (key.toLowerCase().includes(query.toLowerCase())) return true
     const childKind = typeOf(value)
     if (childKind === 'object' || childKind === 'array') {
-      const childEntries = childKind === 'array'
+      const childEntries = (childKind === 'array'
         ? value.map((v: any, i: number) => [String(i), v])
-        : Object.entries(value)
+        : Object.entries(value)) as Array<[string, any]>
       return childEntries.some(([k, v]) => childNodeMatches(k, v, query))
     }
     return nodeMatches(value, query, childKind)

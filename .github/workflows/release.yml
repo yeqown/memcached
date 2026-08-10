@@ -26,31 +26,31 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
 
       - name: Determine build parameters
         id: build-params
         run: |
           if [ "${{ matrix.os }}" = "windows" ]; then
             echo "binary=memcached-cli.exe" >> $GITHUB_OUTPUT
-            echo "extension=.exe" >> $GITHUB_OUTPUT
+            extension=".exe"
           else
             echo "binary=memcached-cli" >> $GITHUB_OUTPUT
-            echo "extension=" >> $GITHUB_OUTPUT
+            extension=""
           fi
-          
-          echo "archive=memcached-cli-${{ matrix.os }}-${{ matrix.arch }}${{ steps.build-params.outputs.extension }}" >> $GITHUB_OUTPUT
+
+          echo "archive=memcached-cli-${{ matrix.os }}-${{ matrix.arch }}${extension}" >> $GITHUB_OUTPUT
 
       - name: Build binary
         run: |
           cd ./cmd/memcached-cli
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ${{ steps.build-params.outputs.binary }}
-          cd - 
+          cd -
           mkdir -p release
           if [ "${{ matrix.os }}" = "windows" ]; then
             cp ./cmd/memcached-cli/${{ steps.build-params.outputs.binary }} ./release/${{ steps.build-params.outputs.archive }}
@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Upload binary to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: ./release/${{ steps.build-params.outputs.archive }}
         env:

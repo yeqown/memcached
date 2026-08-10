@@ -3,9 +3,8 @@ package memcached
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strconv"
-
-	"github.com/pkg/errors"
 )
 
 type metaSetFlags struct {
@@ -118,13 +117,13 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*
 		operation = string(MetaSetModeSet)
 	}
 	if err := checkCodecSupportsOperation(codec, operation); err != nil {
-		return nil, nil, errors.Wrap(err, "codec does not support operation")
+		return nil, nil, fmt.Errorf("codec does not support operation: %w", err)
 	}
 
 	// codec hook
 	evalue, eflags, err := codec.Encode(key, value, flags.F)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "encode value and flags")
+		return nil, nil, fmt.Errorf("encode value and flags: %w", err)
 	}
 	flags.F = eflags
 
@@ -358,13 +357,13 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 
 	// figure out the <CD>
 	if len(lines) == 0 {
-		return errors.Wrap(ErrMalformedResponse, "missing response")
+		return fmt.Errorf("missing response: %w", ErrMalformedResponse)
 	}
 
 	// Normal CD handling
 	parts := bytes.Split(trimCRLF(lines[0]), _SpaceBytes)
 	if len(parts) < 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 	const (
 		CDIndex      = 0
@@ -384,21 +383,28 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 	}
 
 	if !bytes.Equal(cd, []byte("VA")) {
-		parseFlags(parts, 1, item)
-		return nil
+		return parseFlags(parts, 1, item)
 	}
 
 	// VA handling
-	item.Size, _ = strconv.ParseUint(string(parts[dataLenIndex]), 10, 32)
-	parseFlags(parts, 2, item)
-
-	if len(lines) < 2 {
-		return errors.Wrap(ErrMalformedResponse, "missing value")
+	if len(parts) <= dataLenIndex {
+		return fmt.Errorf("missing value size: %w", ErrMalformedResponse)
+	}
+	size, err := strconv.ParseUint(string(parts[dataLenIndex]), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid value size: %w", ErrMalformedResponse)
+	}
+	item.Size = size
+	if err := parseFlags(parts, 2, item); err != nil {
+		return err
 	}
 
-	var err error
+	if len(lines) < 2 {
+		return fmt.Errorf("missing value: %w", ErrMalformedResponse)
+	}
+
 	if item.Value, item.Flags, err = codec.Decode(item.Key, trimCRLF(lines[1]), item.Flags); err != nil {
-		return errors.Wrap(err, "codec decode")
+		return fmt.Errorf("codec decode: %w", err)
 	}
 
 	return nil
@@ -408,38 +414,72 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 // .e.g:
 //
 //	HD c26 kZm9v b O456 s3\r\n
-func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
-	parseUint := func(b []byte) uint64 {
-		v, _ := strconv.ParseUint(string(b), 10, 64)
-		return v
+func parseFlags(parts [][]byte, startPos int, item *MetaItem) error {
+	parseUint := func(flag byte, b []byte) (uint64, error) {
+		v, err := strconv.ParseUint(string(b), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %c flag: %w", flag, ErrMalformedResponse)
+		}
+		return v, nil
 	}
 
-	parseInt := func(b []byte) int64 {
-		v, _ := strconv.ParseInt(string(b), 10, 64)
-		return v
+	parseInt := func(flag byte, b []byte) (int64, error) {
+		v, err := strconv.ParseInt(string(b), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %c flag: %w", flag, ErrMalformedResponse)
+		}
+		return v, nil
 	}
 
 	for i := startPos; i < len(parts); i++ {
-		switch parts[i][0] {
+		if len(parts[i]) == 0 {
+			return fmt.Errorf("empty meta flag: %w", ErrMalformedResponse)
+		}
+
+		flag := parts[i][0]
+		value := parts[i][1:]
+		var err error
+		switch flag {
 		case 'c':
-			item.CAS = parseUint(parts[i][1:])
+			item.CAS, err = parseUint(flag, value)
 		case 'f':
-			item.Flags = uint32(parseUint(parts[i][1:]))
+			var flags uint64
+			flags, err = parseUint(flag, value)
+			if err == nil {
+				if flags > math.MaxUint32 {
+					return fmt.Errorf("f flag exceeds uint32: %w", ErrMalformedResponse)
+				}
+				item.Flags = uint32(flags)
+			}
 		case 't':
-			item.TTL = parseInt(parts[i][1:])
+			item.TTL, err = parseInt(flag, value)
 		case 'l':
-			item.LastAccessedTime = int64(parseUint(parts[i][1:]))
+			var lastAccessed uint64
+			lastAccessed, err = parseUint(flag, value)
+			if err == nil {
+				if lastAccessed > math.MaxInt64 {
+					return fmt.Errorf("l flag exceeds int64: %w", ErrMalformedResponse)
+				}
+				item.LastAccessedTime = int64(lastAccessed)
+			}
 		case 's':
-			item.Size = parseUint(parts[i][1:])
+			item.Size, err = parseUint(flag, value)
 		case 'O':
-			item.Opaque = parseUint(parts[i][1:])
+			item.Opaque, err = parseUint(flag, value)
 		case 'h':
-			item.HitBefore = parseUint(parts[i][1:]) == 1
+			var hitBefore uint64
+			hitBefore, err = parseUint(flag, value)
+			item.HitBefore = hitBefore == 1
 			// NO need to parse key again in client.
 			// case 'k':
 			//	item.Key = string(parts[i][1:])
 		}
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // MetaDeleteOption is used to set options for MetaDelete command.
@@ -711,12 +751,12 @@ func buildMetaDebugCommand(key []byte, flags *metaDebugFlags) (*request, *respon
 // failed:  EN\r\n
 func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 	if len(lines) != 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 
 	parts := bytes.Split(trimCRLF(lines[0]), _SpaceBytes)
 	if len(parts) < 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 
 	const (
@@ -731,7 +771,7 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 	case "ME":
 		// success
 	default:
-		return errors.Wrap(ErrMalformedResponse, "unexpected cd<="+string(cd)+">")
+		return fmt.Errorf("unexpected cd<=%s>: %w", string(cd), ErrMalformedResponse)
 	}
 
 	// parse key

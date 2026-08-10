@@ -2,11 +2,11 @@ package memcached
 
 import (
 	"bytes"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	memcodec "github.com/yeqown/memcached/codec"
 )
@@ -222,6 +222,30 @@ func Test_parseUintFromBytes(t *testing.T) {
 			},
 			want:    1234567890,
 			wantErr: false,
+		},
+		{
+			name: "max-uint64",
+			args: args{
+				raw: []byte("18446744073709551615"),
+			},
+			want:    ^uint64(0),
+			wantErr: false,
+		},
+		{
+			name: "overflow-uint64",
+			args: args{
+				raw: []byte("18446744073709551616"),
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+			name: "overflow-long-number",
+			args: args{
+				raw: []byte("9999999999999999999999999999999999999999"),
+			},
+			want:    0,
+			wantErr: true,
 		},
 		{
 			name: "malformed-contains-letters",

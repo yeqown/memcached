@@ -14,7 +14,7 @@ func main() {
 		panic(err)
 	}
 
-	key := string("noReply")
+	key := "noReply"
 	value := []byte("noReply")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)

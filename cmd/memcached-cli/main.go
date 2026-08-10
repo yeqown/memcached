@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/MakeNowJust/heredoc"
-	prompt "github.com/c-bata/go-prompt"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/yeqown/log"
 )
@@ -18,9 +17,7 @@ const (
 	version = "v1.3.1"
 )
 
-var (
-	logger = newLogger()
-)
+var logger = newLogger()
 
 func main() {
 	var (
@@ -73,7 +70,7 @@ func main() {
 	}
 }
 
-func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
+func runAsREPL(timeout time.Duration, servers, hashStrategy string) (retErr error) {
 	fmt.Println(heredoc.Doc(`
 		Welcome to memcached-cli
 		Type 'help' to see available commands
@@ -85,13 +82,22 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 
 	manager, err := newContextManager()
 	if err != nil {
-		return errors.Wrap(err, "failed to create context manager")
+		return fmt.Errorf("failed to create context manager: %w", err)
 	}
+	defer func() {
+		var historyErr error
+		if history := manager.getHistoryManager(); history != nil {
+			historyErr = history.close()
+		}
+		retErr = errors.Join(retErr, historyErr, manager.close())
+	}()
 
 	// if servers are not empty, create a temporary context
 	if servers = strings.TrimSpace(servers); servers != "" {
 		logger.Debugf("adding servers: %v to temporary context as 'temporary'", servers)
-		manager.addTemporaryContext(servers, hashStrategy)
+		if err := manager.addTemporaryContext(servers, hashStrategy); err != nil {
+			return fmt.Errorf("failed to switch to temporary context: %w", err)
+		}
 	}
 
 	contexts := manager.listContexts()
@@ -103,9 +109,9 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 		`))
 	}
 
-	current, err := manager.getCurrentContext()
-	if err != nil {
-		return errors.Wrap(err, "failed to get current context")
+	var current *Context
+	if len(contexts) > 0 {
+		current, _ = manager.getCurrentContext()
 	}
 
 	if len(contexts) > 0 && current == nil {
@@ -127,16 +133,7 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 		return err
 	}
 
-	p := prompt.New(
-		repl.commandExecutor,
-		repl.commandCompleter,
-		prompt.OptionTitle("memcached-cli"),
-		prompt.OptionPrefix(">>> "),
-		prompt.OptionInputTextColor(prompt.Yellow),
-	)
-
-	p.Run()
-	return nil
+	return runREPLTUI(repl)
 }
 
 func newVersionCommand() *cobra.Command {
@@ -180,7 +177,6 @@ func newContextCommand() *cobra.Command {
 }
 
 func newKVCommand() *cobra.Command {
-
 	var contextName string
 
 	cmd := &cobra.Command{
@@ -256,7 +252,10 @@ func newHistoryCommand() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			history := getContextManager(cmd, false).getHistoryManager()
-			results := history.search(keyword, since, until, limit)
+			results, err := history.search(keyword, since, until, limit)
+			if err != nil {
+				return fmt.Errorf("search history: %w", err)
+			}
 
 			if len(results) == 0 {
 				fmt.Println("No history found.")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,11 +19,12 @@ type kvCommandHistory struct {
 }
 
 type kvCommandHistoryManager struct {
-	path     string
 	maxSize  int
 	disabled bool
 	file     *os.File // 保持文件句柄打开
 }
+
+const maxHistoryRecordSize = 2 * 1024 * 1024
 
 func newHistoryManager(enabled bool, maxLines int) (*kvCommandHistoryManager, error) {
 	home, err := os.UserHomeDir()
@@ -30,19 +32,29 @@ func newHistoryManager(enabled bool, maxLines int) (*kvCommandHistoryManager, er
 		return nil, err
 	}
 
-	path := filepath.Join(home, ".memcached-cli", ".history")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	historyDir := filepath.Join(home, ".memcached-cli")
+	if err := os.MkdirAll(historyDir, 0o700); err != nil {
 		return nil, err
 	}
 
-	// 以追加模式打开文件
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	root, err := os.OpenRoot(historyDir)
 	if err != nil {
 		return nil, err
 	}
 
+	// 以追加模式打开文件
+	file, err := root.OpenFile(".history", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, errors.Join(err, root.Close())
+	}
+	if err := root.Close(); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+
 	hm := &kvCommandHistoryManager{
-		path:     path,
 		maxSize:  maxLines,
 		disabled: !enabled,
 		file:     file,
@@ -80,10 +92,10 @@ func (hm *kvCommandHistoryManager) addRecord(cmd string, args []string) error {
 	return hm.file.Sync()
 }
 
-func (hm *kvCommandHistoryManager) search(keyword, since, until string, limit int) []kvCommandHistory {
+func (hm *kvCommandHistoryManager) search(keyword, since, until string, limit int) ([]kvCommandHistory, error) {
 	if hm == nil || hm.disabled || hm.file == nil {
 		fmt.Println("History is not available.")
-		return []kvCommandHistory{}
+		return []kvCommandHistory{}, nil
 	}
 
 	now := time.Now()
@@ -103,10 +115,11 @@ func (hm *kvCommandHistoryManager) search(keyword, since, until string, limit in
 
 	var results []kvCommandHistory
 	scanner := bufio.NewScanner(hm.file)
+	scanner.Buffer(make([]byte, 64*1024), maxHistoryRecordSize)
 
 	// 重置文件指针到开始位置
 	if _, err := hm.file.Seek(0, 0); err != nil {
-		return nil
+		return nil, err
 	}
 
 	logger.Debugf("searching history, keyword=%s, since=%s(%d), until=%s(%d), limit=%d", keyword, since, startTime, until, endTime, limit)
@@ -157,6 +170,10 @@ func (hm *kvCommandHistoryManager) search(keyword, since, until string, limit in
 		results = append(results, history)
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan history: %w", err)
+	}
+
 	// 按时间戳倒序排序
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Timestamp > results[j].Timestamp
@@ -167,5 +184,5 @@ func (hm *kvCommandHistoryManager) search(keyword, since, until string, limit in
 		results = results[:limit]
 	}
 
-	return results
+	return results, nil
 }

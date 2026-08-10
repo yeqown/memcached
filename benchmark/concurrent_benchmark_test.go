@@ -13,7 +13,11 @@ func BenchmarkYeqownMemcachedConcurrent(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer client.Close()
+	b.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			b.Errorf("close client: %v", err)
+		}
+	})
 
 	ctx := context.Background()
 

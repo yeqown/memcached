@@ -1,10 +1,9 @@
 ## Benchmark differences
 
-Comparing following three implementations:
+Comparing following implementations:
 
-- [yeqown/memcached](https://github.com/yeqown/memcahced)
+- [yeqown/memcached](https://github.com/yeqown/memcached)
 - [bradfitz/gomemcache](https://github.com/bradfitz/gomemcache)
-- <del>[rainy/memcache](github.com/rainycape/memcache)</del>
 
 ## How to run
 
@@ -12,8 +11,8 @@ Comparing following three implementations:
 > And we can use `go build -gcflags="-m" ./...` to check the escape analysis.
 
 ```bash
-# install benchcmp
-go install golang.org/x/tools/cmd/benchcmp@latest
+# install benchstat
+go install golang.org/x/perf/cmd/benchstat@latest
 ```
 
 To run benchmark and analysis:
