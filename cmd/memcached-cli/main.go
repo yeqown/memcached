@@ -9,7 +9,6 @@ import (
 
 	"github.com/MakeNowJust/heredoc"
 	prompt "github.com/c-bata/go-prompt"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/yeqown/log"
 )
@@ -85,13 +84,15 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 
 	manager, err := newContextManager()
 	if err != nil {
-		return errors.Wrap(err, "failed to create context manager")
+		return fmt.Errorf("failed to create context manager: %w", err)
 	}
 
 	// if servers are not empty, create a temporary context
 	if servers = strings.TrimSpace(servers); servers != "" {
 		logger.Debugf("adding servers: %v to temporary context as 'temporary'", servers)
-		manager.addTemporaryContext(servers, hashStrategy)
+		if err := manager.addTemporaryContext(servers, hashStrategy); err != nil {
+			return fmt.Errorf("failed to switch to temporary context: %w", err)
+		}
 	}
 
 	contexts := manager.listContexts()
@@ -105,7 +106,7 @@ func runAsREPL(timeout time.Duration, servers, hashStrategy string) error {
 
 	current, err := manager.getCurrentContext()
 	if err != nil {
-		return errors.Wrap(err, "failed to get current context")
+		return fmt.Errorf("failed to get current context: %w", err)
 	}
 
 	if len(contexts) > 0 && current == nil {
@@ -256,7 +257,10 @@ func newHistoryCommand() *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			history := getContextManager(cmd, false).getHistoryManager()
-			results := history.search(keyword, since, until, limit)
+			results, err := history.search(keyword, since, until, limit)
+			if err != nil {
+				return fmt.Errorf("search history: %w", err)
+			}
 
 			if len(results) == 0 {
 				fmt.Println("No history found.")

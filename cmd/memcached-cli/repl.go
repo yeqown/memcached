@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/c-bata/go-prompt"
-	"github.com/pkg/errors"
 	"github.com/yeqown/memcached"
 )
 
@@ -110,13 +109,8 @@ func (r *replCommander) commandExecutor(line string) {
 	}
 }
 
-func (r *replCommander) getMemcachedClient() memcached.Client {
-	client, err := r.cm.getCurrentClient()
-	if err != nil {
-		panic(err)
-	}
-
-	return client
+func (r *replCommander) getMemcachedClient() (memcached.Client, error) {
+	return r.cm.getCurrentClient()
 }
 
 /**
@@ -161,7 +155,11 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: get <key>")
 	}
 
-	item, err := r.getMemcachedClient().MetaGet(
+	client, err := r.getMemcachedClient()
+	if err != nil {
+		return err
+	}
+	item, err := client.MetaGet(
 		ctx,
 		[]byte(args[1]),
 		memcached.MetaGetFlagReturnTTL(),
@@ -174,10 +172,9 @@ func (r *replCommander) handleGet(ctx context.Context, args []string) error {
 		memcached.MetaGetFlagReturnHitBefore(),
 	)
 	if err != nil {
-		return ignoreMemcachedError(err)
+		return ignoreMemcachedError(os.Stdout, err)
 	}
-	printMetaItem(item)
-	return nil
+	return printMetaItem(item)
 }
 
 func (r *replCommander) handleSet(ctx context.Context, args []string) error {
@@ -192,8 +189,12 @@ func (r *replCommander) handleSet(ctx context.Context, args []string) error {
 		}
 	}
 
-	if err := r.getMemcachedClient().Set(ctx, args[1], []byte(args[2]), magicFlags, expiration); err != nil {
-		return ignoreMemcachedError(err)
+	client, err := r.getMemcachedClient()
+	if err != nil {
+		return err
+	}
+	if err := client.Set(ctx, args[1], []byte(args[2]), magicFlags, expiration); err != nil {
+		return ignoreMemcachedError(os.Stdout, err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -204,8 +205,12 @@ func (r *replCommander) handleDelete(ctx context.Context, args []string) error {
 		return fmt.Errorf("usage: delete <key>")
 	}
 
-	if err := r.getMemcachedClient().Delete(ctx, args[1]); err != nil {
-		return ignoreMemcachedError(err)
+	client, err := r.getMemcachedClient()
+	if err != nil {
+		return err
+	}
+	if err := client.Delete(ctx, args[1]); err != nil {
+		return ignoreMemcachedError(os.Stdout, err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -222,9 +227,13 @@ func (r *replCommander) handleIncr(ctx context.Context, args []string) error {
 			delta = d
 		}
 	}
-	newValue, err := r.getMemcachedClient().Incr(ctx, args[1], delta)
+	client, err := r.getMemcachedClient()
 	if err != nil {
-		return ignoreMemcachedError(err)
+		return err
+	}
+	newValue, err := client.Incr(ctx, args[1], delta)
+	if err != nil {
+		return ignoreMemcachedError(os.Stdout, err)
 	}
 	fmt.Printf("%d\n", newValue)
 	return nil
@@ -241,9 +250,13 @@ func (r *replCommander) handleDecr(ctx context.Context, args []string) error {
 			delta = d
 		}
 	}
-	newValue, err := r.getMemcachedClient().Decr(ctx, args[1], delta)
+	client, err := r.getMemcachedClient()
 	if err != nil {
-		return ignoreMemcachedError(err)
+		return err
+	}
+	newValue, err := client.Decr(ctx, args[1], delta)
+	if err != nil {
+		return ignoreMemcachedError(os.Stdout, err)
 	}
 	fmt.Printf("%d\n", newValue)
 	return nil
@@ -258,8 +271,12 @@ func (r *replCommander) handleTouch(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("invalid expiration format: %v", err)
 	}
-	if err := r.getMemcachedClient().Touch(ctx, args[1], time.Duration(expiration)*time.Second); err != nil {
-		return ignoreMemcachedError(err)
+	client, err := r.getMemcachedClient()
+	if err != nil {
+		return err
+	}
+	if err := client.Touch(ctx, args[1], time.Duration(expiration)*time.Second); err != nil {
+		return ignoreMemcachedError(os.Stdout, err)
 	}
 	fmt.Println("OK")
 	return nil
@@ -273,9 +290,14 @@ func (r *replCommander) handleMGet(ctx context.Context, args []string) error {
 	keys := make([]string, len(args)-1)
 	copy(keys, args[1:])
 
+	client, err := r.getMemcachedClient()
+	if err != nil {
+		return err
+	}
+
 	items := make([]*memcached.MetaItem, 0, len(keys))
 	for _, key := range keys {
-		item, err := r.getMemcachedClient().MetaGet(
+		item, err := client.MetaGet(
 			ctx,
 			[]byte(key),
 			memcached.MetaGetFlagReturnTTL(),
@@ -288,16 +310,14 @@ func (r *replCommander) handleMGet(ctx context.Context, args []string) error {
 			memcached.MetaGetFlagReturnHitBefore(),
 		)
 		if err != nil {
-			fmt.Printf("Encounter error while getting key '%s': %v\n", key, errors.Cause(err))
+			fmt.Printf("Encounter error while getting key '%s': %v\n", key, rootErr(err))
 			continue
 		}
 
 		items = append(items, item)
 	}
 
-	printMetaItems(items)
-
-	return nil
+	return printMetaItems(items)
 }
 
 /**
