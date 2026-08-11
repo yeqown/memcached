@@ -152,6 +152,9 @@ The codec receives `key` as context, but can only return transformed `value` and
 
 ### Support Commands
 
+The public API exposes typed text- and meta-protocol commands only. There is no
+arbitrary raw command passthrough; callers should use the methods below.
+
 Now, we have implemented some commands, and we will implement more commands in the future.
 
 | Command        | Status | API Usage                                                                                                           | Description                                                       |
