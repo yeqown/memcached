@@ -125,35 +125,43 @@ type binaryRequest struct {
 }
 
 func (br *binaryRequest) send(w io.Writer) error {
-	nKey := uint16(len(br.key))
-	nValue := uint32(len(br.value))
-	nExtras := uint8(len(br.extras))
+	keyLen := uint64(len(br.key))
+	valueLen := uint64(len(br.value))
+	extrasLen := uint64(len(br.extras))
+	bodyLen := keyLen + valueLen + extrasLen
 
-	buf := make([]byte, 24+uint32(nExtras)+uint32(nKey)+nValue)
+	if keyLen > maxKeySize {
+		return ErrInvalidKey
+	}
+	if valueLen > maxValueSize {
+		return ErrInvalidValue
+	}
+	if extrasLen > 255 {
+		return fmt.Errorf("binary extras exceed uint8: %w", ErrInvalidBinaryProtocol)
+	}
+	if bodyLen > maxValueSize {
+		return fmt.Errorf("binary body exceeds uint32: %w", ErrInvalidBinaryProtocol)
+	}
+
+	nKey := uint16(keyLen)
+	nExtras := uint8(extrasLen)
+	nBody := uint32(bodyLen)
+
+	buf := make([]byte, 24)
 
 	buf[0] = _binaryMagicReq
 	buf[1] = br.opcode
-	binary.BigEndian.PutUint16(buf[2:4], nKey)                                 // key length
-	buf[4] = nExtras                                                           // extras length
-	buf[5] = _binaryDataTypeRawBytes                                           // data type
-	binary.BigEndian.PutUint16(buf[6:8], uint16(0))                            // vbucket id
-	binary.BigEndian.PutUint32(buf[8:12], uint32(nKey)+nValue+uint32(nExtras)) // total body length
-	binary.BigEndian.PutUint32(buf[12:16], br.opaque)                          // opaque
-	binary.BigEndian.PutUint64(buf[16:24], br.cas)                             // cas
+	binary.BigEndian.PutUint16(buf[2:4], nKey)        // key length
+	buf[4] = nExtras                                  // extras length
+	buf[5] = _binaryDataTypeRawBytes                  // data type
+	binary.BigEndian.PutUint16(buf[6:8], uint16(0))   // vbucket id
+	binary.BigEndian.PutUint32(buf[8:12], nBody)      // total body length
+	binary.BigEndian.PutUint32(buf[12:16], br.opaque) // opaque
+	binary.BigEndian.PutUint64(buf[16:24], br.cas)    // cas
 
-	s := uint32(24)
-	if nExtras > 0 {
-		copy(buf[s:s+uint32(nExtras)], br.extras)
-		s += uint32(nExtras)
-	}
-
-	if nKey > 0 {
-		copy(buf[s:s+uint32(nKey)], br.key)
-		s += uint32(nKey)
-	}
-	if nValue > 0 {
-		copy(buf[s:], br.value)
-	}
+	buf = append(buf, br.extras...)
+	buf = append(buf, br.key...)
+	buf = append(buf, br.value...)
 
 	_, err := w.Write(buf)
 	return err

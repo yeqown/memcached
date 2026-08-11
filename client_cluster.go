@@ -3,6 +3,7 @@ package memcached
 import (
 	"fmt"
 	"hash/crc32"
+	"math"
 	"net"
 	"strings"
 
@@ -127,7 +128,12 @@ func (p *crc32HashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	}
 
 	sum := crc32.ChecksumIEEE(key)
-	return addrs[sum%uint32(n)], nil
+	index64 := uint64(sum) % uint64(n)
+	if index64 > math.MaxInt {
+		return nil, fmt.Errorf("hash index exceeds int: %w", ErrInvalidAddress)
+	}
+	index := int(index64)
+	return addrs[index], nil
 }
 
 type crc32HashPickBuilder struct{}

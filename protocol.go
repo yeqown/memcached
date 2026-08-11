@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"time"
 )
@@ -366,7 +367,7 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) 
 			return nil, fmt.Errorf("missing data block: %w", ErrMalformedResponse)
 		}
 		item.Value = trimCRLF(lines[i+1])
-		if len(item.Value) != int(dataLen) {
+		if uint64(len(item.Value)) != dataLen {
 			return nil, fmt.Errorf("data block length mismatch: %w", ErrMalformedResponse)
 		}
 
@@ -413,11 +414,14 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 		// the 'i' is the index of space or the last byte.
 		switch nField {
 		case keyIndex:
-			item.Key = unsafeByteSliceToString(line[fieldStart:i])
+			item.Key = byteSliceToString(line[fieldStart:i])
 		case flagsIndex:
 			flags, err := parseUintFromBytes(line[fieldStart:i])
 			if err != nil {
 				return 0, fmt.Errorf("invalid flags: %w", ErrMalformedResponse)
+			}
+			if flags > math.MaxUint32 {
+				return 0, fmt.Errorf("flags exceed uint32: %w", ErrMalformedResponse)
 			}
 			item.Flags = uint32(flags)
 		case dataLenIndex:
@@ -466,7 +470,11 @@ func parseUintFromBytes(bs []byte) (uint64, error) {
 			return 0, fmt.Errorf("invalid uint number: %w", ErrMalformedResponse)
 		}
 
-		r = r*10 + uint64(b-'0')
+		digit := uint64(b - '0')
+		if r > (math.MaxUint64-digit)/10 {
+			return 0, fmt.Errorf("uint number overflows uint64: %w", ErrMalformedResponse)
+		}
+		r = r*10 + digit
 	}
 
 	return r, nil
@@ -690,7 +698,6 @@ func buildStatsCommand(subCommand string) (*request, *response) {
 	return req, resp
 }
 
-//nolint:unused
 func buildRawCommand(rawCommand string, indicator responseEndIndicator, lines int) (*request, *response) {
 	_, _, _ = rawCommand, indicator, lines
 	panic("IMPLEMENT ME!!!")
