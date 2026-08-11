@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	memcached "github.com/yeqown/memcached"
 )
+
+const configFileName = "contexts.json"
 
 // ConnectionService manages memcached contexts and connections.
 type ConnectionService struct {
@@ -30,7 +33,7 @@ func NewConnectionService() (*ConnectionService, error) {
 	}
 	configDir = filepath.Join(configDir, "memcached-gui")
 
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create config dir: %w", err)
 	}
 
@@ -39,27 +42,14 @@ func NewConnectionService() (*ConnectionService, error) {
 	}, nil
 }
 
-func (s *ConnectionService) configPath() string {
-	return filepath.Join(s.configDir, "contexts.json")
-}
-
 // LoadContexts loads saved contexts from the config file.
 func (s *ConnectionService) LoadContexts() ([]Context, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	path := s.configPath()
-	data, err := os.ReadFile(path)
+	contexts, err := s.loadContextsLocked()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []Context{}, nil
-		}
 		return nil, fmt.Errorf("failed to read config: %w", err)
-	}
-
-	var contexts []Context
-	if err := json.Unmarshal(data, &contexts); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	return contexts, nil
 }
@@ -120,10 +110,8 @@ func (s *ConnectionService) Connect(ctxID string) error {
 	defer s.mu.Unlock()
 
 	// Disconnect existing connection
-	if s.client != nil {
-		s.client.Close()
-		s.client = nil
-		s.connected = false
+	if err := s.disconnectLocked(); err != nil {
+		return fmt.Errorf("failed to close existing connection: %w", err)
 	}
 
 	contexts, err := s.loadContextsLocked()
@@ -162,8 +150,10 @@ func (s *ConnectionService) Connect(ctxID string) error {
 	defer cancel()
 
 	if _, err := client.Version(verifyCtx); err != nil {
-		client.Close()
-		return fmt.Errorf("failed to connect to %s: %w", addr, err)
+		return errors.Join(
+			fmt.Errorf("failed to connect to %s: %w", addr, err),
+			client.Close(),
+		)
 	}
 
 	s.client = client
@@ -177,13 +167,18 @@ func (s *ConnectionService) Disconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.disconnectLocked()
+}
+
+func (s *ConnectionService) disconnectLocked() error {
+	var err error
 	if s.client != nil {
-		s.client.Close()
+		err = s.client.Close()
 		s.client = nil
 	}
 	s.connected = false
 	s.activeCtx = nil
-	return nil
+	return err
 }
 
 // IsConnected returns whether there's an active connection.
@@ -204,26 +199,44 @@ func (s *ConnectionService) GetClient() (memcached.Client, error) {
 	return s.client, nil
 }
 
-func (s *ConnectionService) loadContextsLocked() ([]Context, error) {
-	path := s.configPath()
-	data, err := os.ReadFile(path)
+func (s *ConnectionService) loadContextsLocked() (contexts []Context, retErr error) {
+	root, err := os.OpenRoot(s.configDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		retErr = errors.Join(retErr, root.Close())
+	}()
+
+	data, err := root.ReadFile(configFileName)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []Context{}, nil
 		}
 		return nil, err
 	}
-	var contexts []Context
 	if err := json.Unmarshal(data, &contexts); err != nil {
 		return nil, err
 	}
 	return contexts, nil
 }
 
-func (s *ConnectionService) saveContextsLocked(contexts []Context) error {
+func (s *ConnectionService) saveContextsLocked(contexts []Context) (retErr error) {
 	data, err := json.MarshalIndent(contexts, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.configPath(), data, 0644)
+
+	root, err := os.OpenRoot(s.configDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		retErr = errors.Join(retErr, root.Close())
+	}()
+
+	if err := root.WriteFile(configFileName, data, 0o600); err != nil {
+		return err
+	}
+	return root.Chmod(configFileName, 0o600)
 }

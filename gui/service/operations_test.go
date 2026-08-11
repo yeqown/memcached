@@ -9,22 +9,6 @@ import (
 	memcached "github.com/yeqown/memcached"
 )
 
-type structuredOperationResult struct {
-	Success          bool   `json:"success"`
-	Data             string `json:"data"`
-	Error            string `json:"error"`
-	Key              string `json:"key"`
-	Value            string `json:"value"`
-	TTL              int64  `json:"ttl"`
-	LastAccessedTime int64  `json:"lastAccessedTime"`
-	CAS              uint64 `json:"cas"`
-	Flags            uint32 `json:"flags"`
-	Size             uint64 `json:"size"`
-	HitBefore        bool   `json:"hitBefore"`
-	Opaque           uint64 `json:"opaque"`
-	ValueKind        string `json:"valueKind"`
-}
-
 type fakeMemcachedClient struct {
 	getCalled     bool
 	metaGetCalled bool
