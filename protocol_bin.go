@@ -2,9 +2,8 @@ package memcached
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
-
-	"github.com/pkg/errors"
 )
 
 // https://docs.memcached.org/protocols/binary/
@@ -199,25 +198,25 @@ func (br *binaryResponse) expect(status uint16) error {
 	case _binaryStatusNotSupported:
 		return ErrNotSupported
 	case _binaryStatusInternalError:
-		return errors.Wrap(ErrServerError, "internal error")
+		return fmt.Errorf("internal error: %w", ErrServerError)
 	case _binaryStatusInvalidArgs:
 		return ErrInvalidArgument
 	case _binaryStatusOutOfMemory:
-		return errors.Wrap(ErrServerError, "out of memory")
+		return fmt.Errorf("out of memory: %w", ErrServerError)
 	}
 
 	// return: status: 0x1234 format
-	return errors.Wrapf(ErrServerError, "status: %x", br.status)
+	return fmt.Errorf("status: %x: %w", br.status, ErrServerError)
 }
 
 func (br *binaryResponse) read(rr io.Reader) error {
 	buf := make([]byte, 24)
 	if _, err := io.ReadFull(rr, buf); err != nil {
-		return errors.Wrap(err, "read header")
+		return fmt.Errorf("read header: %w", err)
 	}
 
 	if magic := buf[0]; magic != _binaryMagicRes {
-		return errors.Wrapf(ErrInvalidBinaryProtocol, "invalid magic: %d", magic)
+		return fmt.Errorf("invalid magic: %d: %w", magic, ErrInvalidBinaryProtocol)
 	}
 
 	br.opcode = buf[1]
@@ -236,7 +235,7 @@ func (br *binaryResponse) read(rr io.Reader) error {
 	// read the whole body and split them into extras, key, value
 	body := make([]byte, br.totalBodyLength)
 	if _, err := io.ReadFull(rr, body); err != nil {
-		return errors.Wrap(err, "read body")
+		return fmt.Errorf("read body: %w", err)
 	}
 
 	s := uint32(0)

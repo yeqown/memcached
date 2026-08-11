@@ -186,7 +186,7 @@ Now, we have implemented some commands, and we will implement more commands in t
 
 #### Prerequisites
 
-- Go 1.26 or higher
+- Go 1.26.5 or higher
 - Python (for pre-commit hooks) or just `brew install pre-commit` on MacOS
 - Docker (for running memcached in tests)
 

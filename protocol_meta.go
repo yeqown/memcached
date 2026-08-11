@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
-
-	"github.com/pkg/errors"
 )
 
 type metaSetFlags struct {
@@ -118,13 +116,13 @@ func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*
 		operation = string(MetaSetModeSet)
 	}
 	if err := checkCodecSupportsOperation(codec, operation); err != nil {
-		return nil, nil, errors.Wrap(err, "codec does not support operation")
+		return nil, nil, fmt.Errorf("codec does not support operation: %w", err)
 	}
 
 	// codec hook
 	evalue, eflags, err := codec.Encode(key, value, flags.F)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "encode value and flags")
+		return nil, nil, fmt.Errorf("encode value and flags: %w", err)
 	}
 	flags.F = eflags
 
@@ -358,13 +356,13 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 
 	// figure out the <CD>
 	if len(lines) == 0 {
-		return errors.Wrap(ErrMalformedResponse, "missing response")
+		return fmt.Errorf("missing response: %w", ErrMalformedResponse)
 	}
 
 	// Normal CD handling
 	parts := bytes.Split(trimCRLF(lines[0]), _SpaceBytes)
 	if len(parts) < 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 	const (
 		CDIndex      = 0
@@ -393,12 +391,12 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 	parseFlags(parts, 2, item)
 
 	if len(lines) < 2 {
-		return errors.Wrap(ErrMalformedResponse, "missing value")
+		return fmt.Errorf("missing value: %w", ErrMalformedResponse)
 	}
 
 	var err error
 	if item.Value, item.Flags, err = codec.Decode(item.Key, trimCRLF(lines[1]), item.Flags); err != nil {
-		return errors.Wrap(err, "codec decode")
+		return fmt.Errorf("codec decode: %w", err)
 	}
 
 	return nil
@@ -711,12 +709,12 @@ func buildMetaDebugCommand(key []byte, flags *metaDebugFlags) (*request, *respon
 // failed:  EN\r\n
 func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 	if len(lines) != 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 
 	parts := bytes.Split(trimCRLF(lines[0]), _SpaceBytes)
 	if len(parts) < 1 {
-		return errors.Wrap(ErrMalformedResponse, "invalid response")
+		return fmt.Errorf("invalid response: %w", ErrMalformedResponse)
 	}
 
 	const (
@@ -731,7 +729,7 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 	case "ME":
 		// success
 	default:
-		return errors.Wrap(ErrMalformedResponse, "unexpected cd<="+string(cd)+">")
+		return fmt.Errorf("unexpected cd<=%s>: %w", string(cd), ErrMalformedResponse)
 	}
 
 	// parse key
