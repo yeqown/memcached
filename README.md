@@ -210,7 +210,7 @@ Now, we have implemented some commands, and we will implement more commands in t
     ```
 3. Install golangci-lint:
     ```bash
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
     ```
 
 #### Running Tests
