@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -442,6 +443,9 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	msFlags := &metaSetFlags{}
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
+	}
+	if msFlags.T > math.MaxInt64 {
+		return nil, fmt.Errorf("TTL exceeds int64: %w", ErrInvalidArgument)
 	}
 	clientFlags := msFlags.F
 
