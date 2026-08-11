@@ -28,13 +28,12 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			defer func() { fmt.Printf("routine(%d) done\n", i) }()
+			defer func() { fmt.Printf("routine(%d) done\n", idx) }()
 
 			for counter := 0; counter < limits; counter++ {
 				key := "example:cas"
 				// set
-				err = client.Set(ctx, key, []byte("value2"), uint32(123), 10*time.Second)
-				if err != nil {
+				if err := client.Set(ctx, key, []byte("value2"), uint32(123), 10*time.Second); err != nil {
 					panic("write: " + err.Error())
 				}
 				// get

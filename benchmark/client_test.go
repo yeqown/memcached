@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	rainycape "github.com/rainycape/memcache"
 	"github.com/yeqown/memcached"
 )
 
@@ -15,29 +14,15 @@ func Test_Yeqown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-	client.Set(context.Background(), testKey, testValue, 0, 0)
-	item, err := client.Get(context.Background(), testKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(item.Value) != string(testValue) {
-		t.Fatalf("expect %s, got %s", string(testValue), string(item.Value))
-	}
-}
-
-func Test_Rainycape(t *testing.T) {
-	t.Skipf("It's a binary package, not support test")
-
-	client, err := rainycape.New("127.0.0.1:11211")
-	if err != nil {
-		t.Fatal(err)
-	}
-	client.Set(&rainycape.Item{
-		Key:   testKey,
-		Value: testValue,
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close client: %v", err)
+		}
 	})
-	item, err := client.Get(testKey)
+	if err := client.Set(context.Background(), testKey, testValue, 0, 0); err != nil {
+		t.Fatalf("set failed: %v", err)
+	}
+	item, err := client.Get(context.Background(), testKey)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,13 +35,21 @@ func main() {
 	tp := trace.NewTracerProvider(
 		trace.WithBatcher(traceExporter),
 	)
-	defer tp.Shutdown(context.Background())
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Shutting down tracer provider: %v", err)
+		}
+	}()
 
 	// Create meter provider
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 	)
-	defer mp.Shutdown(context.Background())
+	defer func() {
+		if err := mp.Shutdown(context.Background()); err != nil {
+			log.Printf("Shutting down meter provider: %v", err)
+		}
+	}()
 
 	// Set global providers
 	otel.SetTracerProvider(tp)
@@ -57,7 +65,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			log.Printf("Closing client: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 

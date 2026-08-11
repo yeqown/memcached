@@ -10,9 +10,10 @@ import (
 
 func main() {
 	addrs := "localhost:11211"
-	// Create a new client with the default options.
-	client, err := memcached.New(addrs,
-		memcached.WithDialTimeout(time.Second*5),
+	// Create a new client with custom timeout options.
+	client, err := memcached.New(
+		addrs,
+		memcached.WithDialTimeout(5*time.Second),
 		memcached.WithReadTimeout(100*time.Second),
 		memcached.WithWriteTimeout(100*time.Second),
 	)
