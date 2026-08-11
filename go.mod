@@ -6,7 +6,6 @@ require (
 	github.com/golang/snappy v1.0.0
 	github.com/klauspost/compress v1.19.2
 	github.com/pierrec/lz4/v4 v4.1.28
-	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
