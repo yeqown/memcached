@@ -5,7 +5,7 @@
   export let selected: CommandId = 'get'
   export let disabled = false
 
-  const dispatch = createEventDispatcher<'change', CommandId>()
+  const dispatch = createEventDispatcher<{ change: CommandId }>()
 
   let open = false
 

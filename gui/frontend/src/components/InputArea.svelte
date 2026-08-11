@@ -6,13 +6,14 @@
   export let disabled = false
 
   // Store values for each possible input
+  let key = ''
   let values: Record<string, string | number> = {
-    key: '',
     value: '',
     flags: 0,
     expiry: 0,
     delta: 1,
   }
+  $: values.key = key
 
   export function getValues(): Record<string, string | number> {
     const cmd = getCommand(command)
@@ -26,11 +27,11 @@
   }
 
   export function getKey(): string {
-    return values.key as string
+    return key
   }
 
   export function clearKey() {
-    values.key = ''
+    key = ''
   }
 
   // Reset default values when command changes
@@ -39,7 +40,11 @@
     if (cmd) {
       for (const input of cmd.inputs) {
         if (input.defaultValue !== undefined) {
-          values[input.id] = input.defaultValue
+          if (input.id === 'key') {
+            key = String(input.defaultValue)
+          } else {
+            values[input.id] = input.defaultValue
+          }
         }
       }
     }
@@ -54,7 +59,7 @@
           <label for="input-{field.id}">{field.label}</label>
           <KeyInput
             id="input-{field.id}"
-            bind:value={values.key}
+            bind:value={key}
             placeholder={field.placeholder || field.label}
             {disabled}
           />

@@ -46,9 +46,10 @@
             displayMode.set(getResult.valueKind === 'json' ? 'json' : 'text')
             addLog({ op: 'GET', key, status: 'success', message: 'OK' })
           } else {
-            displayValue.set(getResult.error)
+            const error = getResult.error || 'Unknown error'
+            displayValue.set(error)
             displayMode.set('text')
-            addLog({ op: 'GET', key, status: 'error', message: getResult.error })
+            addLog({ op: 'GET', key, status: 'error', message: error })
           }
           break
 
@@ -97,9 +98,10 @@
             displayMode.set('json')
             addLog({ op: 'STATS', status: 'success', message: 'OK' })
           } else {
-            displayValue.set(statsResult.error)
+            const error = statsResult.error || 'Unknown error'
+            displayValue.set(error)
             displayMode.set('text')
-            addLog({ op: 'STATS', status: 'error', message: statsResult.error })
+            addLog({ op: 'STATS', status: 'error', message: error })
           }
           break
 
