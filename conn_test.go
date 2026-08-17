@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,16 @@ type mockConn struct {
 	readDeadline  time.Time
 	writeDeadline time.Time
 	pool          *connPool
+}
+
+type closeTrackingConn struct {
+	*mockConn
+	closed atomic.Bool
+}
+
+func (m *closeTrackingConn) Close() error {
+	m.closed.Store(true)
+	return nil
 }
 
 func newMockConn() *mockConn {
@@ -131,14 +142,14 @@ func Test_connPool_new(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pool := newConnPool(tt.maxIdle, tt.maxConn, tt.maxLifeTime, tt.maxIdleTimeout, createConn)
 
-			// 验证基本属性
 			assert.NotNil(t, pool)
 			assert.Equal(t, tt.maxIdle, pool.maxIdle)
 			assert.Equal(t, tt.maxConn, pool.maxConns)
 			assert.Equal(t, tt.maxIdleTimeout, pool.maxIdleTime)
-			assert.Equal(t, tt.maxConn, cap(pool.conns))
+			assert.Equal(t, 0, pool.stats().IdleConns)
 			assert.Equal(t, 0, int(pool.numOpen.Load()))
 			assert.False(t, pool.closed)
+			assert.NotNil(t, pool.closedCh)
 			assert.Nil(t, pool.cleanerCh)
 			assert.Equal(t, int64(0), pool.maxIdleClosed)
 			assert.Equal(t, int64(0), pool.maxIdleTimeClosed)
@@ -172,9 +183,9 @@ func Test_connPool_get_put(t *testing.T) {
 
 	wg.Wait()
 
-	// idle connections reached maxConn
+	// idle connections reached maxIdle
 	assert.Equal(t, 5, int(pool.numOpen.Load()))
-	assert.Equal(t, 5, len(pool.conns))
+	assert.Equal(t, 5, pool.stats().IdleConns)
 }
 
 // Test_connPool_get_timeout_case1 mocking the case that the createConn function
@@ -271,7 +282,7 @@ func Test_connPool_get_oversize(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, 5, int(pool.numOpen.Load()))
-	assert.Equal(t, 5, len(pool.conns))
+	assert.Equal(t, 5, pool.stats().IdleConns)
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -317,7 +328,7 @@ func Test_connPool_cleanup_maxIdle(t *testing.T) {
 	// connections to 5.
 	time.Sleep(3 * time.Second)
 	assert.Equal(t, 0, int(pool.numOpen.Load()))
-	assert.Equal(t, 0, len(pool.conns))
+	assert.Equal(t, 0, pool.stats().IdleConns)
 	assert.False(t, pool.closed)
 
 	stat = pool.stats()
@@ -368,16 +379,146 @@ func Test_connPool_cleanup_maxLife(t *testing.T) {
 	// connections to 5.
 	time.Sleep(3 * time.Second)
 	assert.Equal(t, 0, int(pool.numOpen.Load()))
-	assert.Equal(t, 0, len(pool.conns))
+	assert.Equal(t, 0, pool.stats().IdleConns)
 	assert.False(t, pool.closed)
 
 	stat = pool.stats()
 	t.Logf("After cleanup: %+v", stat)
 	assert.Equal(t, 0, stat.TotalConns)
-	assert.Equal(t, 0, stat.IdleConns) // since all connections are cleaned up(idle=1s)
+	assert.Equal(t, 0, stat.IdleConns) // since all connections are cleaned up(life=2s)
 	assert.Equal(t, 10, stat.MaxConns)
 	assert.Equal(t, 5, stat.MaxIdle)
 	assert.Equal(t, int64(5), stat.maxIdleClosed)
 	assert.Equal(t, int64(5), stat.maxLifeTimeClosed)
 	assert.Equal(t, int64(0), stat.maxIdleTimeClosed)
+}
+
+func Test_connectionCleanerRunLocked_both_limits(t *testing.T) {
+	pool := newConnPool(10, 10, time.Hour, time.Hour, createConn)
+	fixedNow := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	origNow := nowFunc
+	nowFunc = func() time.Time { return fixedNow }
+	t.Cleanup(func() { nowFunc = origNow })
+
+	idleExpired := newMockConn()
+	idleExpired.createdAt = fixedNow.Add(-30 * time.Minute)
+	idleExpired.returnedAt = fixedNow.Add(-2 * time.Hour)
+
+	lifeExpired := newMockConn()
+	lifeExpired.createdAt = fixedNow.Add(-2 * time.Hour)
+	lifeExpired.returnedAt = fixedNow.Add(-time.Minute)
+
+	fresh := newMockConn()
+	fresh.createdAt = fixedNow.Add(-time.Minute)
+	fresh.returnedAt = fixedNow.Add(-time.Minute)
+
+	pool.conns <- idleExpired
+	pool.conns <- lifeExpired
+	pool.conns <- fresh
+	pool.numOpen.Store(3)
+	connsBefore := pool.conns
+
+	pool.maxIdleTime = time.Hour
+	pool.maxLifeTime = time.Hour
+
+	d, closing := pool.connectionCleanerRunLocked(time.Hour)
+	assert.True(t, connsBefore == pool.conns, "cleaner must keep the idle channel")
+	assert.Len(t, closing, 2)
+	assert.Equal(t, int64(1), pool.maxIdleTimeClosed)
+	assert.Equal(t, int64(1), pool.maxLifeTimeClosed)
+	assert.Equal(t, 1, len(pool.conns))
+	assert.Greater(t, d, time.Duration(0))
+
+	kept := <-pool.conns
+	assert.Same(t, fresh, kept)
+}
+
+func Test_connPool_cleanup_concurrent_get(t *testing.T) {
+	pool := newConnPool(8, 8, time.Hour, 100*time.Millisecond, createConn)
+	ctx := context.Background()
+
+	for i := 0; i < 8; i++ {
+		cn, err := pool.get(ctx)
+		assert.NoError(t, err)
+		assert.NoError(t, pool.put(cn))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			cn, err := pool.get(ctx)
+			if err != nil {
+				assert.Fail(t, "get failed during cleanup", err.Error())
+				return
+			}
+			assert.NotNil(t, cn)
+			_ = pool.put(cn)
+		}
+	}()
+
+	<-done
+	assert.NoError(t, pool.close())
+	assert.Equal(t, 0, int(pool.numOpen.Load()))
+}
+
+func Test_connPool_close_wakes_waiters(t *testing.T) {
+	pool := newConnPool(1, 1, time.Hour, time.Hour, createConn)
+	ctx := context.Background()
+
+	cn, err := pool.get(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, cn)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, getErr := pool.get(ctx)
+		errCh <- getErr
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	assert.NoError(t, pool.close())
+
+	select {
+	case getErr := <-errCh:
+		assert.ErrorIs(t, getErr, errPoolClosed)
+	case <-time.After(time.Second):
+		t.Fatal("waiting get was not woken by close")
+	}
+
+	assert.NoError(t, pool.put(cn))
+	assert.Equal(t, 0, int(pool.numOpen.Load()))
+	assert.Equal(t, 0, pool.stats().IdleConns)
+}
+
+func Test_connPool_get_closes_connection_created_during_close(t *testing.T) {
+	creationStarted := make(chan struct{})
+	releaseCreation := make(chan struct{})
+	createdConn := &closeTrackingConn{mockConn: newMockConn()}
+	pool := newConnPool(1, 1, time.Hour, time.Hour, func(context.Context) (memcachedConn, error) {
+		close(creationStarted)
+		<-releaseCreation
+		return createdConn, nil
+	})
+
+	type getResult struct {
+		conn memcachedConn
+		err  error
+	}
+	resultCh := make(chan getResult, 1)
+	go func() {
+		conn, err := pool.get(context.Background())
+		resultCh <- getResult{conn: conn, err: err}
+	}()
+
+	<-creationStarted
+	assert.NoError(t, pool.close())
+	close(releaseCreation)
+
+	result := <-resultCh
+	assert.Nil(t, result.conn)
+	assert.ErrorIs(t, result.err, errPoolClosed)
+	assert.True(t, createdConn.closed.Load())
+	assert.Equal(t, 0, int(pool.numOpen.Load()))
 }
