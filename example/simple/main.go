@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/yeqown/memcached"
@@ -22,7 +23,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	println("Version: ", version)
+	fmt.Println("Version:", version)
 
 	// get first
 	item, err := client.Get(ctx, "key")
@@ -31,9 +32,9 @@ func main() {
 			panic(err)
 		}
 
-		println("'key' not found")
+		fmt.Println("'key' not found")
 	} else {
-		println("key: ", item.Key, " value: ", string(item.Value))
+		fmt.Println("key:", item.Key, "value:", string(item.Value))
 	}
 
 	if err = client.Set(ctx, "key", []byte("value"), 0, 0); err != nil {
@@ -49,6 +50,6 @@ func main() {
 	}
 
 	for _, item := range items {
-		println("key: ", item.Key, " value: ", string(item.Value))
+		fmt.Println("key:", item.Key, "value:", string(item.Value))
 	}
 }
