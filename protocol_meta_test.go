@@ -62,7 +62,7 @@ func Test_parseFlags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parseFlags(tt.args.parts, tt.args.startPos, tt.args.item)
+			require.NoError(t, parseFlags(tt.args.parts, tt.args.startPos, tt.args.item))
 			assert.Equal(t, tt.want, tt.args.item)
 		})
 	}
