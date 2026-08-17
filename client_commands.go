@@ -126,12 +126,6 @@ type statisticsTextProtocolCommander interface {
 	Stats(ctx context.Context) (*Statistic, error)
 }
 
-type rawTextProtocolCommander interface {
-	// Raw is used to send the raw command to the memcached server.
-	// Warning: this command is not recommended to use since it expects the server to return
-	// the `END` line, which is not guaranteed of all commands. For example, `version`.
-	Raw(ctx context.Context, cmd string) ([]string, error)
-}
 
 /**
  * Storage commands: set, add, replace, append, prepend, cas
@@ -625,20 +619,4 @@ func (c *client) Stats(ctx context.Context) (*Statistic, error) {
 	}
 
 	return parseStats(resp.rawLines)
-}
-
-func (c *client) Raw(ctx context.Context, cmd string) ([]string, error) {
-	req, resp := buildRawCommand(cmd, endIndicatorSpecificEndLine, 0)
-	defer releaseReqAndResp(req, resp)
-
-	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	lines := make([]string, 0, len(resp.rawLines))
-	for _, line := range resp.rawLines {
-		lines = append(lines, string(bytes.TrimSuffix(line, _CRLFBytes)))
-	}
-
-	return lines, nil
 }

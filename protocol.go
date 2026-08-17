@@ -689,9 +689,3 @@ func buildStatsCommand(subCommand string) (*request, *response) {
 
 	return req, resp
 }
-
-//nolint:unused
-func buildRawCommand(rawCommand string, indicator responseEndIndicator, lines int) (*request, *response) {
-	_, _, _ = rawCommand, indicator, lines
-	panic("IMPLEMENT ME!!!")
-}

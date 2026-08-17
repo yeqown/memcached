@@ -21,8 +21,6 @@ type Client interface {
 	basicTextProtocolCommander
 	metaTextProtocolCommander
 	statisticsTextProtocolCommander
-	// TODO: support rawTextProtocolCommander
-	// rawTextProtocolCommander
 }
 
 var _ Client = (*client)(nil)
