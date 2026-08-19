@@ -3,14 +3,14 @@ package memcached
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 type nowFuncType func() time.Time
@@ -121,7 +121,7 @@ type conn struct {
 func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) (*conn, error) {
 	rawConn, err := addr.dial(ctx, dialTimeout)
 	if err != nil {
-		return nil, errors.Wrap(err, "dialContext")
+		return nil, fmt.Errorf("dialContext: %w", err)
 	}
 
 	cn := &conn{
@@ -244,6 +244,8 @@ func (c *conn) release() error {
 	return c.pool.put(c)
 }
 
+var errPoolClosed = errors.New("connection pool is closed")
+
 // The connPool holds a pool of connections to one memcached server instance
 // and provides a way to get a connection from the pool.
 //
@@ -268,7 +270,10 @@ type connPool struct {
 	numOpen atomic.Int32
 	// Indicate if the pool is closed, if true, no new connections will be created
 	// and all existing connections will be closed.
-	closed    bool
+	closed bool
+	// closedCh is closed exactly once when the pool closes, so waiting get()
+	// callers can abort without receiving from a closed idle channel.
+	closedCh  chan struct{}
 	cleanerCh chan struct{}
 
 	maxIdleClosed     int64 // the number of connections closed due to maxIdle
@@ -292,6 +297,7 @@ func newConnPool(
 		createConn: createConn,
 		numOpen:    atomic.Int32{},
 		closed:     false,
+		closedCh:   make(chan struct{}),
 		cleanerCh:  nil, // created when needed in startCleaner
 
 		maxIdleClosed:     0,
@@ -310,11 +316,26 @@ func (p *connPool) close() error {
 	}
 
 	p.closed = true
-	// close all existing connections, so that the get() couldn't
-	// create a new connection.
-	close(p.conns)
+	close(p.closedCh)
+
+	// Drain idle connections without closing the idle channel itself.
+	// Closing the channel would race with lock-free get() receives.
+	for {
+		select {
+		case cn := <-p.conns:
+			_ = cn.Close()
+			p.numOpen.Add(-1)
+		default:
+			goto drained
+		}
+	}
+drained:
+
 	if p.cleanerCh != nil {
-		p.cleanerCh <- struct{}{}
+		select {
+		case p.cleanerCh <- struct{}{}:
+		default:
+		}
 	}
 
 	p.mu.Unlock()
@@ -322,39 +343,48 @@ func (p *connPool) close() error {
 }
 
 func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
-	if p.closed {
-		return nil, errors.New("connection pool is closed")
-	}
-
-	// try to get a connection from the pool first if there is any
+	// Try to get an idle connection first if there is any,
 	// otherwise create a new connection.
 	select {
 	case cn := <-p.conns:
 		return cn, nil
 	default:
-		p.mu.Lock()
-		// no available connection, check if we can create a new one.
-		if int(p.numOpen.Load()) >= p.maxConns {
-			p.mu.Unlock()
-			// the pool is full, wait for a connection to be returned
-			select {
-			case cn := <-p.conns:
-				return cn, nil
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-		p.mu.Unlock()
-
-		cn, err := p.createConn(ctx)
-		if err != nil {
-			return nil, err
-		}
-		cn.setConnPool(p)
-		p.numOpen.Add(1)
-
-		return cn, nil
 	}
+
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, errPoolClosed
+	}
+	// No available connection, check if we can create a new one.
+	if int(p.numOpen.Load()) >= p.maxConns {
+		p.mu.Unlock()
+		// The pool is full, wait for a connection to be returned or for close.
+		select {
+		case cn := <-p.conns:
+			return cn, nil
+		case <-p.closedCh:
+			return nil, errPoolClosed
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	p.mu.Unlock()
+
+	cn, err := p.createConn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cn.setConnPool(p)
+
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil, errors.Join(errPoolClosed, cn.Close())
+	}
+	p.numOpen.Add(1)
+	p.mu.Unlock()
+	return cn, nil
 }
 
 func (p *connPool) put(cn memcachedConn) error {
@@ -408,7 +438,7 @@ func (p *connPool) connectionsCleaner(d time.Duration) {
 	for {
 		select {
 		case <-t.C:
-		case <-p.cleanerCh: // db was closed
+		case <-p.cleanerCh: // pool was closed
 		}
 
 		p.mu.Lock()
@@ -423,7 +453,7 @@ func (p *connPool) connectionsCleaner(d time.Duration) {
 			return
 		}
 
-		// make a copy of the connections those need to be closed.
+		// Snapshot idle connections that need to be closed.
 		d, closing := p.connectionCleanerRunLocked(d)
 		p.mu.Unlock()
 
@@ -461,55 +491,65 @@ func (p *connPool) shortestIdleTimeLocked() time.Duration {
 //
 // 1. if the connection is expired (exceeds maxLifeTime since created).
 // 2. if the connection idle time exceeds the idle connection limit(maxIdleTime).
+//
+// The idle channel is kept intact: currently available connections are drained
+// with non-blocking receives, filtered in one pass, and survivors are put back.
 func (p *connPool) connectionCleanerRunLocked(d time.Duration) (time.Duration, []memcachedConn) {
 	var idleClosing int64
 	closing := make([]memcachedConn, 0, p.maxIdle/2)
-	newConns := make(chan memcachedConn, p.maxConns)
+	kept := make([]memcachedConn, 0, len(p.conns))
 
-	if p.maxIdleTime > 0 {
-		idleSince := nowFunc().Add(-p.maxIdleTime)
-		close(p.conns)
-		// TODO(@yeqown): could we optimize the loop here?
-		//  we re-allocate the newConns channel every time we clean up the connections.
-		for c := range p.conns {
-			if d2, ok := c.idle(idleSince); !ok {
-				if d2 < d {
-					// Ensure idle connections are cleaned up as soon
-					// as possible.
-					d = d2
-				}
-				newConns <- c // put back
-				continue
-			}
-			closing = append(closing, c)
-			idleClosing++
-		}
-
-		p.conns = newConns
-		p.maxIdleTimeClosed += idleClosing
+	var idleSince, expiredSince time.Time
+	checkIdle := p.maxIdleTime > 0
+	checkLife := p.maxLifeTime > 0
+	if checkIdle {
+		idleSince = nowFunc().Add(-p.maxIdleTime)
+	}
+	if checkLife {
+		expiredSince = nowFunc().Add(-p.maxLifeTime)
 	}
 
-	newConns = make(chan memcachedConn, p.maxConns)
-	if p.maxLifeTime > 0 {
-		expiredSince := nowFunc().Add(-p.maxLifeTime)
-		close(p.conns)
-		for c := range p.conns {
-			if d2, ok := c.expired(expiredSince); !ok {
-				if d2 < d {
-					// Prevents connections staying in the pool when they
-					// have expired.
-					d = d2
-				}
-				newConns <- c // put back
-				continue
-			}
-			closing = append(closing, c)
+	for {
+		var c memcachedConn
+		select {
+		case c = <-p.conns:
+		default:
+			goto drained
 		}
 
-		p.conns = newConns
-		p.maxLifeTimeClosed += int64(len(closing)) - idleClosing
+		shouldClose := false
+		if checkIdle {
+			if d2, ok := c.idle(idleSince); ok {
+				shouldClose = true
+				idleClosing++
+			} else if d2 < d {
+				// Ensure idle connections are cleaned up as soon as possible.
+				d = d2
+			}
+		}
+		if !shouldClose && checkLife {
+			if d2, ok := c.expired(expiredSince); ok {
+				shouldClose = true
+			} else if d2 < d {
+				// Prevents connections staying in the pool when they have expired.
+				d = d2
+			}
+		}
+
+		if shouldClose {
+			closing = append(closing, c)
+		} else {
+			kept = append(kept, c)
+		}
 	}
 
+drained:
+	for _, c := range kept {
+		p.conns <- c
+	}
+
+	p.maxIdleTimeClosed += idleClosing
+	p.maxLifeTimeClosed += int64(len(closing)) - idleClosing
 	return d, closing
 }
 

@@ -2,11 +2,11 @@ package memcached
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -137,7 +137,7 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		for counter <= 200 {
 			item, err := su.client.Get(ctx, key)
-			if pkgerrors.Is(err, ErrNotFound) {
+			if errors.Is(err, ErrNotFound) {
 				goto next
 			}
 			su.NoError(err)
@@ -160,7 +160,7 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		for counter <= 100 {
 			err := su.client.Touch(ctx, key, 3)
-			if !pkgerrors.Is(err, ErrNotFound) {
+			if !errors.Is(err, ErrNotFound) {
 				su.NoError(err)
 			}
 
@@ -247,11 +247,11 @@ func TestCompressionDisablesAppendPrepend(t *testing.T) {
 
 	err := client.Append(context.Background(), "key", []byte("value"), 0, 0)
 	require.Error(t, err)
-	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+	assert.True(t, errors.Is(err, ErrNotSupported))
 
 	err = client.Prepend(context.Background(), "key", []byte("value"), 0, 0)
 	require.Error(t, err)
-	assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+	assert.True(t, errors.Is(err, ErrNotSupported))
 }
 
 func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
@@ -269,7 +269,7 @@ func TestCompressionDisablesMetaAppendPrepend(t *testing.T) {
 			)
 			assert.Nil(t, item)
 			require.Error(t, err)
-			assert.True(t, pkgerrors.Is(err, ErrNotSupported))
+			assert.True(t, errors.Is(err, ErrNotSupported))
 		})
 	}
 }

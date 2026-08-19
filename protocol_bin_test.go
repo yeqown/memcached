@@ -2,10 +2,10 @@ package memcached
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
 

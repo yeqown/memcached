@@ -2,11 +2,11 @@ package memcached
 
 import (
 	"bytes"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	memcodec "github.com/yeqown/memcached/codec"
 )
