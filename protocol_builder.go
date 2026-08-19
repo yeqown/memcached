@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"sync"
 	"time"
 	"unsafe"
-
-	"github.com/pkg/errors"
 )
 
 const (
@@ -53,10 +53,10 @@ func forecastCommonFaultLine(line []byte) error {
 		return ErrNonexistentCommand
 	case bytes.HasPrefix(line, []byte("CLIENT_ERROR")):
 		message := string(line[12 : len(line)-2])
-		return errors.Wrap(ErrClientError, message)
+		return fmt.Errorf("%s: %w", message, ErrClientError)
 	case bytes.HasPrefix(line, []byte("SERVER_ERROR")):
 		message := string(line[12 : len(line)-2])
-		return errors.Wrap(ErrServerError, message)
+		return fmt.Errorf("%s: %w", message, ErrServerError)
 	case bytes.Equal(line, []byte("NOT_FOUND\r\n")):
 		return ErrNotFound
 	case bytes.Equal(line, []byte("EXISTS\r\n")):
@@ -468,7 +468,7 @@ func (resp *response) read1(rr memcachedConn) error {
 	for read < int(resp.limitedLines) {
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "dispatchRequest read")
+			return fmt.Errorf("dispatchRequest read: %w", err)
 		}
 
 		if read == 0 {
@@ -495,7 +495,7 @@ func (resp *response) read2(rr memcachedConn) error {
 		// FIXME(@yeqown): read line would cost too much capacity.
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "dispatchRequest read")
+			return fmt.Errorf("dispatchRequest read: %w", err)
 		}
 
 		if read == 0 && resp.udpEnabled {
@@ -528,7 +528,7 @@ func (resp *response) expect(line []byte) error {
 		return nil
 	}
 	if n := len(resp.rawLines); n != 1 {
-		return errors.Wrapf(ErrMalformedResponse, "expect only 1 line, but got %d", n)
+		return fmt.Errorf("expect only 1 line, but got %d: %w", n, ErrMalformedResponse)
 	}
 
 	if bytes.Equal(resp.rawLines[0], line) {

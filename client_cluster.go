@@ -1,11 +1,10 @@
 package memcached
 
 import (
+	"fmt"
 	"hash/crc32"
 	"net"
 	"strings"
-
-	"github.com/pkg/errors"
 
 	"github.com/yeqown/memcached/hash"
 )
@@ -52,7 +51,7 @@ type defaultResolver struct{}
 
 func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 	if addr == "" {
-		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
+		return nil, fmt.Errorf("empty address: %w", ErrInvalidAddress)
 	}
 
 	addrs := strings.Split(addr, ",")
@@ -73,7 +72,7 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 	}
 
 	if len(result) == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "no available address")
+		return nil, fmt.Errorf("no available address: %w", ErrInvalidAddress)
 	}
 
 	return result, nil
@@ -83,7 +82,7 @@ func (r defaultResolver) Resolve(addr string) ([]*Addr, error) {
 func (r defaultResolver) resolveAddr(address string) (network, addr string, err error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
-		return "", "", errors.Wrap(ErrInvalidAddress, "empty address")
+		return "", "", fmt.Errorf("empty address: %w", ErrInvalidAddress)
 	}
 
 	network = "tcp"
@@ -108,7 +107,7 @@ func (r defaultResolver) resolveAddr(address string) (network, addr string, err 
 	}
 
 	if err != nil {
-		return "", "", errors.Wrap(err, "invalid address: "+address)
+		return "", "", fmt.Errorf("invalid address: %s: %w", address, err)
 	}
 
 	return network, addr, nil
@@ -121,7 +120,7 @@ type crc32HashPicker struct{}
 func (p *crc32HashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	n := len(addrs)
 	if n == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "no available address")
+		return nil, fmt.Errorf("no available address: %w", ErrInvalidAddress)
 	}
 	if n == 1 {
 		return addrs[0], nil
@@ -150,7 +149,7 @@ type murmur3HashPicker struct {
 func (p *murmur3HashPicker) Pick(addrs []*Addr, _, key []byte) (*Addr, error) {
 	n := len(addrs)
 	if n == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "no available address")
+		return nil, fmt.Errorf("no available address: %w", ErrInvalidAddress)
 	}
 	if n == 1 {
 		return addrs[0], nil

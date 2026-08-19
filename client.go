@@ -3,12 +3,12 @@ package memcached
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
-	multierror "github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/yeqown/memcached/telemetry"
@@ -21,8 +21,6 @@ type Client interface {
 	basicTextProtocolCommander
 	metaTextProtocolCommander
 	statisticsTextProtocolCommander
-	// TODO: support rawTextProtocolCommander
-	// rawTextProtocolCommander
 }
 
 var _ Client = (*client)(nil)
@@ -70,11 +68,11 @@ func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) 
 
 	addrs, err := options.resolver.Resolve(addr)
 	if err != nil {
-		return nil, errors.Wrap(err, "resolve failed")
+		return nil, fmt.Errorf("resolve failed: %w", err)
 	}
 
 	if len(addrs) == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
+		return nil, fmt.Errorf("empty address: %w", ErrInvalidAddress)
 	}
 	picker := options.pickBuilder.Build(addrs)
 
@@ -100,7 +98,7 @@ func (c *client) Close() error {
 
 	for _, pool := range c.connPools {
 		if err := pool.close(); err != nil {
-			return errors.Wrap(err, "Close")
+			return fmt.Errorf("Close: %w", err)
 		}
 	}
 
@@ -129,7 +127,7 @@ func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error)
 
 		cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
 		if err != nil {
-			return nil, errors.Wrap(err, "newConnContext failed")
+			return nil, fmt.Errorf("newConnContext failed: %w", err)
 		}
 
 		// SASL auth if enabled
@@ -196,12 +194,12 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	wg.Wait()
 	close(errCh)
 
-	var multiErr error
+	var errs []error
 	for err := range errCh {
-		multiErr = multierror.Append(multiErr, err)
+		errs = append(errs, err)
 	}
 
-	return multiErr
+	return errors.Join(errs...)
 }
 
 func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
@@ -213,7 +211,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 
 	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
 	if err != nil {
-		return errors.Wrap(err, "pick node failed")
+		return fmt.Errorf("pick node failed: %w", err)
 	}
 
 	// START: Telemetry
@@ -232,7 +230,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		if c.metrics != nil {
 			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
 		}
-		return errors.Wrap(err, "alloc connection failed")
+		return fmt.Errorf("alloc connection failed: %w", err)
 	}
 	defer func() { _ = cn.release() }()
 
@@ -245,7 +243,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		if c.metrics != nil {
 			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
 		}
-		return errors.Wrap(err, "send failed")
+		return fmt.Errorf("send failed: %w", err)
 	}
 
 	recvErr := resp.recv(ctx, cn, c.options.readTimeout)
@@ -275,13 +273,13 @@ func authSASL(conn memcachedConn, username, password string) error {
 	// 1. first, list mechanisms the server supports
 	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return fmt.Errorf("authSASL send: %w", err)
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return fmt.Errorf("authSASL recv: %w", err)
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return fmt.Errorf("authSASL: %w", err)
 	}
 
 	if !bytes.Contains(resp.value, []byte("PLAIN")) {
@@ -291,13 +289,13 @@ func authSASL(conn memcachedConn, username, password string) error {
 	// 2. choose one mechanism and send the authentication request
 	req, resp = saslAuthRequestPlain(username, password)
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return fmt.Errorf("authSASL send: %w", err)
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return fmt.Errorf("authSASL recv: %w", err)
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return fmt.Errorf("authSASL: %w", err)
 	}
 
 	return nil

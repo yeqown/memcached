@@ -3,14 +3,14 @@ package memcached
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 type nowFuncType func() time.Time
@@ -121,7 +121,7 @@ type conn struct {
 func newConnContext(ctx context.Context, addr *Addr, dialTimeout time.Duration) (*conn, error) {
 	rawConn, err := addr.dial(ctx, dialTimeout)
 	if err != nil {
-		return nil, errors.Wrap(err, "dialContext")
+		return nil, fmt.Errorf("dialContext: %w", err)
 	}
 
 	cn := &conn{
