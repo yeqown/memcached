@@ -3,9 +3,10 @@ package memcached
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"math"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 type basicTextProtocolCommander interface {
@@ -144,16 +145,16 @@ func (c *client) storageCommand(ctx context.Context, command, key string, value 
 
 	req, resp, err := buildStorageCommand(command, key, value, flag, expiry, c.options.noReply, c.options.codec)
 	if err != nil {
-		return errors.Wrap(err, "build storage command failed")
+		return fmt.Errorf("build storage command failed: %w", err)
 	}
 	defer releaseReqAndResp(req, resp)
 
 	if err = c.dispatchRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 
 	if err = resp.expect(_StoredCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return nil
@@ -191,11 +192,11 @@ func (c *client) Cas(ctx context.Context, key string, value []byte, flag uint32,
 	defer releaseReqAndResp(req, resp)
 
 	if err = c.dispatchRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 
 	if err = resp.expect(_StoredCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return nil
@@ -214,15 +215,15 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	items, err := parseValueItems(resp.rawLines, false, false, c.options.codec)
 	if err != nil {
-		return nil, errors.Wrap(err, "parse values failed")
+		return nil, fmt.Errorf("parse values failed: %w", err)
 	}
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, fmt.Errorf("no items found: %w", ErrNotFound)
 	}
 
 	return items[0], nil
@@ -237,15 +238,15 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	items, err := parseValueItems(resp.rawLines, false, true, c.options.codec)
 	if err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
+		return nil, fmt.Errorf("parse values failed: %w", ErrMalformedResponse)
 	}
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, fmt.Errorf("no items found: %w", ErrNotFound)
 	}
 
 	return items, nil
@@ -260,16 +261,16 @@ func (c *client) GetAndTouch(ctx context.Context, expiry time.Duration, key stri
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	items, err := parseValueItems(resp.rawLines, false, false, c.options.codec)
 	if err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
+		return nil, fmt.Errorf("parse values failed: %w", ErrMalformedResponse)
 	}
 
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, fmt.Errorf("no items found: %w", ErrNotFound)
 	}
 
 	return items[0], nil
@@ -284,17 +285,17 @@ func (c *client) GetAndTouches(ctx context.Context, expiry time.Duration, keys .
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	// parse response
 	items, err := parseValueItems(resp.rawLines, false, true, c.options.codec)
 	if err != nil {
-		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
+		return nil, fmt.Errorf("parse values failed: %w", ErrMalformedResponse)
 	}
 
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, fmt.Errorf("no items found: %w", ErrNotFound)
 	}
 
 	return items, nil
@@ -313,12 +314,12 @@ func (c *client) Delete(ctx context.Context, key string) error {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 
 	// expect DELETED\r\n
 	if err := resp.expect(_DeletedCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return nil
@@ -331,13 +332,13 @@ func (c *client) Incr(ctx context.Context, key string, delta uint64) (uint64, er
 
 	req, resp := buildArithmeticCommand("incr", key, delta, c.options.noReply)
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return 0, errors.Wrap(err, "request failed")
+		return 0, fmt.Errorf("request failed: %w", err)
 	}
 
 	// parse response
 	value, err := parseArithmetic(resp.rawLines[0])
 	if err != nil {
-		return 0, errors.Wrap(ErrMalformedResponse, err.Error())
+		return 0, fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return value, nil
@@ -350,13 +351,13 @@ func (c *client) Decr(ctx context.Context, key string, delta uint64) (uint64, er
 
 	req, resp := buildArithmeticCommand("decr", key, delta, c.options.noReply)
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return 0, errors.Wrap(err, "request failed")
+		return 0, fmt.Errorf("request failed: %w", err)
 	}
 
 	// parse response
 	value, err := parseArithmetic(resp.rawLines[0])
 	if err != nil {
-		return 0, errors.Wrap(ErrMalformedResponse, err.Error())
+		return 0, fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return value, nil
@@ -371,12 +372,12 @@ func (c *client) Touch(ctx context.Context, key string, expiry time.Duration) er
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 
 	// expect TOUCHED\r\n
 	if err := resp.expect(_TouchedCRLFBytes); err != nil {
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return nil
@@ -387,14 +388,14 @@ func (c *client) Version(ctx context.Context) (string, error) {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return "", errors.Wrap(err, "request")
+		return "", fmt.Errorf("request: %w", err)
 	}
 
 	// parse version number from response
 	// VERSION 1.6.14
 	line := resp.rawLines[0]
 	if !bytes.HasPrefix(line, _VersionBytes) {
-		return "", errors.Wrap(ErrMalformedResponse, string(line))
+		return "", fmt.Errorf("%s: %w", string(line), ErrMalformedResponse)
 	}
 
 	return string(trimCRLF(line[8:])), nil
@@ -408,22 +409,22 @@ func (c *client) FlushAll(ctx context.Context) error {
 		c.autoSwitchToUDP(ctx, req, resp)
 
 		if err := req.send(ctx, cn, c.options.writeTimeout); err != nil {
-			return errors.Wrap(err, "send failed")
+			return fmt.Errorf("send failed: %w", err)
 		}
 		if err := resp.recv(ctx, cn, c.options.readTimeout); err != nil {
-			return errors.Wrap(err, "recv failed")
+			return fmt.Errorf("recv failed: %w", err)
 		}
 
 		// expect OK\r\n
 		if err := resp.expect(_OKCRLFBytes); err != nil {
-			return errors.Wrap(ErrMalformedResponse, err.Error())
+			return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 		}
 
 		return nil
 	}
 
 	if err := c.broadcastRequest(ctx, call); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 
 	return nil
@@ -443,6 +444,9 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	for _, applyFn := range msOptions {
 		applyFn(msFlags)
 	}
+	if msFlags.T > math.MaxInt64 {
+		return nil, fmt.Errorf("TTL exceeds int64: %w", ErrInvalidArgument)
+	}
 	clientFlags := msFlags.F
 
 	req, resp, err := buildMetaSetCommand(key, value, msFlags, c.options.codec)
@@ -451,7 +455,7 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 	}
 	defer releaseReqAndResp(req, resp)
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	item := &MetaItem{
@@ -486,7 +490,7 @@ func (c *client) MetaGet(ctx context.Context, key []byte, mgOptions ...MetaGetOp
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	item := &MetaItem{
@@ -513,7 +517,7 @@ func (c *client) MetaDelete(ctx context.Context, key []byte, options ...MetaDele
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	item := &MetaItem{
@@ -540,7 +544,7 @@ func (c *client) MetaArithmetic(ctx context.Context, key []byte, delta uint64, o
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	item := &MetaItem{
@@ -579,7 +583,7 @@ func (c *client) MetaDebug(ctx context.Context, key []byte, options ...MetaDebug
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	item := &MetaItemDebug{
@@ -598,14 +602,14 @@ func (c *client) MetaNoOp(ctx context.Context) error {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return errors.Wrap(err, "request failed")
+		return fmt.Errorf("request failed: %w", err)
 	}
 	if err := resp.expect(_MetaMNCRLFBytes); err != nil {
 		if errors.Is(err, ErrMalformedResponse) {
 			return err
 		}
 
-		return errors.Wrap(ErrMalformedResponse, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrMalformedResponse)
 	}
 
 	return nil
@@ -621,7 +625,7 @@ func (c *client) Stats(ctx context.Context) (*Statistic, error) {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	return parseStats(resp.rawLines)
@@ -632,7 +636,7 @@ func (c *client) Raw(ctx context.Context, cmd string) ([]string, error) {
 	defer releaseReqAndResp(req, resp)
 
 	if err := c.dispatchRequest(ctx, req, resp); err != nil {
-		return nil, errors.Wrap(err, "request failed")
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
 	lines := make([]string, 0, len(resp.rawLines))

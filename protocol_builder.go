@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"sync"
 	"time"
-	"unsafe"
-
-	"github.com/pkg/errors"
 )
 
 const (
@@ -53,10 +52,10 @@ func forecastCommonFaultLine(line []byte) error {
 		return ErrNonexistentCommand
 	case bytes.HasPrefix(line, []byte("CLIENT_ERROR")):
 		message := string(line[12 : len(line)-2])
-		return errors.Wrap(ErrClientError, message)
+		return fmt.Errorf("%s: %w", message, ErrClientError)
 	case bytes.HasPrefix(line, []byte("SERVER_ERROR")):
 		message := string(line[12 : len(line)-2])
-		return errors.Wrap(ErrServerError, message)
+		return fmt.Errorf("%s: %w", message, ErrServerError)
 	case bytes.Equal(line, []byte("NOT_FOUND\r\n")):
 		return ErrNotFound
 	case bytes.Equal(line, []byte("EXISTS\r\n")):
@@ -79,9 +78,16 @@ func forecastCommonFaultLine(line []byte) error {
 }
 
 const (
-	// defaultBufferSize is the default size of the buffer.
-	// TODO: It is used to avoid the buffer growth, but is 64B the most common case?
+	// defaultBufferSize covers common short text/meta command headers and
+	// small payloads without growth. Measured lengths with the builder's
+	// spacing rules: get/delete ≈14-17B, small set ≈32B, meta set with
+	// several flags ≈42B. Larger storage values grow once; oversized
+	// buffers are discarded on release via maxPooledBufferCap.
 	defaultBufferSize = 64
+
+	// maxPooledBufferCap prevents large storage values from permanently
+	// retaining oversized buffers in the pool.
+	maxPooledBufferCap = 4 << 10 // 4 KiB
 )
 
 var (
@@ -127,8 +133,10 @@ func newProtocolBuilder() *protocolBuilder {
 
 func (b *protocolBuilder) release() {
 	if b.buf != nil {
-		b.buf.Reset()
-		bufferPool.Put(b.buf)
+		if b.buf.Cap() <= maxPooledBufferCap {
+			b.buf.Reset()
+			bufferPool.Put(b.buf)
+		}
 		b.buf = nil
 	}
 
@@ -188,7 +196,8 @@ func (b *protocolBuilder) AddFlagUint(flag string, tok uint64) *protocolBuilder 
 		return b
 	}
 
-	b.buf.WriteString(flag + strconv.FormatUint(tok, 10))
+	b.buf.WriteString(flag)
+	b.buf.WriteString(strconv.FormatUint(tok, 10))
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }
@@ -198,7 +207,8 @@ func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
 		return b
 	}
 
-	b.buf.WriteString(flag + tok)
+	b.buf.WriteString(flag)
+	b.buf.WriteString(tok)
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }
@@ -223,10 +233,6 @@ func (b *protocolBuilder) build() []byte {
 
 func trimCRLF(line []byte) []byte {
 	return bytes.TrimSuffix(line, _CRLFBytes)
-}
-
-func withCRLF(bs []byte) []byte {
-	return append(bs, _CRLFBytes...)
 }
 
 var requestPool = sync.Pool{
@@ -468,7 +474,7 @@ func (resp *response) read1(rr memcachedConn) error {
 	for read < int(resp.limitedLines) {
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "dispatchRequest read")
+			return fmt.Errorf("dispatchRequest read: %w", err)
 		}
 
 		if read == 0 {
@@ -495,7 +501,7 @@ func (resp *response) read2(rr memcachedConn) error {
 		// FIXME(@yeqown): read line would cost too much capacity.
 		line, err := rr.readLine('\n')
 		if err != nil {
-			return errors.Wrap(err, "dispatchRequest read")
+			return fmt.Errorf("dispatchRequest read: %w", err)
 		}
 
 		if read == 0 && resp.udpEnabled {
@@ -528,7 +534,7 @@ func (resp *response) expect(line []byte) error {
 		return nil
 	}
 	if n := len(resp.rawLines); n != 1 {
-		return errors.Wrapf(ErrMalformedResponse, "expect only 1 line, but got %d", n)
+		return fmt.Errorf("expect only 1 line, but got %d: %w", n, ErrMalformedResponse)
 	}
 
 	if bytes.Equal(resp.rawLines[0], line) {
@@ -548,16 +554,6 @@ func base64Encode(src []byte) []byte {
 	return dst
 }
 
-func base64Decode(src []byte) ([]byte, error) {
-	dst := make([]byte, base64.StdEncoding.DecodedLen(len(src)))
-	n, err := base64.StdEncoding.Decode(dst, src)
-	if err != nil {
-		return nil, err
-	}
-
-	return dst[:n], nil
-}
-
 func releaseReqAndResp(req *request, resp *response) {
 	if req != nil {
 		req.release()
@@ -568,10 +564,6 @@ func releaseReqAndResp(req *request, resp *response) {
 	}
 }
 
-func unsafeStringToByteSlice(s string) []byte {
-	return unsafe.Slice(unsafe.StringData(s), len(s))
-}
-
-func unsafeByteSliceToString(bs []byte) string {
-	return unsafe.String(unsafe.SliceData(bs), len(bs))
+func byteSliceToString(bs []byte) string {
+	return string(bs)
 }
