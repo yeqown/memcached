@@ -3,11 +3,10 @@ package memcached
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 // Codec transforms value and flags at the protocol boundary.
@@ -27,7 +26,7 @@ type Codec interface {
 
 func checkCodecSupportsOperation(codec Codec, operation string) error {
 	if err := codec.SupportsOperation(operation); err != nil {
-		return errors.Wrap(ErrNotSupported, err.Error())
+		return fmt.Errorf("%s: %w", err.Error(), ErrNotSupported)
 	}
 	return nil
 }
@@ -147,9 +146,8 @@ func buildStorageCommand(
 	noReply bool,
 	codec Codec,
 ) (*request, *response, error) {
-
 	if err := checkCodecSupportsOperation(codec, command); err != nil {
-		return nil, nil, errors.Wrap(err, "codec does not support operation")
+		return nil, nil, fmt.Errorf("codec does not support operation: %w", err)
 	}
 
 	evalue, eflags, err := codec.Encode([]byte(key), value, flags)
@@ -238,7 +236,7 @@ func buildCasCommand(
 	key string, value []byte, flag uint32, expTime time.Duration, casUnique uint64, noReply bool, codec Codec,
 ) (*request, *response, error) {
 	if err := checkCodecSupportsOperation(codec, "cas"); err != nil {
-		return nil, nil, errors.Wrap(err, "codec does not support operation")
+		return nil, nil, fmt.Errorf("codec does not support operation: %w", err)
 	}
 
 	evalue, eflag, err := codec.Encode([]byte(key), value, flag)
@@ -328,11 +326,11 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) 
 	n := len(lines)
 	if withoutEndLine && n%2 != 0 {
 		// n must be even
-		return nil, errors.Wrap(ErrMalformedResponse, "want times of 2 lines, got "+strconv.Itoa(n))
+		return nil, fmt.Errorf("want times of 2 lines, got %d: %w", n, ErrMalformedResponse)
 	}
 	if !withoutEndLine && n%2 == 0 {
 		// n must be odd
-		return nil, errors.Wrap(ErrMalformedResponse, "want odd lines, got "+strconv.Itoa(n))
+		return nil, fmt.Errorf("want odd lines, got %d: %w", n, ErrMalformedResponse)
 	}
 
 	var (
@@ -365,11 +363,11 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) 
 
 		// Read the data block
 		if i+1 >= n {
-			return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
+			return nil, fmt.Errorf("missing data block: %w", ErrMalformedResponse)
 		}
 		item.Value = trimCRLF(lines[i+1])
 		if len(item.Value) != int(dataLen) {
-			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
+			return nil, fmt.Errorf("data block length mismatch: %w", ErrMalformedResponse)
 		}
 
 		decodedValue, decodedFlags, err := codec.Decode([]byte(item.Key), item.Value, uint32(item.Flags))
@@ -404,7 +402,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 
 	for i := start; i < n; i++ {
 		if nField > 5 || (!withCas && nField > 4) {
-			return 0, errors.Wrap(ErrMalformedResponse, "invalid VALUE line")
+			return 0, fmt.Errorf("invalid VALUE line: %w", ErrMalformedResponse)
 		}
 
 		if line[i] != ' ' && i != n-1 {
@@ -419,7 +417,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 		case flagsIndex:
 			flags, err := parseUintFromBytes(line[fieldStart:i])
 			if err != nil {
-				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
+				return 0, fmt.Errorf("invalid flags: %w", ErrMalformedResponse)
 			}
 			item.Flags = uint32(flags)
 		case dataLenIndex:
@@ -429,7 +427,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 			}
 			dataLen, err = parseUintFromBytes(line[fieldStart:si])
 			if err != nil {
-				return 0, errors.Wrap(ErrMalformedResponse, "invalid data length")
+				return 0, fmt.Errorf("invalid data length: %w", ErrMalformedResponse)
 			}
 		case casIndex:
 			si := i
@@ -438,7 +436,7 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 			}
 			item.CAS, err = parseUintFromBytes(line[fieldStart:si])
 			if err != nil {
-				return 0, errors.Wrap(ErrMalformedResponse, "invalid CAS")
+				return 0, fmt.Errorf("invalid CAS: %w", ErrMalformedResponse)
 			}
 		}
 
@@ -465,7 +463,7 @@ func parseUintFromBytes(bs []byte) (uint64, error) {
 	r := uint64(0)
 	for _, b := range bs {
 		if b < '0' || b > '9' {
-			return 0, errors.Wrap(ErrMalformedResponse, "invalid uint number")
+			return 0, fmt.Errorf("invalid uint number: %w", ErrMalformedResponse)
 		}
 
 		r = r*10 + uint64(b-'0')
@@ -617,7 +615,7 @@ type Statistic struct {
 
 func parseStats(lines [][]byte) (*Statistic, error) {
 	if len(lines) <= 0 {
-		return nil, errors.Wrap(ErrMalformedResponse, "empty response")
+		return nil, fmt.Errorf("empty response: %w", ErrMalformedResponse)
 	}
 
 	transitionMap := make(map[string]any, len(lines))
@@ -662,12 +660,12 @@ func parseStats(lines [][]byte) (*Statistic, error) {
 
 	raw, err := json.Marshal(transitionMap)
 	if err != nil {
-		return nil, errors.Wrap(err, "parseStats marshal transition map failed")
+		return nil, fmt.Errorf("parseStats marshal transition map failed: %w", err)
 	}
 
 	stat := &Statistic{}
 	if err = json.Unmarshal(raw, stat); err != nil {
-		return nil, errors.Wrap(err, "parseStats unmarshal failed")
+		return nil, fmt.Errorf("parseStats unmarshal failed: %w", err)
 	}
 
 	return stat, nil
