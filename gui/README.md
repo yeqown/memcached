@@ -1,16 +1,20 @@
-# README
+# Memcached GUI
 
-## About
+A Wails and Svelte desktop tool for inspecting and changing Memcached data.
 
-This is the official Wails Svelte-TS template.
+- Save server contexts and switch between connections.
+- Get values with TTL, CAS, flags, size, and access metadata; display text or JSON.
+- Set, delete, increment, decrement, inspect stats and version, and flush all keys.
+- Review the operation log while working.
 
-## Live Development
+## Development
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+Install Go 1.26+, Node.js/npm, and the [Wails CLI and platform dependencies](https://wails.io/docs/gettingstarted/installation). From the repository root:
 
-## Building
+```bash
+cd gui
+npm --prefix frontend install
+wails dev
+```
 
-To build a redistributable, production mode package, use `wails build`.
+To build a desktop binary, run `wails build` from `gui/`. The GUI uses the `memcached-gui` Go module and the client in this repository through `go.work` during local development.

@@ -8,8 +8,7 @@ contexts.json
 
 # Superpowers plugin cache and generated docs
 .superpowers/
-docs/superpowers/plans/
-docs/superpowers/specs/
+docs/superpowers/
 
 # Go work file
 go.work.sum

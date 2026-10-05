@@ -1,227 +1,93 @@
-<img src="./docs/memcached-cli.svg">
+# memcached
 
-## Memcached
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/yeqown/memcached.svg)](https://pkg.go.dev/github.com/yeqown/memcached) [![Go Report Card](https://goreportcard.com/badge/github.com/yeqown/memcached)](https://goreportcard.com/report/github.com/yeqown/memcached)  [![GitHub license](https://img.shields.io/github/license/yeqown/memcached)](https://github.com/yeqown/memcached/blob/master/LICENSE) [![GitHub release](https://img.shields.io/github/release/yeqown/memcached.svg)](https://github.com/yeqown/memcached/releases) [![GitHub stars](https://img.shields.io/github/stars/yeqown/memcached.svg)](https://github.com/yeqown/memcached/stargazers) [![GitHub issues](https://img.shields.io/github/issues/yeqown/memcached.svg)](https://github.com/yeqown/memcached/issues) [![Build Status](https://github.com/yeqown/memcached/workflows/Go/badge.svg)](https://github.com/yeqown/memcached/actions) [![codecov](https://codecov.io/gh/yeqown/memcached/branch/master/graph/badge.svg)](https://codecov.io/gh/yeqown/memcached)
+[![Go Reference](https://pkg.go.dev/badge/github.com/yeqown/memcached.svg)](https://pkg.go.dev/github.com/yeqown/memcached) [![Build Status](https://github.com/yeqown/memcached/workflows/Go/badge.svg)](https://github.com/yeqown/memcached/actions) [![License](https://img.shields.io/github/license/yeqown/memcached)](./LICENSE)
 
-This is a golang package for [Memcached](https://memcached.org/). It is a simple and easy to use package.
+A Go client for Memcached's text and meta text protocols. It provides context-aware operations, configurable multi-node routing and connection pools, value codecs, and optional OpenTelemetry instrumentation. Requires Go 1.26 or newer.
 
-### Features
+## Compared with gomemcache
 
-- [x] Completed Memcached text protocol, includes meta text protocol.
-- [x] Protocol-level value compression with MC-COMPRESS-compatible MC-FLAGS encoding.
-- [ ] Integrated serialization and deserialization function
-- [x] Cluster support, multiple hash algorithm support, include: crc32, murmur3, redezvous and also custom hash algorithm.
-- [x] Fully connection pool features support.
-- [x] CLI tool support.
-- [x] <del>SASL support.</del>
-- [x] support TCP、UDP and Unix domain socket transport.
+Both clients support basic text commands, CAS, multi-server routing, connection reuse, TCP, and Unix sockets. Here is what this package adds over [bradfitz/gomemcache](https://github.com/bradfitz/gomemcache)'s core API:
 
-### Installation
+| Capability | bradfitz/gomemcache | This package |
+| --- | --- | --- |
+| Per-operation context and deadlines | `Get(key)` / `Set(item)` have no call context | `Get(ctx, key)` / `Set(ctx, ...)`; context deadlines and separate dial, read, and write timeouts |
+| Meta text protocol | No meta command API | `MetaGet`, `MetaSet`, `MetaDelete`, `MetaArithmetic`, `MetaDebug`, `MetaNoOp`; CAS, TTL, stale and recache flags |
+| Connection limits | Configurable `MaxIdleConns` | Maximum open and idle connections per node, lifetime, and idle timeout |
+| Value compression | No built-in codec | Pluggable `Codec`; MC-COMPRESS-compatible Deflate, LZ4, Snappy, and Zstd |
+| OpenTelemetry | No built-in instrumentation | Opt-in tracing and operation metrics |
+| Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, or a custom resolver/picker |
+| Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./gui/README.md) |
+
+Comparison checked against gomemcache [revision `24af94b`](https://github.com/bradfitz/gomemcache/tree/24af94b03874); later upstream changes may differ.
+
+The API also provides `GetAndTouch`, `GetAndTouches`, `Stats`, `Version`, and the usual storage, retrieval, deletion, and counter commands. UDP is available as an opt-in transport. See the [usage guide](./docs/usage.md) for the full command list and operational limits.
+
+## Quick start
+
+Start a Memcached server at `localhost:11211`, then install the client:
 
 ```bash
 go get github.com/yeqown/memcached@latest
 ```
 
-Or you can install the CLI binary by running:
-
-```bash
-go install github.com/yeqown/memcached/cmd/memcached-cli@latest
-```
-
-More `memcached-cli` usage could be found in [CLI](./cmd/memcached-cli/README.md).
-
-### Usage
-
-There is a simple example to show how to use this package. More examples could be found in the [example](./example) directory.
-
 ```go
 package main
 
 import (
-    "context"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    "github.com/yeqown/memcached"
+	"github.com/yeqown/memcached"
 )
 
 func main() {
-	// 1. build client
-	// addrs is a string, if you have multiple memcached servers, you can use comma to separate them.
-	// e.g. "localhost:11211,localhost:11212,localhost:11213"
-	addrs := "localhost:11211"
-
-	// client support options, you can set the options to client.
-	// e.g. memcached.New(addrs, memcached.WithDialTimeout(5*time.Second))
-	client, err := memcached.New(addrs)
+	client, err := memcached.New("localhost:11211",
+		memcached.WithDialTimeout(2*time.Second),
+		memcached.WithReadTimeout(3*time.Second),
+		memcached.WithWriteTimeout(3*time.Second),
+		memcached.WithMaxConns(64),
+		memcached.WithMaxIdleConns(16),
+		memcached.WithMaxLifetime(time.Hour),
+		memcached.WithMaxIdleTimeout(5*time.Minute),
+	)
 	if err != nil {
 		panic(err)
 	}
+	defer client.Close()
 
-	// 2. use client
-	// now, you can use the client API to finish your work.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	version, err := client.Version(ctx)
+	if err := client.Set(ctx, "greeting", []byte("hello"), 0, time.Minute); err != nil {
+		panic(err)
+	}
+	item, err := client.Get(ctx, "greeting")
 	if err != nil {
 		panic(err)
 	}
-	println("Version: ", version)
-
-	if err = client.Set(ctx, "key", []byte("value"), 0, 0); err != nil {
-		panic(err)
-	}
-	if err = client.Set(ctx, "key2", []byte("value2"), 0, 0); err != nil {
-		panic(err)
-	}
-
-	items, err := client.Gets(ctx, "key", "key2")
-	if err != nil {
-		panic(err)
-	}
-
-	for _, item := range items {
-		println("key: ", item.Key, " value: ", string(item.Value))
-	}
+	fmt.Println(string(item.Value)) // hello
 }
 ```
 
-### Compression
+The values above are examples to tune for your workload. `New` also accepts comma-separated server addresses and composable options:
 
-The client can encode protocol-level compression metadata in the Memcached `flags` field using the MC-COMPRESS layout documented in [docs/MC-COMPRESS-SPEC-v1.0.md](./docs/MC-COMPRESS-SPEC-v1.0.md).
+| To configure | Address or option |
+| --- | --- |
+| Multiple nodes and key placement | `"cache-1:11211,cache-2:11211"` plus `memcached.WithPickBuilder(memcached.NewRendezvousHashPickBuilder(0))` |
+| Custom address resolution | `memcached.WithResolver(resolver)` |
+| Compression or another value codec | `memcached.WithCodec(codec)` |
+| Traces and metrics | `memcached.WithTelemetry(telemetry.WithTracerProvider(tp), telemetry.WithMeterProvider(mp))` |
+| Writes without server acknowledgments | `memcached.WithNoReply()` |
+| Legacy UDP transport | A `udp://` address plus `memcached.WithUDPEnabled()` |
 
-- Reads automatically detect compliant MC-FLAGS values, transparently decompress supported payloads, and return caller-facing flags after decode.
-- Writes can opt into the built-in MC-COMPRESS behavior by installing `codec.NewCompressCodec(...)` through `WithCodec(...)`.
-- You can replace the built-in behavior with your own `WithCodec(...)` implementation to customize how `value` and `flags` are encoded and decoded, using `key` only as context.
-- `APP-FLAGS` are preserved in the 16-bit application-visible portion of the encoded flags word while stored on the wire.
-- `MetaGet` automatically requests server flags when a codec is configured so decode always has the metadata it needs.
-- Values smaller than the threshold, or payloads that do not shrink after compression, are stored as plain values.
-- `Append` and `Prepend` are rejected when the built-in compression codec is enabled.
+See the [usage guide](./docs/usage.md) for codec and telemetry setup. With multiple servers, `Gets` and `GetAndTouches` send all requested keys to one node; use per-key reads unless the keys are known to reside together.
 
-```go
-import (
-    "github.com/yeqown/memcached"
-    memcodec "github.com/yeqown/memcached/codec"
-)
+## More
 
-compressionCodec, err := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmDeflate, 1024, 6)
-if err != nil {
-    panic(err)
-}
-
-client, err := memcached.New(
-    "localhost:11211",
-    memcached.WithCodec(compressionCodec),
-)
-if err != nil {
-    panic(err)
-}
-
-if err = client.Set(ctx, "article:1", payload, 7, time.Hour); err != nil {
-    panic(err)
-}
-
-item, err := client.Get(ctx, "article:1")
-if err != nil {
-    panic(err)
-}
-
-println("flags:", item.Flags)
-println("value size:", len(item.Value))
-```
-
-Currently supported algorithms:
-
-- `memcodec.CompressionAlgorithmNone`
-- `memcodec.CompressionAlgorithmDeflate`
-- `memcodec.CompressionAlgorithmLZ4`
-- `memcodec.CompressionAlgorithmSnappy`
-- `memcodec.CompressionAlgorithmZstd`
-
-A custom codec can be installed like this:
-
-```go
-client, err := memcached.New(
-    "localhost:11211",
-    memcached.WithCodec(myCodec),
-)
-```
-
-The codec receives `key` as context, but can only return transformed `value` and `flags`. Other memcached metadata such as CAS, TTL, size, opaque values, and meta protocol tokens remain under the client's control.
-
-### Support Commands
-
-Now, we have implemented some commands, and we will implement more commands in the future.
-
-| Command        | Status | API Usage                                                                                                           | Description                                                       |
-|----------------|--------|---------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| ----           | -----  | STORAGE COMMANDS                                                                                                    | ---                                                               |
-| Set            | ✅      | `Set(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                   | Set a key-value pair to memcached                                 |
-| Add            | ✅      | `Add(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                   | Add a key-value pair to memcached                                 |
-| Replace        | ✅      | `Replace(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`               | Replace a key-value pair to memcached                             |
-| Append         | ✅      | `Append(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`                | Append a value to the key                                         |
-| Prepend        | ✅      | `Prepend(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration) error`               | Prepend a value to the key                                        |
-| Cas            | ✅      | `Cas(ctx context.Context, key string, value []byte, flag uint32, expiry time.Duration, cas uint64) error`       | Compare and set a key-value pair to memcached                     |
-| ----           | -----  | RETRIEVAL COMMANDS                                                                                                  | ---                                                               |
-| Gets           | ✅      | `Gets(ctx context.Context, keys ...string) ([]*Item, error)`                                                        | Get a value by key from memcached with cas value                  |
-| Get            | ✅      | `Get(ctx context.Context, key string) (*Item, error)`                                                               | Get a value by key from memcached                                 |
-| GetAndTouch    | ✅      | `GetAndTouch(ctx context.Context, expiry time.Duration, key string) (*Item, error)`                                 | Get a value by key from memcached and touch the key's expire time |
-| GetAndTouches  | ✅      | `GetAndTouches(ctx context.Context, expiry time.Duration, keys ...string) ([]*Item, error)`                         | Get a value by key from memcached and touch the key's expire time |
-| -----          | -----  | OTHER COMMANDS                                                                                                      | ---                                                               |
-| Delete         | ✅      | `Delete(ctx context.Context, key string) error`                                                                     | Delete a key-value pair from memcached                            |
-| Incr           | ✅      | `Incr(ctx context.Context, key string, delta uint64) (uint64, error)`                                               | Increment a key's value                                           |
-| Decr           | ✅      | `Decr(ctx context.Context, key string, delta uint64) (uint64, error)`                                               | Decrement a key's value                                           |
-| Touch          | ✅      | `Touch(ctx context.Context, key string, expiry uint32) error`                                                       | Touch a key's expire time                                         |
-| MetaGet        | ✅      | `MetaGet(ctx context.Context, key []byte, options ...MetaGetOption) (*MetaItem, error)`                             | Get a key's meta information                                      |
-| MetaSet        | ✅      | `MetaSet(ctx context.Context, key, value []byte, options ...MetaSetOption) (*MetaItem, error)`                      | Set a key's meta information                                      |
-| MetaDelete     | ✅      | `MetaDelete(ctx context.Context, key []byte, options ...MetaDeleteOption) (*MetaItem, error)`                       | Delete a key's meta information                                   |
-| MetaArithmetic | ✅      | `MetaArithmetic(ctx context.Context, key []byte, delta uint64, options ...MetaArithmeticOption) (*MetaItem, error)` | Arithmetic a key's meta information                               |
-| MetaDebug      | ✅      | `MetaDebug(ctx context.Context, key []byte, options ...MetaDebugOption) (*MetaItemDebug, error)`                    | Debug a key's meta information                                    |
-| MetaNoop       | ✅      | `MetaNoop(ctx context.Context) error`                                                                               | Noop a key's meta information                                     |
-| Version        | ✅      | `Version(ctx context.Context) (string, error)`                                                                      | Get memcached server version                                      |
-| FlushAll       | ✅      | `FlushAll(ctx context.Context) error`                                                                               | Flush all keys in memcached server                                |
-
-### Development Guide
-
-#### Prerequisites
-
-- Go 1.26 or higher
-- Python (for pre-commit hooks) or just `brew install pre-commit` on MacOS
-- Docker (for running memcached in tests)
-
-#### Setting up development environment
-
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/yeqown/memcached.git
-    cd memcached
-    ```
-2. Install pre-commit hooks:
-    ```bash
-    pip install pre-commit
-    # or MacOS
-    # brew install pre-commit
-
-    pre-commit install
-    ```
-3. Install golangci-lint:
-    ```bash
-    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-    ```
-
-#### Running Tests
-
-```bash
-go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
-```
-
-#### Code Style
-
-This project follows the standard Go code style guidelines and uses golangci-lint for additional checks. The configuration can be found in [.golangci.yml](./.golangci.yml).
-
-Key points:
-- Follow Go standard formatting (enforced by gofmt )
-- Ensure all code is properly tested
-- Write clear commit messages
-- Document public APIs
+- [Usage guide: commands, routing, codecs, telemetry, and transport](./docs/usage.md)
+- [Examples](./example/) and [Go API reference](https://pkg.go.dev/github.com/yeqown/memcached)
+- [CLI installation and commands](./cmd/memcached-cli/README.md)
+- [MC-COMPRESS flag format](./docs/MC-COMPRESS-SPEC-v1.0.md)
