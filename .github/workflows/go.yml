@@ -26,6 +26,9 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     services:
       memcached:
         image: memcached:latest
@@ -47,7 +50,8 @@ jobs:
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v7
       with:
-        file: ./coverage.txt
+        files: ./coverage.txt
         flags: unittests
+        use_oidc: true
