@@ -49,12 +49,19 @@ jobs:
     - name: Run Tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+    - name: Save coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: coverage.txt
+        if-no-files-found: error
+
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7
+      continue-on-error: true
       with:
         files: ./coverage.txt
         flags: unittests
         fail_ci_if_error: true
         use_oidc: true
         use_pypi: true
-        use_legacy_upload_endpoint: true
