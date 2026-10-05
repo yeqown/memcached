@@ -2,6 +2,14 @@
 
 The memcached-cli is a simple command line interface to memcached.
 
+### Installation
+
+Requires Go 1.26 or newer:
+
+```bash
+go install github.com/yeqown/memcached/cmd/memcached-cli@latest
+```
+
 ### Features
 
 #### Context Management
