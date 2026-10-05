@@ -13,14 +13,14 @@
 | 能力 | bradfitz/gomemcache | 本项目 |
 | --- | --- | --- |
 | 逐调用 Context 与截止时间 | `Get(key)` / `Set(item)` 不接收调用方的 Context | `Get(ctx, key)` / `Set(ctx, ...)`；支持 Context 截止时间，并可分别设置连接、读取、写入超时 |
-| Meta 文本协议 | 没有 Meta 命令 API | `MetaGet`、`MetaSet`、`MetaDelete`、`MetaArithmetic`、`MetaDebug`、`MetaNoOp`；支持 CAS、TTL、失效与提前刷新标志 |
-| 连接池限制 | 可设置 `MaxIdleConns` | 按节点设置最大连接数、最大空闲连接数、连接寿命和空闲超时 |
+| Meta 文本协议 | 没有 Meta 命令 API | `MetaGet`、`MetaSet`、`MetaDelete`、`MetaArithmetic`、`MetaDebug`、`MetaNoOp`；支持 CAS、TTL 等选项，但尚未暴露全部提前刷新响应标志 |
+| 连接池限制 | 每个地址复用连接，可设置 `MaxIdleConns` | 同样每个地址一个池；额外提供 `MaxConns`、连接寿命和空闲超时，选项值应用到所有节点；并发建连时 `MaxConns` 不是严格上限 |
 | 值压缩 | 没有内置编解码器 | 可插拔 `Codec`；兼容 MC-COMPRESS 的 Deflate、LZ4、Snappy、Zstd 压缩 |
 | OpenTelemetry | 没有内置观测功能 | 按需启用链路追踪和操作指标 |
 | 内置路由策略 | CRC32 `ServerList` 或自定义选择器 | CRC32、Murmur3、Rendezvous 哈希，或自定义地址解析器、节点选择器 |
 | 配套工具 | 客户端库 | 交互式 [CLI](./cmd/memcached-cli/README.md) 和 [Wails GUI](./gui/README.md) |
 
-对比依据为已核查的 gomemcache [提交 `24af94b`](https://github.com/bradfitz/gomemcache/tree/24af94b03874)；上游后续版本可能有变化。
+对比依据为已核查的 gomemcache [提交 `4d751bb`](https://github.com/bradfitz/gomemcache/tree/4d751bb6e37cf0da5fd57a86b880f76791307adf)；上游后续版本可能有变化。
 
 API 还提供 `GetAndTouch`、`GetAndTouches`、`Stats`、`Version`，以及常见的存取、删除和计数命令。UDP 可按需启用。完整命令清单和使用限制见[进阶使用指南](./docs/usage.md)。
 

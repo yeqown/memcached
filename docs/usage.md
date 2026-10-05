@@ -24,7 +24,7 @@ item, err := client.MetaGet(ctx, []byte("article:1"),
 )
 ```
 
-Other meta options expose client flags, size, opaque tokens, stale items, and recache coordination. See [the meta example](../example/meta.go) and [Go API reference](https://pkg.go.dev/github.com/yeqown/memcached) for the full option list.
+Other meta options cover client flags, size, opaque tokens, invalidation, and recache-related request flags. `MetaItem` does not expose W/X/Z response markers, so a complete stale/recache workflow is not available through the typed API. See [the meta example](../example/meta.go) and [Go API reference](https://pkg.go.dev/github.com/yeqown/memcached) for the option list.
 
 ## Multiple servers and connection pools
 
