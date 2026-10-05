@@ -13,14 +13,14 @@ Both clients support basic text commands, CAS, multi-server routing, connection 
 | Capability | bradfitz/gomemcache | This package |
 | --- | --- | --- |
 | Per-operation context and deadlines | `Get(key)` / `Set(item)` have no call context | `Get(ctx, key)` / `Set(ctx, ...)`; context deadlines and separate dial, read, and write timeouts |
-| Meta text protocol | No meta command API | `MetaGet`, `MetaSet`, `MetaDelete`, `MetaArithmetic`, `MetaDebug`, `MetaNoOp`; CAS, TTL, stale and recache flags |
-| Connection limits | Configurable `MaxIdleConns` | Maximum open and idle connections per node, lifetime, and idle timeout |
+| Meta text protocol | No meta command API | `MetaGet`, `MetaSet`, `MetaDelete`, `MetaArithmetic`, `MetaDebug`, `MetaNoOp`; CAS and TTL options, but not all recache response markers are exposed |
+| Connection limits | Reuses connections per address; configurable `MaxIdleConns` | Also pools per address; adds `MaxConns`, lifetime, and idle timeout for every node; `MaxConns` is not a strict cap during concurrent dialing |
 | Value compression | No built-in codec | Pluggable `Codec`; MC-COMPRESS-compatible Deflate, LZ4, Snappy, and Zstd |
 | OpenTelemetry | No built-in instrumentation | Opt-in tracing and operation metrics |
 | Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, or a custom resolver/picker |
 | Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./gui/README.md) |
 
-Comparison checked against gomemcache [revision `24af94b`](https://github.com/bradfitz/gomemcache/tree/24af94b03874); later upstream changes may differ.
+Comparison checked against gomemcache [revision `4d751bb`](https://github.com/bradfitz/gomemcache/tree/4d751bb6e37cf0da5fd57a86b880f76791307adf); later upstream changes may differ.
 
 The API also provides `GetAndTouch`, `GetAndTouches`, `Stats`, `Version`, and the usual storage, retrieval, deletion, and counter commands. UDP is available as an opt-in transport. See the [usage guide](./docs/usage.md) for the full command list and operational limits.
 
