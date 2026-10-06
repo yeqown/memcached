@@ -1,34 +1,47 @@
-linters-settings:
-  revive:
-    disable:
-      - exported
-      - var-naming
+version: "2"
 
-  staticcheck:
-    checks:
-      - QF1008
-    disabled:
-      - QF1008
+run:
+  timeout: 5m
 
 linters:
+  default: none
   enable:
     - revive
     - govet
     - errcheck
     - ineffassign
-  disable:
-    - unused
     - staticcheck
+  settings:
+    staticcheck:
+      # Preserve the former gosimple checks, which moved into staticcheck in v2.
+      checks:
+        - S*
+    revive:
+      enable-default-rules: true
+      rules:
+        - name: exported
+          disabled: true
+        - name: var-naming
+          disabled: true
+  exclusions:
+    generated: lax
+    presets: []
+    rules:
+      - path: (.+)\.go$
+        text: "var-naming: avoid package names that conflict with Go standard library"
+      - path: (.+)\.go$
+        text: "could remove embedded field.*Mutex"
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 
 formatters:
   enable:
     - gofumpt
-
-run:
-  deadline: 5m
-
-issues:
-  exclude-use-default: false
-  exclude:
-    - "var-naming: avoid package names that conflict with Go standard library"
-    - "could remove embedded field.*Mutex"
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
