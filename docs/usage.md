@@ -156,4 +156,4 @@ With a meter provider configured, discovery also records `memcached.discovery.re
 - `WithNoReply()` skips acknowledgments for supported write commands; use it only when the application can tolerate missing server-side errors. `Incr` and `Decr` return zero in this mode.
 - `WithSASL(username, password)` remains for legacy binary-protocol authentication and is deprecated because the binary protocol is deprecated.
 
-The repository also contains an [interactive CLI](../cmd/memcached-cli/README.md) and a [Wails desktop GUI](../gui/README.md).
+The repository also contains an [interactive CLI](../cmd/memcached-cli/README.md) and a [Wails desktop GUI](../cmd/gui/README.md).

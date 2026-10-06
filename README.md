@@ -19,7 +19,7 @@ Both clients support basic text commands, CAS, multi-server routing, connection 
 | OpenTelemetry | No built-in instrumentation | Opt-in tracing, operation metrics, and discovery/topology metrics |
 | Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, stable rendezvous hashing, or a custom picker |
 | Node discovery | Configure addresses through a selector | The `resolver` package provides static addresses and AWS / Google discovery; custom resolvers decide the next refresh time |
-| Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./gui/README.md) |
+| Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./cmd/gui/README.md) |
 
 Comparison checked against gomemcache [revision `4d751bb`](https://github.com/bradfitz/gomemcache/tree/4d751bb6e37cf0da5fd57a86b880f76791307adf); later upstream changes may differ.
 

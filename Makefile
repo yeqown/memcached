@@ -38,16 +38,16 @@ install:
 # GUI targets
 gui-dev:
 	@echo "Starting GUI dev server"
-	@cd gui && wails dev
+	@cd cmd/gui && wails dev
 
 gui-build:
 	@echo "Building GUI application"
-	@cd gui && wails build
+	@cd cmd/gui && wails build
 
 gui-test:
 	@echo "Running GUI backend tests"
-	@cd gui && go test -v -race ./service/...
+	@cd cmd/gui && go test -v -race ./service/...
 
 gui-clean:
 	@echo "Cleaning GUI build artifacts"
-	@cd gui && rm -rf build/bin frontend/dist
+	@cd cmd/gui && rm -rf build/bin frontend/dist

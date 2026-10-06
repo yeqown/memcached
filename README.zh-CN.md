@@ -19,7 +19,7 @@
 | OpenTelemetry | 没有内置观测功能 | 按需启用链路追踪、操作指标和发现、拓扑指标 |
 | 内置路由策略 | CRC32 `ServerList` 或自定义选择器 | CRC32、Murmur3、Rendezvous 哈希、稳定 Rendezvous 哈希，或自定义节点选择器 |
 | 节点发现 | 通过选择器配置地址 | `resolver` 包内置静态解析、AWS / Google 自动发现；自定义 Resolver 决定下次刷新时间 |
-| 配套工具 | 客户端库 | 交互式 [CLI](./cmd/memcached-cli/README.md) 和 [Wails GUI](./gui/README.md) |
+| 配套工具 | 客户端库 | 交互式 [CLI](./cmd/memcached-cli/README.md) 和 [Wails GUI](./cmd/gui/README.md) |
 
 对比依据为已核查的 gomemcache [提交 `4d751bb`](https://github.com/bradfitz/gomemcache/tree/4d751bb6e37cf0da5fd57a86b880f76791307adf)；上游后续版本可能有变化。
 

@@ -3,6 +3,7 @@ __pycache__/
 .idea/
 .DS_Store
 AGENTS.md
+.codegraph/
 
 contexts.json
 
