@@ -29,7 +29,7 @@ func mustCompressCodec(t *testing.T, algorithm memcodec.Compression, threshold, 
 
 func (su *clientTestSuite) SetupSuite() {
 	addrs := "localhost:11211"
-	c, err := newClientWithContext(context.Background(), addrs)
+	c, err := NewWithContext(context.Background(), addrs)
 	su.Require().NoError(err)
 	su.client = c.(*client)
 }
@@ -40,7 +40,7 @@ func (su *clientTestSuite) TearDownSuite() {
 }
 
 func (su *clientTestSuite) newCompressedClient() *client {
-	c, err := newClientWithContext(
+	c, err := NewWithContext(
 		context.Background(),
 		"localhost:11211",
 		WithCodec(mustCompressCodec(su.T(), memcodec.CompressionAlgorithmDeflate, 1, 6)),
@@ -65,17 +65,14 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 
 	wg := sync.WaitGroup{}
 	limits := 100
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			for counter := 0; counter < limits; counter++ {
+	for range 10 {
+		wg.Go(func() {
+			for range limits {
 				req, resp := buildGetsCommand("get", key)
 				err := su.client.dispatchRequest(ctx, req, resp)
 				su.Require().NoError(err)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -332,41 +329,8 @@ func TestNewCompressCodecInstallsCompressionBehavior(t *testing.T) {
 }
 
 func TestClientSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires a memcached server on localhost:11211")
+	}
 	suite.Run(t, new(clientTestSuite))
-}
-
-func Test_udp(t *testing.T) {
-	t.Skipf("skip test_udp, since it could not run in CI")
-
-	addrs := "udp://localhost:11211"
-	c, err := newClientWithContext(context.Background(), addrs, WithUDPEnabled())
-	if err != nil {
-		t.Fatalf("Failed to create client: %+v", err)
-	}
-	assert.NoError(t, err)
-	assert.NotNil(t, c)
-
-	ver, err := c.Version(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to get version: %+v", err)
-	}
-	assert.NoError(t, err)
-	assert.NotEmpty(t, ver)
-
-	t.Logf("version: %s", ver)
-}
-
-func Test_unix(t *testing.T) {
-	t.Skipf("skip test_unix, since it could not run in CI")
-
-	addrs := "unix:///tmp/memcached.sock"
-	c, err := newClientWithContext(context.Background(), addrs)
-	require.NoError(t, err)
-	require.NotNil(t, c)
-
-	ver, err := c.Version(context.Background())
-	require.NoError(t, err)
-	require.NotEmpty(t, ver)
-
-	t.Logf("version: %s", ver)
 }

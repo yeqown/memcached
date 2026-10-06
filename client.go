@@ -8,9 +8,10 @@ import (
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -28,132 +29,91 @@ type Client interface {
 var _ Client = (*client)(nil)
 
 type client struct {
-	options *clientOptions
+	options *clientOptions // client dynamic options to control the behavior of the client.
+	target  string         // input target, which can be a comma-separated static address list or a custom resolver target.
 
-	// addrs represents the list of memcached addresses.
-	// each one of them means a memcached server instance.
-	addrs []*Addr
+	mu         sync.RWMutex                      // guards active addresses and topologyIns membership
+	active     []*resolver.Addr                  // all active addresses, in the order they were discovered
+	instances  map[resolver.AddrKey]*topologyIns // active instances, keyed by address
+	generation uint64                            // topology generation, snapshot of the current topology(copy of resolver.generation)
 
-	// picker represents the picker strategy.
-	// it is used to pick a memcached server instance to execute a command.
-	picker Picker
-
-	mu        sync.Mutex // guards following
-	connPools map[*Addr]*connPool
+	ctx      context.Context    // canceled when shutdown starts
+	cancelFn context.CancelFunc // called to cancel ctx
 
 	// telemetry holds the OpenTelemetry tracers and metrics.
 	tracer  *telemetry.Tracer
 	metrics *telemetry.Metrics
 }
 
-// New creates a new memcached client with the given address and options.
+// New creates a Client for a comma-separated static address list or a custom
+// resolver target. The resolver controls when discovery runs again; each
+// attempt is bounded by WithResolveTimeout (five seconds by default).
 //
-// The client contains a connection pool to manage the connections to
-// one memcached instance. And it can manage multiple memcached instances with
-// cluster mode.
-//
-// The Cluster mode means that the client can connect to multiple memcached instances
-// and automatically pick a memcached instance to execute a command, of course,
-// the client makes sure that the same key will be executed on the same memcached instance.
-// Be careful, there are some `keys` command does not obey this rule, such as `gets`, `gats`.
+// Each request retains its selected instance until its connection is returned.
+// Gets and GetAndTouches send all requested keys to the node selected by the
+// first key; callers must ensure those keys reside together.
 func New(addr string, opts ...ClientOption) (Client, error) {
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return newClientWithContext(timeoutCtx, addr, opts...)
+	return NewWithContext(context.Background(), addr, opts...)
 }
 
-func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) (Client, error) {
+// NewWithContext creates a Client with target address and context.
+// The context is used for the initial resolve ONLY.
+func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Client, error) {
 	options := newClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	addrs, err := options.resolver.Resolve(addr)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve failed")
-	}
-
-	if len(addrs) == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
-	}
-	picker := options.pickBuilder.Build(addrs)
-
-	// Initialize telemetry
 	cfg := telemetry.NewConfig(options.telemetryOptions...)
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 
-	return &client{
+	c := &client{
 		options: options,
-		addrs:   addrs,
-		picker:  picker,
+		target:  addr,
 
-		mu:        sync.Mutex{},
-		connPools: make(map[*Addr]*connPool, 4),
+		mu:         sync.RWMutex{},
+		active:     make([]*resolver.Addr, 0, 2),
+		instances:  make(map[resolver.AddrKey]*topologyIns),
+		generation: 0,
+
+		ctx:      lifecycleCtx,
+		cancelFn: lifecycleCancel,
 
 		tracer:  cfg.Tracer(),
 		metrics: cfg.Metrics(),
-	}, nil
+	}
+
+	next, err := c.resolve(ctx)
+	if err != nil {
+		lifecycleCancel()
+		return nil, pkgerrors.Wrap(err, "resolve failed")
+	}
+
+	go c.resolverLoop(lifecycleCtx, next)
+
+	return c, nil
 }
 
-func (c *client) Close() error {
+func (c *client) Close() error { return c.shutdown() }
+
+func (c *client) shutdown() (err error) {
+	c.cancelFn() // Cancellation is the closed state; synchronize it with selection and updates.
+
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	count, generation := len(c.active), c.generation
 
-	for _, pool := range c.connPools {
-		if err := pool.close(); err != nil {
-			return errors.Wrap(err, "Close")
+	for _, inst := range c.instances {
+		inst.drop()
+		if err = inst.close(); err != nil {
+			err = multierror.Append(err, err)
 		}
 	}
-
-	return nil
-}
-
-// getConn returns a true connection from the pool.
-func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
-	c.mu.Lock()
-	pool, ok := c.connPools[addr]
-	if ok {
-		c.mu.Unlock()
-		cn, err := pool.get(ctx)
-		return cn, err
-	}
-
-	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
-		switch addr.Network {
-		case
-			"tcp", "tcp4", "tcp6",
-			"unix",
-			"udp", "udp4", "udp6":
-		default:
-			return nil, ErrInvalidNetworkProtocol
-		}
-
-		cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
-		if err != nil {
-			return nil, errors.Wrap(err, "newConnContext failed")
-		}
-
-		// SASL auth if enabled
-		if c.options.enableSASL {
-			if err = authSASL(cn, c.options.plainUsername, c.options.plainPassword); err != nil {
-				_ = cn.Close()
-				return nil, err
-			}
-		}
-
-		return cn, nil
-	}
-
-	// could not find a pool for the given addr, create a new one
-	pool = newConnPool(
-		c.options.maxIdleConns, c.options.maxConns,
-		c.options.maxLifetime, c.options.maxIdleTimeout,
-		wrapNewConn,
-	)
-	c.connPools[addr] = pool
+	c.active, c.instances = nil, nil
 	c.mu.Unlock()
 
-	cn, err := pool.get(ctx)
-	return cn, err
+	c.metrics.RecordTopology(context.Background(), count, generation)
+
+	return err
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
@@ -170,17 +130,19 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	default:
 	}
 
+	instances, err := c.acquireInstances()
+	if err != nil {
+		return pkgerrors.Wrap(err, "acquire instances failed")
+	}
 	wg := sync.WaitGroup{}
 
-	errCh := make(chan error, len(c.addrs))
+	errCh := make(chan error, len(instances))
 
-	for _, addr := range c.addrs {
-		wg.Add(1)
-		addrCopy := addr
-		go func() {
-			defer wg.Done()
+	for _, inst := range instances {
+		wg.Go(func() {
+			defer inst.release()
 
-			cn, err := c.getConn(ctx, addrCopy)
+			cn, err := inst.getConn(ctx)
 			if err != nil {
 				errCh <- err
 				return
@@ -190,7 +152,7 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 			if err = call(ctx, cn); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -211,11 +173,12 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 	default:
 	}
 
-	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
+	inst, err := c.pickInstance(req.cmd, req.key)
 	if err != nil {
-		return errors.Wrap(err, "pick node failed")
+		return err
 	}
-
+	defer inst.release()
+	addr := inst.addr
 	// START: Telemetry
 	start := time.Now()
 	var span trace.Span
@@ -224,7 +187,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 	}
 	// END: Telemetry
 
-	cn, err := c.getConn(ctx, addr)
+	cn, err := inst.getConn(ctx)
 	if err != nil {
 		if c.tracer != nil {
 			c.tracer.End(span, err)
@@ -232,7 +195,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		if c.metrics != nil {
 			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
 		}
-		return errors.Wrap(err, "alloc connection failed")
+		return pkgerrors.Wrap(err, "alloc connection failed")
 	}
 	defer func() { _ = cn.release() }()
 
@@ -245,7 +208,7 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		if c.metrics != nil {
 			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
 		}
-		return errors.Wrap(err, "send failed")
+		return pkgerrors.Wrap(err, "send failed")
 	}
 
 	recvErr := resp.recv(ctx, cn, c.options.readTimeout)
@@ -275,29 +238,29 @@ func authSASL(conn memcachedConn, username, password string) error {
 	// 1. first, list mechanisms the server supports
 	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	if !bytes.Contains(resp.value, []byte("PLAIN")) {
-		return errors.New("memcached server does not support PLAIN mechanism")
+		return pkgerrors.New("memcached server does not support PLAIN mechanism")
 	}
 
 	// 2. choose one mechanism and send the authentication request
 	req, resp = saslAuthRequestPlain(username, password)
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	return nil
