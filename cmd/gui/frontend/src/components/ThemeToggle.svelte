@@ -1,34 +1,33 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { themeMode } from '../stores/app'
+  import { themeMode, type ThemeMode } from '../stores/app'
 
-  function resolveActual(mode: string): string {
+  function resolveActual(mode: ThemeMode): 'light' | 'dark' {
     if (mode === 'system') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
     }
     return mode
   }
 
-  function applyTheme(mode: string) {
+  function applyTheme(mode: ThemeMode) {
     const actual = resolveActual(mode)
     document.documentElement.setAttribute('data-theme', actual)
   }
 
-  function handleSwitch(mode: string) {
+  function handleSwitch(mode: ThemeMode) {
     themeMode.set(mode)
     localStorage.setItem('memcached-gui-theme', mode)
     applyTheme(mode)
   }
 
   const saved = localStorage.getItem('memcached-gui-theme')
-  const initial = saved || 'system'
+  const initial: ThemeMode = saved === 'light' || saved === 'dark' ? saved : 'system'
   themeMode.set(initial)
   applyTheme(initial)
 
   const mql = window.matchMedia('(prefers-color-scheme: dark)')
   function onSystemChange() {
-    const current = localStorage.getItem('memcached-gui-theme') || 'system'
-    if (current === 'system') {
+    if ($themeMode === 'system') {
       applyTheme('system')
     }
   }
@@ -38,7 +37,7 @@
     mql.removeEventListener('change', onSystemChange)
   })
 
-  const options = [
+  const options: { id: ThemeMode; label: string; title: string }[] = [
     { id: 'system', label: 'System', title: 'Follow system' },
     { id: 'light', label: 'Light', title: 'Light theme' },
     { id: 'dark', label: 'Dark', title: 'Dark theme' },
