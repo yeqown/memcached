@@ -173,7 +173,12 @@ func (m *Metrics) RecordTopology(ctx context.Context, nodes int, generation uint
 }
 
 // RecordDuration records the operation duration.
+// A nil Metrics does nothing.
 func (m *Metrics) RecordDuration(ctx context.Context, operation, server string, duration time.Duration, err error) {
+	if m == nil {
+		return
+	}
+
 	attrs := []attribute.KeyValue{
 		attrDBSystem.String("memcached"),
 		attrDBOperation.String(operation),

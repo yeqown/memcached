@@ -9,10 +9,9 @@ import (
 
 func TestBuiltInPickersEmptyAndSingleNode(t *testing.T) {
 	for name, p := range map[string]Picker{
-		"crc32":             NewCRC32HashPicker(),
-		"murmur3":           NewMurmur3HashPicker(42),
-		"rendezvous":        NewRendezvousHashPicker(42),
-		"stable rendezvous": NewStableRendezvousHashPicker(42),
+		"crc32":      NewCRC32HashPicker(),
+		"murmur3":    NewMurmur3HashPicker(42),
+		"rendezvous": NewRendezvousHashPicker(42),
 	} {
 		t.Run(name, func(t *testing.T) {
 			addr, err := p.Pick(nil, []byte("get"), []byte("key"))

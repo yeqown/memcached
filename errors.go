@@ -5,11 +5,12 @@ import (
 	"github.com/yeqown/memcached/resolver"
 )
 
-// Client and instance state.
+// Client and node state.
 var (
 	// ErrClientClosed is returned when a client or its connection pool is closed.
 	ErrClientClosed = errors.New("client is closed")
-	// ErrInstanceAbnormal represents an abnormal instance error.
+	// ErrInstanceAbnormal is returned when a node no longer accepts new requests.
+	// The name is retained for API compatibility.
 	ErrInstanceAbnormal = errors.New("instance is abnormal")
 )
 

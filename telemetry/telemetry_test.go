@@ -83,11 +83,13 @@ func TestClientEmitsDiscoveryMetrics(t *testing.T) {
 		synctest.Wait()
 		require.Equal(t, 3, calls, "nil schedule must stop discovery")
 		require.NoError(t, c.Close())
-		require.Equal(t, []float64{2, 3, 0}, meter.values("memcached.topology.nodes"))
-		require.Equal(t, []float64{1, 2, 2}, meter.values("memcached.topology.generation"))
+		require.Equal(t, []float64{2, 3}, meter.values("memcached.topology.nodes"),
+			"close does not publish a topology change")
+		require.Equal(t, []float64{1, 2}, meter.values("memcached.topology.generation"))
 		require.NoError(t, c.Close())
-		require.Equal(t, []float64{2, 3, 0}, meter.values("memcached.topology.nodes"),
+		require.Equal(t, []float64{2, 3}, meter.values("memcached.topology.nodes"),
 			"repeated close must not emit another topology change")
+		require.Equal(t, []float64{1, 2}, meter.values("memcached.topology.generation"))
 
 		var clientID string
 		for _, point := range meter.points {
@@ -187,6 +189,28 @@ func TestClientUnchangedGenerationOnlyUpdatesDiscoveryMetrics(t *testing.T) {
 
 type metricsResolver func(context.Context, string) (memresolver.ResolveResult, *time.Time, error)
 
+func TestClientSourceGenerationChangeUpdatesGauge(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		meter := &clientMetricsMeter{}
+		var generation uint64
+		r := metricsResolver(func(context.Context, string) (memresolver.ResolveResult, *time.Time, error) {
+			generation++
+			result := memresolver.ResolveResult{Generation: generation, Addrs: []*memresolver.Addr{memresolver.NewAddr("tcp", "a:11211", 0)}}
+			if generation == 1 {
+				next := time.Now().Add(time.Hour)
+				return result, &next, nil
+			}
+			return result, nil, nil
+		})
+		c, err := memcached.New("directory", memcached.WithResolver(r), memcached.WithTelemetry(telemetry.WithMeterProvider(clientMetricsProvider{meter: meter})))
+		require.NoError(t, err)
+		defer func() { require.NoError(t, c.Close()) }()
+		time.Sleep(time.Hour)
+		synctest.Wait()
+		require.Equal(t, []float64{1, 2}, meter.values("memcached.topology.generation"), "source generation changes must be observable without replacing nodes")
+	})
+}
+
 func (r metricsResolver) Resolve(ctx context.Context, target string) (memresolver.ResolveResult, *time.Time, error) {
 	return r(ctx, target)
 }
@@ -277,3 +301,5 @@ func (r clientFloatRecorder) Record(_ context.Context, value float64, options ..
 	config := metric.NewRecordConfig(options)
 	r.meter.capture(r.name, value, config.Attributes())
 }
+
+func (metricsResolver) Close() error { return nil }

@@ -29,11 +29,9 @@ func (r Static) Resolve(ctx context.Context, addr string) (ResolveResult, *time.
 
 	addrs := strings.Split(addr, ",")
 	result := make([]*Addr, 0, len(addrs))
+	seen := make(map[AddrKey]struct{}, len(addrs))
 
 	for idx, address := range addrs {
-		if err := ctx.Err(); err != nil {
-			return ResolveResult{}, nil, err
-		}
 		address = strings.TrimSpace(address)
 		if address == "" {
 			continue
@@ -44,7 +42,12 @@ func (r Static) Resolve(ctx context.Context, addr string) (ResolveResult, *time.
 			return ResolveResult{}, nil, err
 		}
 
-		result = append(result, NewAddr(network, resolvedAddr, idx))
+		node := NewAddr(network, resolvedAddr, idx)
+		if _, duplicate := seen[node.AddrKey]; duplicate {
+			return ResolveResult{}, nil, errors.Wrap(ErrInvalidAddress, "duplicate node address")
+		}
+		seen[node.AddrKey] = struct{}{}
+		result = append(result, node)
 	}
 
 	if len(result) == 0 {
@@ -53,3 +56,6 @@ func (r Static) Resolve(ctx context.Context, addr string) (ResolveResult, *time.
 
 	return ResolveResult{Addrs: result}, nil, nil
 }
+
+// Close releases no resources for a static resolver.
+func (Static) Close() error { return nil }

@@ -18,11 +18,16 @@ import (
 // the same discovery endpoint.
 var ErrStaleConfig = errors.New("stale cluster configuration")
 
-var _ Resolver = (*AutoDiscovery)(nil)
+var (
+	_ Resolver  = (*AutoDiscovery)(nil)
+	_ io.Closer = (*AutoDiscovery)(nil)
+)
 
 // AutoDiscovery discovers AWS ElastiCache and Google Memorystore Memcached
-// nodes using the shared ASCII config get cluster protocol. Each Resolve uses
-// a separate TCP connection and honors the request's context.
+// nodes using the shared ASCII config get cluster protocol. It reuses one TCP
+// connection and returns its last successful configuration on timeout.
+// Each instance belongs to one client, which closes it when no longer needed.
+// The zero value uses the default refresh interval of one minute.
 //
 // See [AWS Auto Discovery] and [Google Memorystore Auto Discovery] for service
 // documentation, and [Memcache auto-discovery protocol] for the wire format.
@@ -34,8 +39,16 @@ var _ Resolver = (*AutoDiscovery)(nil)
 // [Google's reference parser]: https://github.com/google/gomemcache/blob/master/memcache/cluster_config_parser.go
 type AutoDiscovery struct {
 	refreshInterval time.Duration
-	mu              sync.Mutex
-	versions        map[string]uint64
+	initOnce        sync.Once
+	ctx             context.Context
+	cancelFn        context.CancelFunc
+	resolveGate     chan struct{}
+
+	// resolveGate serializes access to the connection and its cached result.
+	target  string
+	conn    net.Conn
+	scanner *bufio.Scanner
+	cached  ResolveResult
 }
 
 // NewAutoDiscovery creates a resolver that polls again refreshInterval after
@@ -43,29 +56,41 @@ type AutoDiscovery struct {
 // The client supplies each attempt's timeout through WithResolveTimeout.
 // Only config get cluster is supported; legacy get discovery is not attempted.
 func NewAutoDiscovery(refreshInterval time.Duration) *AutoDiscovery {
-	if refreshInterval <= 0 {
-		refreshInterval = time.Minute
-	}
-	return &AutoDiscovery{refreshInterval: refreshInterval, versions: make(map[string]uint64)}
+	return &AutoDiscovery{refreshInterval: refreshInterval}
+}
+
+func (r *AutoDiscovery) initialize() {
+	r.initOnce.Do(func() {
+		if r.refreshInterval <= 0 {
+			r.refreshInterval = time.Minute
+		}
+		r.ctx, r.cancelFn = context.WithCancel(context.Background())
+		r.resolveGate = make(chan struct{}, 1)
+	})
 }
 
 // Resolve retrieves a complete cluster config and schedules another attempt.
 // Target is a host:port address, optionally prefixed with tcp://, tcp4:// or
 // tcp6://. IP addresses from the config take precedence over hostnames.
 func (r *AutoDiscovery) Resolve(ctx context.Context, target string) (result ResolveResult, nextResolveAt *time.Time, err error) {
+	r.initialize()
 	defer func() {
-		interval := r.refreshInterval
-		if interval <= 0 {
-			interval = time.Minute
-		}
-		next := time.Now().Add(interval)
+		next := time.Now().Add(r.refreshInterval)
 		nextResolveAt = &next
-		if contextErr := ctx.Err(); contextErr != nil {
-			result, err = ResolveResult{}, contextErr
-		}
 	}()
 	if err := ctx.Err(); err != nil {
 		return ResolveResult{}, nil, err
+	}
+	select {
+	case <-ctx.Done():
+		return ResolveResult{}, nil, ctx.Err()
+	case <-r.ctx.Done():
+		return ResolveResult{}, nil, net.ErrClosed
+	case r.resolveGate <- struct{}{}:
+	}
+	defer func() { <-r.resolveGate }()
+	if r.ctx.Err() != nil {
+		return ResolveResult{}, nil, net.ErrClosed
 	}
 	network, address, err := resolveAddr(target)
 	if err != nil {
@@ -75,14 +100,67 @@ func (r *AutoDiscovery) Resolve(ctx context.Context, target string) (result Reso
 		return ResolveResult{}, nil, fmt.Errorf("%w: discovery requires TCP", ErrInvalidNetworkProtocol)
 	}
 	endpoint := network + "://" + address
-	cn, err := (&net.Dialer{}).DialContext(ctx, network, address)
-	if err != nil {
-		return ResolveResult{}, nil, fmt.Errorf("dial discovery endpoint: %w", err)
+	if endpoint != r.target {
+		_ = r.closeConn()
+		r.target, r.cached = endpoint, ResolveResult{}
 	}
-	defer func() { _ = cn.Close() }()
+	attemptCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(r.ctx, cancel)
+	defer func() { stop(); cancel() }()
+	result, err = r.fetch(attemptCtx, network, address)
+	if r.ctx.Err() != nil {
+		_ = r.closeConn()
+		return ResolveResult{}, nil, net.ErrClosed
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		err = contextErr
+	}
+	if err != nil {
+		// A failed exchange may leave a partial command or response on the wire.
+		// Preserve the exchange error even if closing the connection also fails.
+		_ = r.closeConn()
+		var netErr net.Error
+		timedOut := errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout()
+		if timedOut && len(r.cached.Addrs) > 0 {
+			return cloneConfig(r.cached), nil, nil
+		}
+		// Socket deadlines can fire before the context's cancellation timer.
+		if timedOut {
+			if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+				return ResolveResult{}, nil, context.DeadlineExceeded
+			}
+		}
+		return ResolveResult{}, nil, err
+	}
+	if len(r.cached.Addrs) > 0 {
+		if result.Generation < r.cached.Generation {
+			return ResolveResult{}, nil, ErrStaleConfig
+		}
+		if result.Generation == r.cached.Generation {
+			return cloneConfig(r.cached), nil, nil
+		}
+	}
+	r.cached = result
+	return cloneConfig(r.cached), nil, nil
+}
+
+func (r *AutoDiscovery) fetch(ctx context.Context, network, address string) (ResolveResult, error) {
+	if r.conn == nil {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+		if err != nil {
+			return ResolveResult{}, err
+		}
+		r.conn = conn
+		r.scanner = newConfigScanner(conn)
+	}
+	conn := r.conn
+	deadline, _ := ctx.Deadline()
+	if err := conn.SetDeadline(deadline); err != nil {
+		return ResolveResult{}, err
+	}
 	interrupted := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
-		_ = cn.Close()
+		_ = conn.Close()
 		close(interrupted)
 	})
 	defer func() {
@@ -90,26 +168,36 @@ func (r *AutoDiscovery) Resolve(ctx context.Context, target string) (result Reso
 			<-interrupted
 		}
 	}()
-	if _, err := io.WriteString(cn, "config get cluster\r\n"); err != nil {
-		return ResolveResult{}, nil, fmt.Errorf("write discovery command: %w", err)
+	if _, err := io.WriteString(conn, "config get cluster\r\n"); err != nil {
+		return ResolveResult{}, err
 	}
-	result, err = readConfigResponse(cn)
-	if err != nil {
-		return ResolveResult{}, nil, err
-	}
+	return readConfigResponse(r.scanner)
+}
 
-	version := result.Generation
+// Close interrupts discovery and releases its persistent connection.
+func (r *AutoDiscovery) Close() error {
+	r.initialize()
+	r.cancelFn()
+	r.resolveGate <- struct{}{}
+	defer func() { <-r.resolveGate }()
+	return r.closeConn()
+}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.versions == nil {
-		r.versions = make(map[string]uint64)
+func (r *AutoDiscovery) closeConn() error {
+	if r.conn == nil {
+		return nil
 	}
-	if previous, ok := r.versions[endpoint]; ok && version < previous {
-		return ResolveResult{}, nil, fmt.Errorf("%w: version %d is older than %d", ErrStaleConfig, version, previous)
+	conn := r.conn
+	r.conn, r.scanner = nil, nil
+	return conn.Close()
+}
+
+func cloneConfig(result ResolveResult) ResolveResult {
+	cloned := ResolveResult{Generation: result.Generation, Addrs: make([]*Addr, len(result.Addrs))}
+	for i, addr := range result.Addrs {
+		cloned.Addrs[i] = addr.Clone()
 	}
-	r.versions[endpoint] = version
-	return result, nil, nil
+	return cloned
 }
 
 const (
@@ -124,100 +212,98 @@ var (
 	ErrNoClusterConfig = errors.New("no cluster configuration")
 )
 
-func readConfigResponse(input io.Reader) (ResolveResult, error) {
-	// Like the reference parser, read logical lines instead of framing the body
-	// by the advertised byte count. Bound both the stream and individual lines.
-	maxResponseBytes := int64(maxConfigBytes + maxConfigHeaderBytes + len("\r\nEND\r\n"))
-	// Read one extra byte to distinguish a complete response at the limit from
-	// a larger response truncated into a valid-looking final token.
-	limited := &io.LimitedReader{R: input, N: maxResponseBytes + 1}
-	scanner := bufio.NewScanner(limited)
+func newConfigScanner(input io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, maxConfigHeaderBytes), maxConfigBytes)
+	return scanner
+}
+
+func readConfigResponse(scanner *bufio.Scanner) (ResolveResult, error) {
+	// Read logical lines as the reference parser does. Keep the scanner for the
+	// connection's lifetime so any prefetched bytes survive between responses.
+	const maxResponseBytes = maxConfigBytes + maxConfigHeaderBytes + len("\r\nEND\r\n")
+	bytesRead := 0
 	nextLine := func() (string, error) {
 		for scanner.Scan() {
-			if limited.N == 0 {
-				break
+			bytesRead += len(scanner.Bytes()) + 1
+			if bytesRead > maxResponseBytes {
+				return "", ErrMalformedResponse
 			}
 			if line := strings.TrimSpace(scanner.Text()); line != "" {
 				return line, nil
 			}
 		}
-		if limited.N == 0 {
-			return "", fmt.Errorf("config response exceeds %d bytes", maxResponseBytes)
-		}
 		if err := scanner.Err(); err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %w", ErrMalformedResponse, err)
 		}
-		return "", io.ErrUnexpectedEOF
+		return "", fmt.Errorf("%w: %w", ErrMalformedResponse, io.ErrUnexpectedEOF)
 	}
 
 	header, err := nextLine()
 	if err != nil {
-		return ResolveResult{}, fmt.Errorf("%w: config header: %v", ErrMalformedResponse, err)
+		return ResolveResult{}, err
 	}
 	if len(scanner.Bytes()) > maxConfigHeaderBytes {
-		return ResolveResult{}, fmt.Errorf("%w: config header too large", ErrMalformedResponse)
+		return ResolveResult{}, ErrMalformedResponse
 	}
 	if header == "END" {
 		return ResolveResult{}, ErrNoClusterConfig
 	}
 	fields := strings.Fields(header)
 	if len(fields) != 4 || fields[0] != "CONFIG" || fields[1] != "cluster" || fields[2] != "0" {
-		return ResolveResult{}, fmt.Errorf("%w: unexpected config header", ErrMalformedResponse)
+		return ResolveResult{}, ErrMalformedResponse
 	}
 	length, err := strconv.ParseUint(fields[3], 10, 32)
 	if err != nil || length == 0 || length > maxConfigBytes {
-		return ResolveResult{}, fmt.Errorf("%w: invalid config size", ErrMalformedResponse)
+		return ResolveResult{}, ErrMalformedResponse
 	}
-	versionLine, err := nextLine()
-	if err != nil {
-		return ResolveResult{}, fmt.Errorf("%w: config version: %v", ErrMalformedResponse, err)
+	var payload [3]string
+	for i := range payload {
+		payload[i], err = nextLine()
+		if err != nil {
+			return ResolveResult{}, err
+		}
 	}
-	nodesLine, err := nextLine()
-	if err != nil {
-		return ResolveResult{}, fmt.Errorf("%w: config nodes: %v", ErrMalformedResponse, err)
+	if payload[2] != "END" {
+		return ResolveResult{}, ErrMalformedResponse
 	}
-	// Discovery endpoints may keep the connection open after a complete reply.
-	// Stop at END rather than waiting for EOF as the reference parser does.
-	end, err := nextLine()
-	if err != nil {
-		return ResolveResult{}, fmt.Errorf("%w: missing config END: %v", ErrMalformedResponse, err)
-	}
-	if end != "END" {
-		return ResolveResult{}, fmt.Errorf("%w: missing config END", ErrMalformedResponse)
-	}
-	return parseConfigPayload(versionLine, nodesLine)
+	return parseConfigPayload(payload[0], payload[1])
 }
 
 func parseConfigPayload(versionLine, nodesLine string) (ResolveResult, error) {
 	version, err := strconv.ParseUint(versionLine, 10, 64)
 	if err != nil {
-		return ResolveResult{}, fmt.Errorf("%w: invalid config version", ErrMalformedResponse)
+		return ResolveResult{}, ErrMalformedResponse
 	}
 	nodes := strings.Fields(nodesLine)
 	if len(nodes) == 0 {
-		return ResolveResult{}, fmt.Errorf("%w: empty cluster", ErrMalformedResponse)
+		return ResolveResult{}, ErrMalformedResponse
 	}
 	result := ResolveResult{Generation: version, Addrs: make([]*Addr, 0, len(nodes))}
+	seen := make(map[AddrKey]struct{}, len(nodes))
 	for _, node := range nodes {
 		fields := strings.Split(node, "|")
 		if len(fields) != 3 {
-			return ResolveResult{}, fmt.Errorf("%w: invalid node fields", ErrMalformedResponse)
+			return ResolveResult{}, ErrMalformedResponse
 		}
 		host, ip, port := fields[0], fields[1], fields[2]
 		if ip != "" {
 			if _, err := netip.ParseAddr(ip); err != nil {
-				return ResolveResult{}, fmt.Errorf("%w: invalid node IP", ErrMalformedResponse)
+				return ResolveResult{}, ErrMalformedResponse
 			}
 			host = ip
 		}
 		address, err := canonicalAddress("tcp", net.JoinHostPort(host, port))
 		if err != nil {
-			return ResolveResult{}, fmt.Errorf("%w: invalid node address: %v", ErrMalformedResponse, err)
+			return ResolveResult{}, ErrMalformedResponse
 		}
-		// Discovery order is not a stable routing attribute. A constant priority
-		// keeps legacy rendezvous scores stable when the server reorders nodes.
-		result.Addrs = append(result.Addrs, NewAddr("tcp", address, 0))
+		// Discovery order does not express a node's routing priority.
+		addr := NewAddr("tcp", address, 0)
+		if _, duplicate := seen[addr.AddrKey]; duplicate {
+			continue
+		}
+		seen[addr.AddrKey] = struct{}{}
+		result.Addrs = append(result.Addrs, addr)
 	}
 	return result, nil
 }

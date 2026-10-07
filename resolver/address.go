@@ -36,9 +36,7 @@ func (a AddrKey) Equal(other AddrKey) bool {
 type Addr struct {
 	AddrKey
 
-	// Priority is routing input for the legacy rendezvous picker. The stable
-	// rendezvous picker ignores it. Resolvers using legacy routing should keep
-	// each node's priority unchanged across refreshes.
+	// Priority is available to custom pickers. Built-in pickers ignore it.
 	Priority int
 
 	metadata map[string]any
@@ -68,6 +66,11 @@ func (a *Addr) Clone() *Addr {
 		copyAddr.metadata = maps.Clone(a.metadata)
 	}
 	return copyAddr
+}
+
+// CanonicalAddress validates and normalizes a node address without a DNS lookup.
+func CanonicalAddress(network, address string) (string, error) {
+	return canonicalAddress(network, address)
 }
 
 // canonicalAddress validates syntax without a DNS lookup. The dialer, or a

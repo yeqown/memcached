@@ -3,10 +3,9 @@ package memcached
 import (
 	"time"
 
+	memcodec "github.com/yeqown/memcached/codec"
 	"github.com/yeqown/memcached/picker"
 	"github.com/yeqown/memcached/resolver"
-
-	memcodec "github.com/yeqown/memcached/codec"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -21,8 +20,8 @@ type clientOptions struct {
 	resolver       resolver.Resolver
 	resolveTimeout time.Duration
 
-	// dialTimeout is the timeout for dialing a connection to the memcached server
-	// topologyIns. Default is 5 seconds.
+	// dialTimeout is the timeout for dialing a connection to the Memcached server
+	// node. Default is 5 seconds.
 	// (Connection Timeout)
 	dialTimeout time.Duration
 	// readTimeout is the timeout for reading from the connection.

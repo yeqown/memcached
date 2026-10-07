@@ -29,7 +29,12 @@ func newTracer(tp trace.TracerProvider) *Tracer {
 }
 
 // Start creates a span for a memcached operation.
+// A nil Tracer returns the original context and a nil span.
 func (t *Tracer) Start(ctx context.Context, operation, server, network string, key string) (context.Context, trace.Span) {
+	if t == nil {
+		return ctx, nil
+	}
+
 	attrs := []attribute.KeyValue{
 		attrDBSystem.String("memcached"),
 		attrDBOperation.String(operation),
@@ -46,7 +51,12 @@ func (t *Tracer) Start(ctx context.Context, operation, server, network string, k
 }
 
 // End finishes the span with appropriate status.
+// A nil Tracer does nothing.
 func (t *Tracer) End(span trace.Span, err error) {
+	if t == nil {
+		return
+	}
+
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		span.RecordError(err)
