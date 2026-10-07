@@ -17,7 +17,7 @@ Both clients support basic text commands, CAS, multi-server routing, connection 
 | Connection limits | Reuses connections per address; configurable `MaxIdleConns` | Pools per node with `MaxConns`, lifetime, and idle timeout; concurrent dials reserve capacity before connecting |
 | Value compression | No built-in codec | Pluggable `Codec`; MC-COMPRESS-compatible Deflate, LZ4, Snappy, and Zstd |
 | OpenTelemetry | No built-in instrumentation | Opt-in tracing, operation metrics, and discovery/topology metrics |
-| Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, stable rendezvous hashing, or a custom picker |
+| Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, or a custom picker |
 | Node discovery | Configure addresses through a selector | The `resolver` package provides static addresses and AWS / Google discovery; custom resolvers decide the next refresh time |
 | Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./cmd/gui/README.md) |
 
@@ -77,7 +77,7 @@ The values above are examples to tune for your workload. `New` also accepts comm
 
 | To configure | Address or option |
 | --- | --- |
-| Multiple nodes and key placement | `"cache-1:11211,cache-2:11211"` plus `memcached.WithPicker(picker.NewStableRendezvousHashPicker(0))` |
+| Multiple nodes and key placement | `"cache-1:11211,cache-2:11211"` plus `memcached.WithPicker(picker.NewRendezvousHashPicker(0))` |
 | Custom address resolution and discovery | `memcached.WithResolver(resolver)` and `memcached.WithResolveTimeout(5*time.Second)` |
 | Compression or another value codec | `memcached.WithCodec(codec)` |
 | Traces and metrics | `memcached.WithTelemetry(telemetry.WithTracerProvider(tp), telemetry.WithMeterProvider(mp))` |
@@ -86,13 +86,15 @@ The values above are examples to tune for your workload. `New` also accepts comm
 
 See the [usage guide](./docs/usage.md) for codec and telemetry setup. With multiple servers, `Gets` and `GetAndTouches` send all requested keys to one node; use per-key reads unless the keys are known to reside together.
 
-AWS ElastiCache Memcached and Google Memorystore Memcached use the same built-in resolver: pass the configuration / discovery endpoint, including its port, to `New` with `memcached.WithResolver(resolver.NewAutoDiscovery(time.Minute))`. It uses only `config get cluster`, applies the returned node topology, and preserves the last successful result on error. Non-positive intervals default to one minute. See the [automatic discovery guide](./docs/usage.md#aws-and-google-automatic-discovery).
+AWS ElastiCache Memcached and Google Memorystore Memcached use the same built-in resolver: pass the configuration / discovery endpoint, including its port, to `New` with `memcached.WithResolver(resolver.NewAutoDiscovery(time.Minute))`. It uses only `config get cluster`, reuses its discovery connection, rejects older generations, and returns its cached topology on timeout. Non-positive intervals default to one minute. See the [automatic discovery guide](./docs/usage.md#aws-and-google-automatic-discovery).
 
 ## Resolver / Picker API migration
 
-Resolver and picker APIs and built-ins now live in `github.com/yeqown/memcached/resolver` and `github.com/yeqown/memcached/picker`. Node addresses are defined by `resolver.Addr`. Custom resolvers implement `Resolve(ctx context.Context, target string) (resolver.ResolveResult, *time.Time, error)`. Return the full node list in `ResolveResult.Addrs` and a separate next resolve time. A nil time stops refreshing, including on error; transient errors should return a retry time. The default `resolver.NewStatic()` resolves once.
+Resolver and picker APIs and built-ins now live in `github.com/yeqown/memcached/resolver` and `github.com/yeqown/memcached/picker`. Node addresses are defined by `resolver.Addr`. Custom resolvers implement `Resolve(ctx context.Context, target string) (resolver.ResolveResult, *time.Time, error)` and `Close() error`. The client owns their lifetime and closes them on shutdown or failed initialization. Return the full node list in `ResolveResult.Addrs` and a separate next resolve time. A nil time stops refreshing, including on error; transient errors should return a retry time. The default `resolver.NewStatic()` resolves once.
 
 Custom pickers implement `picker.Picker` and are passed directly through `memcached.WithPicker(p)`. The Builder interface has been removed; built-in constructors such as `picker.NewCRC32HashPicker()` return a ready-to-use Picker. Hash functions are internal to `picker`; the standalone `hash` package has been removed. The client reuses the supplied picker across topology changes and supplies the current immutable address snapshot to each `Pick` call. Pickers must support concurrent calls and must not retain or modify the supplied addresses. Published addresses are normalized and sorted; upgrading can change existing key placement. Changing membership or switching hash strategies can cause cache misses, so applications need an origin fallback or cache warming.
+Discovery and node lifetimes are managed by an internal topology; Client selects nodes through topology and borrows connections through node. Removed nodes drain already borrowed connections; waiting or dialing requests may fail. See [the topology design](./docs/topology.md).
+
 
 ## More
 
