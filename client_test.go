@@ -1,8 +1,15 @@
 package memcached
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -24,7 +31,8 @@ import (
 type clientTestSuite struct {
 	suite.Suite
 
-	client *client
+	client  *client
+	address string
 }
 
 func mustCompressCodec(t *testing.T, algorithm memcodec.Compression, threshold, level int) memcodec.CompressCodec {
@@ -34,29 +42,27 @@ func mustCompressCodec(t *testing.T, algorithm memcodec.Compression, threshold, 
 	return codec
 }
 
-func (su *clientTestSuite) SetupSuite() {
-	addrs := "localhost:11211"
-	c, err := NewWithContext(context.Background(), addrs)
+func (su *clientTestSuite) SetupTest() {
+	t := su.T()
+	su.address = startClientTestServer(t)
+	c, err := NewWithContext(t.Context(), su.address)
 	su.Require().NoError(err)
 	su.client = c.(*client)
-}
-
-func (su *clientTestSuite) TearDownSuite() {
-	err := su.client.Close()
-	su.Require().NoError(err)
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
 }
 
 func (su *clientTestSuite) newCompressedClient() *client {
+	t := su.T()
 	c, err := NewWithContext(
-		context.Background(),
-		"localhost:11211",
-		WithCodec(mustCompressCodec(su.T(), memcodec.CompressionAlgorithmDeflate, 1, 6)),
+		t.Context(),
+		su.address,
+		WithCodec(mustCompressCodec(t, memcodec.CompressionAlgorithmDeflate, 1, 6)),
 	)
-	require.NoError(su.T(), err)
+	require.NoError(t, err)
 
 	cc := c.(*client)
-	su.T().Cleanup(func() {
-		require.NoError(su.T(), cc.Close())
+	t.Cleanup(func() {
+		require.NoError(t, cc.Close())
 	})
 	return cc
 }
@@ -65,24 +71,34 @@ func (su *clientTestSuite) Test_concurrent_dispatchRequest() {
 	key := "Test_concurrent_dispatchRequest"
 	// prepare data
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(su.T().Context(), 5*time.Second)
+	defer cancel()
 
 	err := su.client.Set(ctx, key, []byte("Test_concurrent_dispatchRequest"), 0, 0)
 	su.Require().NoError(err)
 
 	wg := sync.WaitGroup{}
 	limits := 100
+	errors := make(chan error, 10)
 	for range 10 {
 		wg.Go(func() {
 			for range limits {
 				req, resp := buildGetsCommand("get", key)
 				err := su.client.dispatchRequest(ctx, req, resp)
-				su.Require().NoError(err)
+				releaseReqAndResp(req, resp)
+				if err != nil {
+					errors <- err
+					return
+				}
 			}
 		})
 	}
 
 	wg.Wait()
+	close(errors)
+	for err := range errors {
+		su.Require().NoError(err)
+	}
 }
 
 // https://github.com/yeqown/memcached/issues/18
@@ -106,7 +122,11 @@ func (su *clientTestSuite) Test_concurrent() {
 	key := "Test_concurrent"
 	value := "Test_concurrent is value of Test_concurrent"
 	// prepare data
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(su.T().Context(), 5*time.Second)
+	defer cancel()
+
+	initial, err := su.client.MetaSet(ctx, []byte(key), []byte(value), msOptions(0, 0x1234)...)
+	su.Require().NoError(err)
 
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -116,7 +136,7 @@ func (su *clientTestSuite) Test_concurrent() {
 		defer wg.Done()
 
 		counter := 0
-		cas := uint64(0)
+		cas := initial.CAS
 
 		// update only
 		for counter <= 20 {
@@ -141,9 +161,6 @@ func (su *clientTestSuite) Test_concurrent() {
 
 		for counter <= 200 {
 			item, err := su.client.Get(ctx, key)
-			if pkgerrors.Is(err, ErrNotFound) {
-				goto next
-			}
 			su.NoError(err)
 			if err != nil {
 				return
@@ -152,7 +169,6 @@ func (su *clientTestSuite) Test_concurrent() {
 			su.Equal(value, string(item.Value))
 			counter++
 
-		next:
 			time.Sleep(5 * time.Millisecond)
 		}
 	}()
@@ -163,9 +179,10 @@ func (su *clientTestSuite) Test_concurrent() {
 		counter := 0
 
 		for counter <= 100 {
-			err := su.client.Touch(ctx, key, 3)
-			if !pkgerrors.Is(err, ErrNotFound) {
-				su.NoError(err)
+			err := su.client.Touch(ctx, key, 3*time.Second)
+			su.NoError(err)
+			if err != nil {
+				return
 			}
 
 			counter++
@@ -176,6 +193,9 @@ func (su *clientTestSuite) Test_concurrent() {
 
 	wg.Wait()
 
+	item, err := su.client.Get(ctx, key)
+	su.Require().NoError(err)
+	su.Equal(value, string(item.Value))
 	su.T().Log("Test_concurrent finished")
 }
 
@@ -190,6 +210,11 @@ func (su *clientTestSuite) Test_compressionClassicReadCommandsRoundTrip() {
 
 	su.Require().NoError(client.Set(ctx, key1, value, flag, 0))
 	su.Require().NoError(client.Set(ctx, key2, value, flag, 0))
+	raw, err := su.client.Get(ctx, key1)
+	su.Require().NoError(err)
+	su.True(memcodec.IsCompressed(raw.Flags), "the server must receive compressed wire data")
+	su.Equal(flag, memcodec.AppFlags(raw.Flags))
+	su.NotEqual(value, raw.Value)
 
 	assertItem := func(item *Item) {
 		su.Require().NotNil(item)
@@ -233,6 +258,11 @@ func (su *clientTestSuite) Test_compressionMetaReadTransparency() {
 	stored, err := client.MetaSet(ctx, key, value, MetaSetFlagClientFlags(flag))
 	su.Require().NoError(err)
 	su.Equal(flag, stored.Flags)
+	raw, err := su.client.MetaGet(ctx, key, MetaGetFlagReturnValue(), MetaGetFlagReturnClientFlags())
+	su.Require().NoError(err)
+	su.True(memcodec.IsCompressed(raw.Flags), "meta set must send compressed wire data")
+	su.Equal(flag, memcodec.AppFlags(raw.Flags))
+	su.NotEqual(value, raw.Value)
 
 	item, err := client.MetaGet(ctx, key, MetaGetFlagReturnValue())
 	su.Require().NoError(err)
@@ -336,9 +366,6 @@ func TestNewCompressCodecInstallsCompressionBehavior(t *testing.T) {
 }
 
 func TestClientSuite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires a memcached server on localhost:11211")
-	}
 	suite.Run(t, new(clientTestSuite))
 }
 
@@ -756,4 +783,263 @@ func TestClientBroadcastContinuesAfterFailure(t *testing.T) {
 			requirePoolClosed(t, second.pool)
 		})
 	}
+}
+
+// clientTestServer implements the text commands used by the client suite.
+// It stores wire values unchanged so compression is exercised by the real client.
+type clientTestServer struct {
+	mu      sync.Mutex
+	items   map[string]clientTestItem
+	nextCAS uint64
+}
+
+type clientTestItem struct {
+	value   []byte
+	flags   uint32
+	cas     uint64
+	expires time.Time
+}
+
+func startClientTestServer(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &clientTestServer{items: make(map[string]clientTestItem)}
+	var connections sync.Map
+	var handlers sync.WaitGroup
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			cn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			connections.Store(cn, struct{}{})
+			handlers.Go(func() {
+				defer connections.Delete(cn)
+				defer func() { _ = cn.Close() }()
+				reader := bufio.NewReader(cn)
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return // Clients and cleanup close these connections.
+					}
+					if line == "quit\r\n" {
+						return
+					}
+					response, err := server.respond(reader, strings.Fields(line))
+					if err != nil {
+						t.Errorf("client test server: command %q: %v", line, err)
+						return
+					}
+					if _, err := io.WriteString(cn, response); err != nil {
+						if !errors.Is(err, net.ErrClosed) {
+							t.Errorf("client test server: response: %v", err)
+						}
+						return
+					}
+				}
+			})
+		}
+	}()
+	t.Cleanup(func() {
+		require.NoError(t, listener.Close())
+		<-acceptDone
+		connections.Range(func(key, _ any) bool {
+			_ = key.(net.Conn).Close() // Interrupt handlers before waiting for them.
+			return true
+		})
+		handlers.Wait()
+	})
+	return listener.Addr().String()
+}
+
+func (s *clientTestServer) respond(reader io.Reader, fields []string) (string, error) {
+	if len(fields) < 2 {
+		return "", fmt.Errorf("incomplete command: %v", fields)
+	}
+	switch fields[0] {
+	case "set", "ms":
+		return s.store(reader, fields)
+	case "get", "gets", "gat", "gats":
+		keyStart := 1
+		var expires time.Time
+		if fields[0] == "gat" || fields[0] == "gats" {
+			if len(fields) < 3 {
+				return "", fmt.Errorf("missing retrieval key: %v", fields)
+			}
+			var err error
+			expires, err = clientTestExpiry(fields[1])
+			if err != nil {
+				return "", err
+			}
+			keyStart = 2
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var response strings.Builder
+		for _, key := range fields[keyStart:] {
+			item, ok := s.lookupLocked(key)
+			if !ok {
+				continue
+			}
+			if keyStart == 2 {
+				item.expires = expires
+				s.items[key] = item
+			}
+			suffix := ""
+			if fields[0] == "gets" || fields[0] == "gats" {
+				suffix = " " + strconv.FormatUint(item.cas, 10)
+			}
+			fmt.Fprintf(&response, "VALUE %s %d %d%s\r\n%s\r\n", key, item.flags, len(item.value), suffix, item.value)
+		}
+		response.WriteString("END\r\n")
+		return response.String(), nil
+	case "touch":
+		if len(fields) != 3 {
+			return "", fmt.Errorf("invalid touch command: %v", fields)
+		}
+		expires, err := clientTestExpiry(fields[2])
+		if err != nil {
+			return "", err
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		item, ok := s.lookupLocked(fields[1])
+		if !ok {
+			return "NOT_FOUND\r\n", nil
+		}
+		item.expires = expires
+		s.items[fields[1]] = item
+		return "TOUCHED\r\n", nil
+	case "mg":
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		item, ok := s.lookupLocked(fields[1])
+		if !ok {
+			return "EN\r\n", nil
+		}
+		header := "HD"
+		if slices.Contains(fields[2:], "v") {
+			header = fmt.Sprintf("VA %d", len(item.value))
+		}
+		for _, flag := range fields[2:] {
+			switch flag {
+			case "v":
+			case "f":
+				header += " f" + strconv.FormatUint(uint64(item.flags), 10)
+			default:
+				return "", fmt.Errorf("unsupported meta get flag: %s", flag)
+			}
+		}
+		if slices.Contains(fields[2:], "v") {
+			return header + "\r\n" + string(item.value) + "\r\n", nil
+		}
+		return header + "\r\n", nil
+	default:
+		return "", fmt.Errorf("unsupported command: %s", fields[0])
+	}
+}
+
+func (s *clientTestServer) store(reader io.Reader, fields []string) (string, error) {
+	item := clientTestItem{}
+	sizeAt := 2
+	if fields[0] == "set" {
+		if len(fields) != 5 {
+			return "", fmt.Errorf("invalid set command: %v", fields)
+		}
+		flags, err := strconv.ParseUint(fields[2], 10, 32)
+		if err != nil {
+			return "", err
+		}
+		item.flags = uint32(flags)
+		item.expires, err = clientTestExpiry(fields[3])
+		if err != nil {
+			return "", err
+		}
+		sizeAt = 4
+	} else if len(fields) < 3 {
+		return "", fmt.Errorf("invalid meta set command: %v", fields)
+	}
+	size, err := strconv.Atoi(fields[sizeAt])
+	if err != nil || size < 0 || size > 1<<20 {
+		return "", fmt.Errorf("invalid value size: %q", fields[sizeAt])
+	}
+	for _, flag := range fields[sizeAt+1:] {
+		switch flag {
+		case "c", "k", "s":
+			continue
+		}
+		switch flag[0] {
+		case 'F':
+			flags, err := strconv.ParseUint(flag[1:], 10, 32)
+			if err != nil {
+				return "", err
+			}
+			item.flags = uint32(flags)
+		case 'T':
+			item.expires, err = clientTestExpiry(flag[1:])
+			if err != nil {
+				return "", err
+			}
+		case 'E':
+			item.cas, err = strconv.ParseUint(flag[1:], 10, 64)
+			if err != nil {
+				return "", err
+			}
+		default:
+			return "", fmt.Errorf("unsupported meta set flag: %s", flag)
+		}
+	}
+	body := make([]byte, size+2)
+	if _, err := io.ReadFull(reader, body); err != nil {
+		return "", err
+	}
+	if string(body[size:]) != "\r\n" {
+		return "", errors.New("value is missing CRLF")
+	}
+	item.value = body[:size]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextCAS++
+	if item.cas == 0 {
+		item.cas = s.nextCAS
+	}
+	s.items[fields[1]] = item
+	if fields[0] == "set" {
+		return "STORED\r\n", nil
+	}
+	response := "HD"
+	for _, flag := range fields[3:] {
+		switch flag {
+		case "c":
+			response += " c" + strconv.FormatUint(item.cas, 10)
+		case "k":
+			response += " k" + fields[1]
+		case "s":
+			response += " s" + strconv.Itoa(size)
+		}
+	}
+	return response + "\r\n", nil
+}
+
+func (s *clientTestServer) lookupLocked(key string) (clientTestItem, bool) {
+	item, ok := s.items[key]
+	if ok && !item.expires.IsZero() && !time.Now().Before(item.expires) {
+		delete(s.items, key)
+		return clientTestItem{}, false
+	}
+	return item, ok
+}
+
+func clientTestExpiry(token string) (time.Time, error) {
+	seconds, err := strconv.ParseUint(token, 10, 32)
+	if err != nil || seconds == 0 {
+		return time.Time{}, err
+	}
+	if seconds > 30*24*60*60 {
+		return time.Unix(int64(seconds), 0), nil
+	}
+	return time.Now().Add(time.Duration(seconds) * time.Second), nil
 }
