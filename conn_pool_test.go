@@ -3,6 +3,7 @@ package memcached
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,151 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestConnPoolCloseClosesIdleConnections(t *testing.T) {
+	raw := newPoolLifecycleConn()
+	pool := newConnPool(1, 1, 0, 0, func(context.Context) (memcachedConn, error) {
+		return raw, nil
+	})
+	t.Cleanup(func() { require.NoError(t, pool.close()) })
+	cn, err := pool.get(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, pool.put(cn))
+	require.NoError(t, pool.close())
+	require.EqualValues(t, 1, raw.closes.Load())
+	require.Zero(t, pool.stats().TotalConns)
+}
+
+func TestConnPoolGetInterruptedByClose(t *testing.T) {
+	for _, stage := range []string{"waiting for capacity", "dialing"} {
+		t.Run(stage, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				raw := newPoolLifecycleConn()
+				started, proceed := make(chan struct{}), make(chan struct{})
+				pool := newConnPool(1, 1, 0, 0, func(context.Context) (memcachedConn, error) {
+					if stage == "dialing" {
+						close(started)
+						<-proceed
+					}
+					return raw, nil
+				})
+				t.Cleanup(func() { require.NoError(t, pool.close()) })
+				var borrowed memcachedConn
+				if stage == "waiting for capacity" {
+					var err error
+					borrowed, err = pool.get(t.Context())
+					require.NoError(t, err)
+				}
+				result := make(chan poolGetResult, 1)
+				go func() {
+					cn, err := pool.get(t.Context())
+					result <- poolGetResult{cn: cn, err: err}
+				}()
+				if stage == "dialing" {
+					<-started
+				}
+				synctest.Wait()
+				require.Empty(t, result)
+				require.NoError(t, pool.close())
+				if stage == "dialing" {
+					close(proceed)
+				}
+				got := awaitPoolGet(t, result)
+				require.Nil(t, got.cn)
+				require.ErrorContains(t, got.err, "connection pool is closed")
+				if borrowed != nil {
+					require.NoError(t, pool.put(borrowed))
+				}
+				require.EqualValues(t, 1, raw.closes.Load())
+				require.Zero(t, pool.stats().TotalConns)
+			})
+		})
+	}
+}
+
+func TestConnPoolDialRetainsCapacityUntilCompletion(t *testing.T) {
+	dialErr := errors.New("dial failed")
+	for _, test := range []struct {
+		name      string
+		firstErr  error
+		wantDials int32
+	}{
+		{name: "success", wantDials: 1},
+		{name: "failure", firstErr: dialErr, wantDials: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var calls atomic.Int32
+				started, proceed := make(chan struct{}), make(chan struct{})
+				finish := sync.OnceFunc(func() { close(proceed) })
+				defer finish()
+				pool := newConnPool(1, 1, 0, 0, func(context.Context) (memcachedConn, error) {
+					if calls.Add(1) == 1 {
+						close(started)
+						<-proceed
+						if test.firstErr != nil {
+							return nil, test.firstErr
+						}
+					}
+					return newPoolLifecycleConn(), nil
+				})
+				t.Cleanup(func() { require.NoError(t, pool.close()) })
+				first, second := make(chan poolGetResult, 1), make(chan poolGetResult, 1)
+				go func() {
+					cn, err := pool.get(t.Context())
+					first <- poolGetResult{cn: cn, err: err}
+				}()
+				<-started
+				go func() {
+					cn, err := pool.get(t.Context())
+					second <- poolGetResult{cn: cn, err: err}
+				}()
+				synctest.Wait()
+				require.EqualValues(t, 1, calls.Load(), "a pending dial retains the only connection slot")
+				require.Empty(t, second)
+				finish()
+				gotFirst := awaitPoolGet(t, first)
+				if test.firstErr != nil {
+					require.ErrorIs(t, gotFirst.err, test.firstErr)
+					require.Nil(t, gotFirst.cn)
+				} else {
+					require.NoError(t, gotFirst.err)
+					require.NoError(t, pool.put(gotFirst.cn))
+				}
+				gotSecond := awaitPoolGet(t, second)
+				require.NoError(t, gotSecond.err)
+				require.NotNil(t, gotSecond.cn)
+				require.NoError(t, pool.put(gotSecond.cn))
+				require.Equal(t, test.wantDials, calls.Load())
+				require.Equal(t, 1, pool.stats().TotalConns)
+			})
+		})
+	}
+}
+
+func TestConnPoolPutReturnsCloseError(t *testing.T) {
+	for _, reason := range []string{"pool closed", "idle limit"} {
+		t.Run(reason, func(t *testing.T) {
+			pool := newConnPool(1, 2, 0, 0, func(context.Context) (memcachedConn, error) {
+				return newPoolLifecycleConn(), nil
+			})
+			t.Cleanup(func() { require.NoError(t, pool.close()) })
+			idle, err := pool.get(t.Context())
+			require.NoError(t, err)
+			borrowed, err := pool.get(t.Context())
+			require.NoError(t, err)
+			require.NoError(t, pool.put(idle))
+			if reason == "pool closed" {
+				require.NoError(t, pool.close())
+			}
+			raw := borrowed.(*poolLifecycleConn)
+			closeErr := errors.New("connection close failed")
+			raw.closeErr = closeErr
+			require.ErrorIs(t, pool.put(borrowed), closeErr)
+			require.EqualValues(t, 1, raw.closes.Load())
+		})
+	}
+}
 
 type poolLifecycleConn struct {
 	*mockConn

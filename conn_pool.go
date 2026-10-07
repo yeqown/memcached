@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 )
 
@@ -28,8 +29,9 @@ type connPool struct {
 
 	mu         sync.Mutex // guards following
 	conns      chan memcachedConn
+	changed    chan struct{} // closed and replaced when waiters should retry
 	createConn func(ctx context.Context) (memcachedConn, error)
-	// The number of connections numOpen by the pool.
+	// Includes connections being dialed or closed so they retain capacity.
 	numOpen atomic.Int32
 	// Indicate if the pool is closed, if true, no new connections will be created
 	// and all existing connections will be closed.
@@ -54,6 +56,7 @@ func newConnPool(
 
 		mu:         sync.Mutex{},
 		conns:      make(chan memcachedConn, maxConn),
+		changed:    make(chan struct{}),
 		createConn: createConn,
 		numOpen:    atomic.Int32{},
 		closed:     false,
@@ -75,51 +78,100 @@ func (p *connPool) close() error {
 	}
 
 	p.closed = true
-	// close all existing connections, so that the get() couldn't
-	// create a new connection.
+	p.notifyChangedLocked()
+	// Detach idle connections under the lock; close sockets outside it.
 	close(p.conns)
 	if p.cleanerCh != nil {
 		p.cleanerCh <- struct{}{}
 	}
-
+	idle := make([]memcachedConn, 0, len(p.conns))
+	for cn := range p.conns {
+		idle = append(idle, cn)
+	}
 	p.mu.Unlock()
-	return nil
+
+	var err error
+	for _, cn := range idle {
+		if ce := cn.Close(); ce != nil {
+			err = multierror.Append(err, errors.Wrap(ce, "close idle connection failed"))
+		}
+		p.releaseSlot()
+	}
+	return err
 }
 
 func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
-	if p.closed {
-		return nil, errors.New("connection pool is closed")
-	}
-
-	// try to get a connection from the pool first if there is any
-	// otherwise create a new connection.
-	select {
-	case cn := <-p.conns:
-		return cn, nil
-	default:
+	for {
 		p.mu.Lock()
-		// no available connection, check if we can create a new one.
-		if int(p.numOpen.Load()) >= p.maxConns {
+		if p.closed {
 			p.mu.Unlock()
-			// the pool is full, wait for a connection to be returned
+			return nil, errors.New("connection pool is closed")
+		}
+		if err := ctx.Err(); err != nil {
+			p.mu.Unlock()
+			return nil, err
+		}
+		select {
+		case cn := <-p.conns:
+			p.mu.Unlock()
+			return cn, nil
+		default:
+		}
+
+		if int(p.numOpen.Load()) >= p.maxConns {
+			changed := p.changed
+			p.mu.Unlock()
+			// Retry when a connection is returned, capacity is released, or the pool closes.
 			select {
-			case cn := <-p.conns:
-				return cn, nil
+			case <-changed:
+				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
+		// Reserve capacity before dialing so concurrent dials cannot exceed the limit.
+		p.numOpen.Add(1)
 		p.mu.Unlock()
 
 		cn, err := p.createConn(ctx)
 		if err != nil {
+			p.releaseSlot()
 			return nil, err
 		}
 		cn.setConnPool(p)
-		p.numOpen.Add(1)
+		p.mu.Lock()
+		closed := p.closed
+		p.mu.Unlock()
+		if closed {
+			err = errors.New("connection pool is closed")
+			if closeErr := cn.Close(); closeErr != nil {
+				err = multierror.Append(err, closeErr)
+			}
+			p.releaseSlot()
+			return nil, err
+		}
 
 		return cn, nil
 	}
+}
+
+// notifyChangedLocked wakes all waiters to recheck state under p.mu.
+func (p *connPool) notifyChangedLocked() {
+	close(p.changed)
+	p.changed = make(chan struct{})
+}
+
+func (p *connPool) releaseSlot() {
+	p.mu.Lock()
+	p.numOpen.Add(-1)
+	p.notifyChangedLocked()
+	p.mu.Unlock()
+}
+
+func (p *connPool) closeConn(cn memcachedConn) error {
+	err := cn.Close()
+	p.releaseSlot()
+	return err
 }
 
 func (p *connPool) put(cn memcachedConn) error {
@@ -130,26 +182,24 @@ func (p *connPool) put(cn memcachedConn) error {
 	p.mu.Lock()
 	maxIdleClose := p.maxIdle > 0 && len(p.conns) >= p.maxIdle
 	if p.closed || (p.maxConns > 0 && int(p.numOpen.Load()) > p.maxConns) || maxIdleClose {
-		_ = cn.Close()
-		p.numOpen.Add(-1)
 		if maxIdleClose {
 			p.maxIdleClosed++
 		}
 
 		p.mu.Unlock()
-		return nil
+		return p.closeConn(cn)
 	}
 
 	select {
 	case p.conns <- cn:
 		p.startCleanerLocked()
+		p.notifyChangedLocked()
 		p.mu.Unlock()
 		return nil
 	default:
 		p.mu.Unlock()
 		// rare case, the pool is full
-		p.numOpen.Add(-1)
-		return cn.Close()
+		return p.closeConn(cn)
 	}
 }
 
@@ -158,22 +208,23 @@ func (p *connPool) put(cn memcachedConn) error {
 func (p *connPool) startCleanerLocked() {
 	if (p.maxLifeTime > 0 || p.maxIdleTime > 0) && int(p.numOpen.Load()) > 0 && p.cleanerCh == nil {
 		p.cleanerCh = make(chan struct{}, 1)
-		go p.connectionsCleaner(p.shortestIdleTimeLocked())
+		go p.connectionsCleaner(p.shortestIdleTimeLocked(), p.cleanerCh)
 	}
 }
 
-func (p *connPool) connectionsCleaner(d time.Duration) {
+func (p *connPool) connectionsCleaner(d time.Duration, wake <-chan struct{}) {
 	const minInterval = 1 * time.Second
 	if d < minInterval {
 		d = minInterval
 	}
 
 	t := time.NewTimer(d)
+	defer t.Stop()
 
 	for {
 		select {
 		case <-t.C:
-		case <-p.cleanerCh: // db was closed
+		case <-wake: // pool was closed
 		}
 
 		p.mu.Lock()
@@ -193,8 +244,8 @@ func (p *connPool) connectionsCleaner(d time.Duration) {
 		p.mu.Unlock()
 
 		for _, cn := range closing {
-			_ = cn.Close()
-			p.numOpen.Add(-1)
+			// Background cleanup has no caller to receive socket close errors.
+			_ = p.closeConn(cn)
 		}
 
 		if d < minInterval {
@@ -279,6 +330,7 @@ func (p *connPool) connectionCleanerRunLocked(d time.Duration) (time.Duration, [
 }
 
 type connPoolStats struct {
+	Closed     bool
 	TotalConns int
 	IdleConns  int
 	MaxConns   int
@@ -292,6 +344,7 @@ type connPoolStats struct {
 func (p *connPool) stats() *connPoolStats {
 	p.mu.Lock()
 	s := &connPoolStats{
+		Closed:            p.closed,
 		TotalConns:        int(p.numOpen.Load()),
 		IdleConns:         len(p.conns),
 		MaxConns:          p.maxConns,
