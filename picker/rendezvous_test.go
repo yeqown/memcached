@@ -10,15 +10,15 @@ import (
 
 func TestRendezvousMembershipAndOrdering(t *testing.T) {
 	p := NewRendezvousHashPicker(42)
-	before := []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0), resolver.NewAddr("tcp", "b:11211", 1), resolver.NewAddr("tcp", "c:11211", 2)}
-	expanded := []*resolver.Addr{resolver.NewAddr("tcp", "d:11211", 0), resolver.NewAddr("tcp", "c:11211", 1), resolver.NewAddr("tcp", "a:11211", 2), resolver.NewAddr("tcp", "b:11211", 3)}
-	removed := []*resolver.Addr{resolver.NewAddr("tcp", "c:11211", 10), resolver.NewAddr("tcp", "a:11211", 11)}
-	selected := make(map[resolver.AddrKey]struct{})
+	before := []*resolver.Addr{resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211"), resolver.NewAddr("tcp", "c:11211")}
+	expanded := []*resolver.Addr{resolver.NewAddr("tcp", "d:11211"), resolver.NewAddr("tcp", "c:11211"), resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")}
+	removed := []*resolver.Addr{resolver.NewAddr("tcp", "c:11211"), resolver.NewAddr("tcp", "a:11211")}
+	selected := make(map[resolver.Addr]struct{})
 	for i := range 2000 {
 		key := []byte(strconv.Itoa(i))
 		a, err := p.Pick(before, nil, key)
 		require.NoError(t, err)
-		selected[a.AddrKey] = struct{}{}
+		selected[*a] = struct{}{}
 		b, err := p.Pick(expanded, nil, key)
 		require.NoError(t, err)
 		require.True(t, b.Address == "d:11211" || b.Address == a.Address, "expansion moved unrelated key %d", i)
@@ -36,8 +36,8 @@ func TestRendezvousMembershipAndOrdering(t *testing.T) {
 
 func TestRendezvousTieByIdentity(t *testing.T) {
 	p := NewRendezvousHashPickerWithHash(func([]byte) uint64 { return 0 })
-	a, b := resolver.NewAddr("tcp", "a:11211", 0), resolver.NewAddr("tcp", "b:11211", 100)
-	c := resolver.NewAddr("tcp4", "a:11211", 200)
+	a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
+	c := resolver.NewAddr("tcp4", "a:11211")
 	for _, test := range []struct {
 		name  string
 		nodes []*resolver.Addr
@@ -58,7 +58,7 @@ func TestRendezvousTieByIdentity(t *testing.T) {
 
 func TestRendezvousRejectsNilNode(t *testing.T) {
 	p := NewRendezvousHashPicker(42)
-	valid := resolver.NewAddr("tcp", "a:11211", 0)
+	valid := resolver.NewAddr("tcp", "a:11211")
 	for _, test := range []struct {
 		name  string
 		nodes []*resolver.Addr

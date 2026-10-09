@@ -139,7 +139,7 @@ func TestAutoDiscoveryResolve(t *testing.T) {
 			result, next, err := r.Resolve(ctx, "directory:11211")
 			require.NoError(t, err)
 			require.Equal(t, ResolveResult{Generation: 13, Addrs: []*Addr{
-				NewAddr("tcp", "10.0.0.1:11211", 0), NewAddr("tcp", "[2001:db8::1]:11212", 0),
+				NewAddr("tcp", "10.0.0.1:11211"), NewAddr("tcp", "[2001:db8::1]:11212"),
 			}}, result)
 			require.NotNil(t, next)
 			require.False(t, next.Before(start.Add(test.wantWait)))
@@ -237,7 +237,7 @@ func TestAutoDiscoveryFailure(t *testing.T) {
 		{"invalid config", strings.NewReader(configResponse("invalid", "cache.example|10.0.0.1|11211")), nil, ErrMalformedResponse, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211", 0)}}
+			cached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211")}}
 			conn := &discoveryConn{reader: test.reader, writeErr: test.writeErr}
 			r := NewAutoDiscovery(time.Minute)
 			r.conn, r.cached = conn, cached
@@ -263,8 +263,8 @@ func TestAutoDiscoveryFailure(t *testing.T) {
 }
 
 func TestAutoDiscoveryGeneration(t *testing.T) {
-	cached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211", 0)}}
-	updated := ResolveResult{Generation: 13, Addrs: []*Addr{NewAddr("tcp", "10.0.0.2:11211", 0)}}
+	cached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211")}}
+	updated := ResolveResult{Generation: 13, Addrs: []*Addr{NewAddr("tcp", "10.0.0.2:11211")}}
 	for _, test := range []struct {
 		name       string
 		generation uint64
@@ -301,7 +301,7 @@ func TestAutoDiscoveryGeneration(t *testing.T) {
 func TestAutoDiscoveryCacheOwnership(t *testing.T) {
 	for _, cached := range []bool{false, true} {
 		t.Run(fmt.Sprintf("cached=%t", cached), func(t *testing.T) {
-			want := NewAddr("tcp", "10.0.0.1:11211", 0)
+			want := NewAddr("tcp", "10.0.0.1:11211")
 			r := NewAutoDiscovery(time.Minute)
 			t.Cleanup(func() { require.NoError(t, r.Close()) })
 			var reader io.Reader = strings.NewReader(configResponse("12", "cache.example|10.0.0.1|11211"))
@@ -314,12 +314,23 @@ func TestAutoDiscoveryCacheOwnership(t *testing.T) {
 			result, _, err := r.Resolve(t.Context(), "directory:11211")
 			require.NoError(t, err)
 			require.Len(t, result.Addrs, 1)
-			result.Addrs[0].Address = "caller.example:11211"
-			result.Addrs[0].Add("caller", true)
-			result.Addrs[0] = NewAddr("tcp", "replacement.example:11211", 0)
+			result.Addrs[0].Network, result.Addrs[0].Address = "udp", "caller.example:11211"
+			result.Addrs[0] = NewAddr("tcp", "replacement.example:11211")
 			require.Equal(t, ResolveResult{Generation: 12, Addrs: []*Addr{want}}, r.cached)
 		})
 	}
+}
+
+func TestAutoDiscoveryOrdersCachedAddresses(t *testing.T) {
+	r := NewAutoDiscovery(time.Minute)
+	t.Cleanup(func() { require.NoError(t, r.Close()) })
+	r.conn = &discoveryConn{reader: strings.NewReader(configResponse("12", "b.example|10.0.0.2|11211 a.example|10.0.0.1|11211"))}
+
+	result, _, err := r.Resolve(t.Context(), "directory:11211")
+	require.NoError(t, err)
+	want := []*Addr{NewAddr("tcp", "10.0.0.1:11211"), NewAddr("tcp", "10.0.0.2:11211")}
+	require.Equal(t, want, result.Addrs)
+	require.Equal(t, want, r.cached.Addrs)
 }
 
 func TestAutoDiscoveryTimeoutWithoutCache(t *testing.T) {
@@ -360,7 +371,7 @@ func TestAutoDiscoveryInterruption(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, peer.Close()) })
 			r := NewAutoDiscovery(time.Minute)
 			r.conn = conn
-			r.cached = ResolveResult{Generation: 1, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211", 0)}}
+			r.cached = ResolveResult{Generation: 1, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211")}}
 			t.Cleanup(func() { require.NoError(t, r.Close()) })
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -432,7 +443,7 @@ func TestReadConfigResponse(t *testing.T) {
 			require.Equal(t, test.generation, result.Generation)
 			require.Len(t, result.Addrs, len(test.addresses))
 			for i, address := range test.addresses {
-				require.Equal(t, NewAddr("tcp", address, 0), result.Addrs[i])
+				require.Equal(t, NewAddr("tcp", address), result.Addrs[i])
 			}
 		})
 	}
@@ -513,5 +524,5 @@ func TestReadConfigResponseStopsAtEND(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), result.Generation)
 	require.Len(t, result.Addrs, 1)
-	require.Equal(t, NewAddr("tcp", "127.0.0.1:11211", 0), result.Addrs[0])
+	require.Equal(t, NewAddr("tcp", "127.0.0.1:11211"), result.Addrs[0])
 }

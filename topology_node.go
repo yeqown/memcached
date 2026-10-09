@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yeqown/memcached/resolver"
-
 	"github.com/pkg/errors"
+
+	"github.com/yeqown/memcached/resolver"
 )
 
 type nodeState uint32
@@ -23,45 +23,49 @@ const (
 // Pool owns connection resources and counters; all borrowing/returning goes
 // through node. Routing attributes come from topology's cached addresses.
 type node struct {
-	dialTimeout   time.Duration
-	enableSASL    bool
-	plainUsername string
-	plainPassword string
-
 	addr *resolver.Addr
 	pool *connPool
 
 	state atomic.Uint32
 }
 
-func (n *node) createConn(ctx context.Context) (memcachedConn, error) {
-	cn, err := newConnContext(ctx, n.addr, n.dialTimeout)
-	if err != nil {
-		return nil, errors.Wrap(err, "newConnContext failed")
-	}
+type createConnFunc func(ctx context.Context) (memcachedConn, error)
 
-	if n.enableSASL {
-		interrupted := make(chan struct{})
-		stop := context.AfterFunc(ctx, func() {
-			// Deadlines can interrupt auth safely; buffered conn.Close must
-			// wait until authSASL has returned.
-			_ = cn.raw.SetDeadline(time.Now())
-			close(interrupted)
-		})
-		err = authSASL(cn, n.plainUsername, n.plainPassword)
-		if !stop() {
-			<-interrupted
-		}
-		if contextErr := ctx.Err(); contextErr != nil {
-			err = contextErr
-		}
+func createConnFactory(
+	addr *resolver.Addr,
+	dialTimeout time.Duration,
+	enableSASL bool,
+	plainUsername, plainPassword string,
+) createConnFunc {
+	return func(ctx context.Context) (memcachedConn, error) {
+		cn, err := newConnContext(ctx, addr, dialTimeout)
 		if err != nil {
-			_ = cn.Close() // Preserve the authentication error.
-			return nil, err
+			return nil, errors.Wrap(err, "newConnContext failed")
 		}
-	}
 
-	return cn, nil
+		if enableSASL {
+			interrupted := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() {
+				// Deadlines can interrupt auth safely; buffered conn.Close must
+				// wait until authSASL has returned.
+				_ = cn.raw.SetDeadline(time.Now())
+				close(interrupted)
+			})
+			err = authSASL(cn, plainUsername, plainPassword)
+			if !stop() {
+				<-interrupted
+			}
+			if contextErr := ctx.Err(); contextErr != nil {
+				err = contextErr
+			}
+			if err != nil {
+				_ = cn.Close() // Preserve the authentication error.
+				return nil, err
+			}
+		}
+
+		return cn, nil
+	}
 }
 
 // getConn confirms availability both before and after waiting or dialing.

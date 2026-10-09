@@ -20,7 +20,7 @@ import (
 )
 
 func TestTopologyUpdatesMembership(t *testing.T) {
-	a, b, d := resolver.NewAddr("tcp", "a:11211", 0), resolver.NewAddr("tcp", "b:11211", 0), resolver.NewAddr("tcp", "d:11211", 0)
+	a, b, d := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211"), resolver.NewAddr("tcp", "d:11211")
 	for _, test := range []struct {
 		name    string
 		next    []*resolver.Addr
@@ -39,50 +39,49 @@ func TestTopologyUpdatesMembership(t *testing.T) {
 			current := topologyView(top)
 			require.Len(t, current.nodes, len(test.next))
 			require.ElementsMatch(t, test.next, current.addrs, "published routing addresses must match the resolved membership")
-			require.Same(t, old.nodes[b.AddrKey], current.nodes[b.AddrKey])
+			require.Same(t, old.nodes[*b], current.nodes[*b])
 			if test.removed {
-				require.NotContains(t, current.nodes, a.AddrKey)
-				require.Equal(t, nodeClosed, old.nodes[a.AddrKey].status())
+				require.NotContains(t, current.nodes, *a)
+				require.Equal(t, nodeClosed, old.nodes[*a].status())
 			} else {
-				require.Same(t, old.nodes[a.AddrKey], current.nodes[a.AddrKey])
+				require.Same(t, old.nodes[*a], current.nodes[*a])
 			}
 		})
 	}
 }
 
-func TestTopologyUpdatesRoutingInputsForSameNode(t *testing.T) {
-	addr := resolver.NewAddr("tcp", "cache.example:11211", 1)
-	addr.Add("zone", "one")
-	top := newTestTopology(t, []*resolver.Addr{addr})
-	initial := topologyView(top)
+func TestTopologyKeepsResolverOrder(t *testing.T) {
+	a, b, c := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211"), resolver.NewAddr("tcp", "c:11211")
+	top := newTestTopology(t, []*resolver.Addr{b, a})
+	require.Equal(t, []*resolver.Addr{b, a}, topologyView(top).addrs)
+	require.NoError(t, applyTopology(top, []*resolver.Addr{c, a, b}))
+	require.Equal(t, []*resolver.Addr{c, a, b}, topologyView(top).addrs)
+}
 
-	updated := resolver.NewAddr("tcp", "cache.example:11211", 2)
-	updated.Add("zone", "two")
-	require.True(t, addr.AddrKey.Equal(updated.AddrKey), "priority and metadata do not change node identity")
-
-	require.NoError(t, applyTopology(top, []*resolver.Addr{updated}))
+func TestTopologyUsesNetworkAndAddressIdentity(t *testing.T) {
+	a, b := resolver.NewAddr("tcp", "127.0.0.1:11211"), resolver.NewAddr("tcp4", "127.0.0.1:11211")
+	top := newTestTopology(t, []*resolver.Addr{a, b})
+	before := topologyView(top)
+	require.Len(t, before.nodes, 2)
+	require.NotSame(t, before.nodes[*a], before.nodes[*b])
+	require.NoError(t, applyTopology(top, []*resolver.Addr{a.Clone(), b.Clone()}))
 	current := topologyView(top)
-	require.Equal(t, 2, current.addrs[0].Priority)
-	require.Equal(t, "two", current.addrs[0].GetMetadata("zone"))
-	id := addr.AddrKey
-	require.Same(t, initial.nodes[id], current.nodes[id], "the same node keeps its connection pool")
+	require.Same(t, before.nodes[*a], current.nodes[*a])
+	require.Same(t, before.nodes[*b], current.nodes[*b])
 }
 
 func TestTopologyOwnsRoutingInputs(t *testing.T) {
-	a := resolver.NewAddr("tcp", "cache.example:11211", 1)
-	a.Add("zone", "one")
-	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "other:11211", 0)})
+	a := resolver.NewAddr("tcp", "cache.example:11211")
+	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "other:11211")})
 	require.NoError(t, applyTopology(top, []*resolver.Addr{a}))
-	a.Address, a.Priority = "changed:11211", 9
-	a.Add("zone", "changed")
+	a.Network, a.Address = "udp", "changed:11211"
 	view := topologyView(top)
-	require.Equal(t, "cache.example:11211", view.addrs[0].Address)
-	require.Equal(t, 1, view.addrs[0].Priority)
-	require.Equal(t, "one", view.addrs[0].GetMetadata("zone"))
+	require.Equal(t, resolver.Addr{Network: "tcp", Address: "cache.example:11211"}, *view.addrs[0])
+	require.Contains(t, view.nodes, resolver.Addr{Network: "tcp", Address: "cache.example:11211"})
 }
 
 func TestTopologyInvalidRefreshPreservesNodes(t *testing.T) {
-	a := resolver.NewAddr("tcp", "a:11211", 0)
+	a := resolver.NewAddr("tcp", "a:11211")
 	top := newTestTopology(t, []*resolver.Addr{a})
 	before := topologyView(top)
 	for _, addrs := range [][]*resolver.Addr{nil, {nil}, {a, a.Clone()}} {
@@ -92,7 +91,7 @@ func TestTopologyInvalidRefreshPreservesNodes(t *testing.T) {
 }
 
 func TestTopologyCloseDrainsRemovedNode(t *testing.T) {
-	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)})
+	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
 	n, err := top.pickNode(picker.NewCRC32HashPicker(), nil, nil)
 	require.NoError(t, err)
 	raw := newTestConn()
@@ -100,7 +99,7 @@ func TestTopologyCloseDrainsRemovedNode(t *testing.T) {
 	_, releaseFn, err := n.getConn(t.Context())
 	require.NoError(t, err)
 	defer releaseFn()
-	require.NoError(t, applyTopology(top, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211", 0)}))
+	require.NoError(t, applyTopology(top, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}))
 	require.NoError(t, top.close())
 	require.Equal(t, nodeDraining, n.status())
 	require.Zero(t, raw.closes.Load(), "shutdown preserves the borrowed connection")
@@ -119,9 +118,9 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 		<-proceed
 		return addrs[0], nil
 	})
-	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)})
+	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
 	raw := newTestConn()
-	topologyView(top).nodes[resolver.AddrKey{Network: "tcp", Address: "a:11211"}].pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+	topologyView(top).nodes[resolver.Addr{Network: "tcp", Address: "a:11211"}].pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
 	picked := make(chan struct{})
 	var inst *node
 	var pickErr error
@@ -132,7 +131,7 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 	<-entered
 	updated := make(chan error, 1)
 	go func() {
-		updated <- applyTopology(top, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211", 0)})
+		updated <- applyTopology(top, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")})
 	}()
 	// Mutex waits are not durable in synctest; use a real bounded wait.
 	select {
@@ -152,9 +151,9 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 }
 
 func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
-	a, b := resolver.NewAddr("tcp", "a:11211", 0), resolver.NewAddr("tcp", "b:11211", 0)
+	a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
 	top := newTestTopology(t, []*resolver.Addr{a})
-	old := topologyView(top).nodes[a.AddrKey]
+	old := topologyView(top).nodes[*a]
 	raw := newTestConn()
 	old.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
 	_, releaseOld, err := old.getConn(t.Context())
@@ -167,7 +166,7 @@ func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
 	require.Nil(t, cn)
 	require.Nil(t, releaseFn)
 	require.NoError(t, applyTopology(top, []*resolver.Addr{a, b}))
-	current := topologyView(top).nodes[a.AddrKey]
+	current := topologyView(top).nodes[*a]
 	require.NotSame(t, old, current)
 	require.NotSame(t, old.pool, current.pool)
 	require.Zero(t, raw.closes.Load())
@@ -179,12 +178,12 @@ func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
 
 func TestTopologyRemovalDoesNotWaitForOtherNodes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a, b := resolver.NewAddr("tcp", "a:11211", 0), resolver.NewAddr("tcp", "b:11211", 0)
+		a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
 		top := newTestTopology(t, []*resolver.Addr{a, b})
 		initial := topologyView(top)
 		raw := newTestConn()
-		initial.nodes[b.AddrKey].pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-		_, release, err := initial.nodes[b.AddrKey].getConn(t.Context())
+		initial.nodes[*b].pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+		_, release, err := initial.nodes[*b].getConn(t.Context())
 		require.NoError(t, err)
 		defer release()
 		done := make(chan error, 1)
@@ -192,7 +191,7 @@ func TestTopologyRemovalDoesNotWaitForOtherNodes(t *testing.T) {
 		synctest.Wait()
 		require.Len(t, done, 1, "a lease on a retained node must not delay removal")
 		require.NoError(t, <-done)
-		requirePoolClosed(t, initial.nodes[a.AddrKey].pool)
+		requirePoolClosed(t, initial.nodes[*a].pool)
 		require.Zero(t, raw.closes.Load())
 		release()
 		require.Equal(t, 1, raw.pool.stats().IdleConns)
@@ -213,11 +212,11 @@ func TestTopologyResolverScheduleAndError(t *testing.T) {
 			next := time.Now().Add(time.Hour)
 			switch call {
 			case 1:
-				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, &next, nil
+				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
 			case 2:
 				return resolver.ResolveResult{}, &next, errors.New("directory unavailable")
 			default:
-				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, nil, nil
+				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, nil, nil
 			}
 		})
 		top, err := newTopology(t.Context(), "http://directory", r, 5*time.Second, func(addr *resolver.Addr) *node { return newTestNode(t, addr, 4) }, nil)
@@ -247,7 +246,7 @@ func TestTopologyResolverNilErrorScheduleStopsRefresh(t *testing.T) {
 			calls++
 			if calls == 1 {
 				next := time.Now().Add(time.Minute)
-				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, &next, nil
+				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
 			}
 			return resolver.ResolveResult{}, nil, errors.New("stop refreshing")
 		})
@@ -277,7 +276,7 @@ func TestTopologyResolverTimeoutAndClose(t *testing.T) {
 						return resolver.ResolveResult{}, nil, ctx.Err()
 					}
 					next := time.Now().Add(time.Minute)
-					return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, &next, nil
+					return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
 				})
 				top, err := newTopology(t.Context(), "directory", r, time.Second, func(addr *resolver.Addr) *node { return newTestNode(t, addr, 4) }, nil)
 				if initial {
@@ -303,7 +302,7 @@ func TestTopologyResolverTimeoutAndClose(t *testing.T) {
 
 func TestTopologyResolverCopiesReturnedSchedule(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a := resolver.NewAddr("tcp", "a:11211", 0)
+		a := resolver.NewAddr("tcp", "a:11211")
 		top := newTestTopology(t, []*resolver.Addr{a})
 		var calls atomic.Int32
 		schedule := time.Now().Add(time.Hour)
@@ -340,7 +339,7 @@ func TestTopologyResolverBackgroundTimeoutAndRetry(t *testing.T) {
 			call := calls.Add(1)
 			next := time.Now().Add(time.Minute)
 			if call == 1 {
-				return resolver.ResolveResult{Generation: 1, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, &next, nil
+				return resolver.ResolveResult{Generation: 1, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
 			}
 			if call == 2 {
 				<-ctx.Done()
@@ -348,7 +347,7 @@ func TestTopologyResolverBackgroundTimeoutAndRetry(t *testing.T) {
 				next = time.Now().Add(time.Minute)
 				return resolver.ResolveResult{}, &next, ctx.Err()
 			}
-			return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211", 0)}}, nil, nil
+			return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}}, nil, nil
 		})
 		top, err := newTopology(t.Context(), "directory", r, time.Second, func(addr *resolver.Addr) *node { return newTestNode(t, addr, 4) }, nil)
 		require.NoError(t, err)
@@ -374,7 +373,7 @@ func TestTopologyResolverBackgroundTimeoutAndRetry(t *testing.T) {
 
 func TestTopologyResolveAcceptsCachedResultAfterTimeout(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		addr := resolver.NewAddr("tcp", "a:11211", 0)
+		addr := resolver.NewAddr("tcp", "a:11211")
 		top := newTestTopology(t, []*resolver.Addr{addr})
 		before := topologyView(top)
 		top.resolver = resolverFunc(func(ctx context.Context, _ string) (resolver.ResolveResult, *time.Time, error) {
@@ -393,7 +392,7 @@ func TestTopologyResolveAcceptsCachedResultAfterTimeout(t *testing.T) {
 
 func TestTopologyCloseRejectsLateResolveSuccess(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)})
+		top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
 		started := make(chan struct{})
 		proceed := make(chan struct{})
 		finish := sync.OnceFunc(func() { close(proceed) })
@@ -402,7 +401,7 @@ func TestTopologyCloseRejectsLateResolveSuccess(t *testing.T) {
 			close(started)
 			<-proceed
 			// Discovery can finish successfully after the topology has closed.
-			return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211", 0)}}, nil, nil
+			return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}}, nil, nil
 		})
 		finished := make(chan error, 1)
 		go func() {
@@ -430,8 +429,8 @@ func TestTopologyResolveGeneration(t *testing.T) {
 		{name: "changed", generation: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			a := resolver.NewAddr("tcp", "a:11211", 0)
-			b := resolver.NewAddr("tcp", "b:11211", 0)
+			a := resolver.NewAddr("tcp", "a:11211")
+			b := resolver.NewAddr("tcp", "b:11211")
 			top := newTestTopology(t, []*resolver.Addr{a})
 			before := topologyView(top)
 			next := time.Now().Add(time.Hour)
@@ -449,7 +448,7 @@ func TestTopologyResolveGeneration(t *testing.T) {
 				require.Len(t, view.addrs, 1)
 				require.Equal(t, "b:11211", view.addrs[0].Address)
 				require.Equal(t, test.generation, view.generation)
-				requirePoolClosed(t, before.nodes[a.AddrKey].pool)
+				requirePoolClosed(t, before.nodes[*a].pool)
 			}
 		})
 	}
@@ -462,7 +461,7 @@ func TestTopologyOwnsResolverClose(t *testing.T) {
 				if initialFailure {
 					return resolver.ResolveResult{}, nil, errors.New("discovery failed")
 				}
-				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)}}, nil, nil
+				return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, nil, nil
 			}}
 			top, err := newTopology(t.Context(), "directory", r, time.Second, func(addr *resolver.Addr) *node { return newTestNode(t, addr, 4) }, nil)
 			if initialFailure {
@@ -478,13 +477,13 @@ func TestTopologyOwnsResolverClose(t *testing.T) {
 }
 
 func TestTopologyResolvePublishesSuccessfulResultAfterCancellation(t *testing.T) {
-	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211", 0)})
+	top := newTestTopology(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
 	before := topologyView(top)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	top.resolver = resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
 		cancel()
-		return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211", 0)}}, nil, nil
+		return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}}, nil, nil
 	})
 	_, err := top.resolve(ctx)
 	require.NoError(t, err, "a resolver's successful result remains publishable after cancellation")
@@ -493,7 +492,7 @@ func TestTopologyResolvePublishesSuccessfulResultAfterCancellation(t *testing.T)
 	require.Len(t, view.addrs, 1)
 	require.Equal(t, "b:11211", view.addrs[0].Address)
 	require.Equal(t, uint64(2), view.generation)
-	requirePoolClosed(t, before.nodes[resolver.AddrKey{Network: "tcp", Address: "a:11211"}].pool)
+	requirePoolClosed(t, before.nodes[resolver.Addr{Network: "tcp", Address: "a:11211"}].pool)
 }
 
 type closingTopologyResolver struct {
@@ -536,7 +535,7 @@ func newTestTopology(t *testing.T, addrs []*resolver.Addr, metrics ...*telemetry
 
 type topologySnapshot struct {
 	addrs      []*resolver.Addr
-	nodes      map[resolver.AddrKey]*node
+	nodes      map[resolver.Addr]*node
 	generation uint64
 }
 
@@ -559,8 +558,8 @@ func TestTopologyEmitsDiscoveryMetrics(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		meter := &testutil.CaptureMeter{}
 		initialAddrs := []*resolver.Addr{
-			resolver.NewAddr("tcp", "a.example:11211", 0),
-			resolver.NewAddr("tcp", "b.example:11211", 0),
+			resolver.NewAddr("tcp", "a.example:11211"),
+			resolver.NewAddr("tcp", "b.example:11211"),
 		}
 		calls := 0
 		failure := errors.New("directory temporarily unavailable")
@@ -575,9 +574,9 @@ func TestTopologyEmitsDiscoveryMetrics(t *testing.T) {
 				return resolver.ResolveResult{}, nil, failure
 			default:
 				return resolver.ResolveResult{Generation: 2, Addrs: []*resolver.Addr{
-					resolver.NewAddr("tcp", "b.example:11211", 0),
-					resolver.NewAddr("tcp", "c.example:11211", 0),
-					resolver.NewAddr("tcp", "d.example:11211", 0),
+					resolver.NewAddr("tcp", "b.example:11211"),
+					resolver.NewAddr("tcp", "c.example:11211"),
+					resolver.NewAddr("tcp", "d.example:11211"),
 				}}, nil, nil
 			}
 		})
@@ -637,15 +636,15 @@ func TestTopologyUnchangedGenerationOnlyUpdatesDiscoveryMetrics(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		meter := &testutil.CaptureMeter{}
 		top := newTestTopology(t, []*resolver.Addr{
-			resolver.NewAddr("tcp", "a.example:11211", 0),
-			resolver.NewAddr("tcp", "b.example:11211", 0),
+			resolver.NewAddr("tcp", "a.example:11211"),
+			resolver.NewAddr("tcp", "b.example:11211"),
 		}, telemetry.NewConfig(telemetry.WithMeterProvider(meter.Provider())).Metrics())
 		top.resolver = resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
 			time.Sleep(100 * time.Millisecond)
-			// New address objects and reordered membership describe the same topology.
+			// New address objects describe the same ordered topology.
 			return resolver.ResolveResult{Generation: 1, Addrs: []*resolver.Addr{
-				resolver.NewAddr("tcp", "b.example:11211", 0),
-				resolver.NewAddr("tcp", "a.example:11211", 0),
+				resolver.NewAddr("tcp", "a.example:11211"),
+				resolver.NewAddr("tcp", "b.example:11211"),
 			}}, nil, nil
 		})
 		firstSuccess := meter.Values("memcached.discovery.resolve.last_success")
@@ -668,7 +667,7 @@ func TestTopologyUnchangedGenerationOnlyUpdatesDiscoveryMetrics(t *testing.T) {
 
 func TestTopologySourceGenerationChangeUpdatesGauge(t *testing.T) {
 	meter := &testutil.CaptureMeter{}
-	addrs := []*resolver.Addr{resolver.NewAddr("tcp", "a.example:11211", 0)}
+	addrs := []*resolver.Addr{resolver.NewAddr("tcp", "a.example:11211")}
 	top := newTestTopology(t, addrs, telemetry.NewConfig(telemetry.WithMeterProvider(meter.Provider())).Metrics())
 	require.NoError(t, top.apply(t.Context(), resolver.ResolveResult{Generation: 2, Addrs: addrs}))
 	require.Equal(t, []float64{1, 2}, meter.Values("memcached.topology.generation"),

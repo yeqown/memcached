@@ -29,8 +29,9 @@ flowchart TD
 - `connPool` owns connection creation, reuse, capacity, idle cleanup, physical
   closing and resource counters. Its stats expose `Closed` and `TotalConns`;
   it does not manage membership or node lifecycle.
-- `resolver` validates/canonicalizes addresses and owns source versions, retry
-  scheduling and discovery resources. The Resolver interface includes `io.Closer`.
+- `resolver` validates/canonicalizes addresses and owns address order, source
+  versions, retry scheduling and discovery resources. The Resolver interface
+  includes `io.Closer`.
 
 Topology and node keep configuration directly, without additional configuration
 structs or a retained `clientOptions` dependency. Client injects the node factory.
@@ -64,20 +65,22 @@ borrow may fail; already borrowed connections finish normally.
 
 Resolver returns a complete, nonempty node list. Topology rejects empty results
 and malformed membership structure without changing the last usable topology.
-Address syntax and canonicalization belong to Resolver. Topology clones addresses
-and metadata maps and sorts its private cache by network/address. Metadata values
-must be immutable, and returned objects cannot be modified concurrently while
-being accepted. Ordinary routing reuses the cache without rebuilding it.
+Address syntax, canonicalization and ordering belong to Resolver. Topology clones
+addresses in the supplied order; returned objects cannot be modified concurrently
+while being accepted. Ordinary routing reuses the cache without rebuilding it.
+`resolver.Addr` contains only `Network` and `Address`. Its comparable value is the
+key for node lookup and membership validation, so fresh address objects with the
+same fields reuse the same node.
 
 Applying a result reuses nodes by network/address identity, creates missing nodes
 with `makeNode`, and finds removals by comparing the old and new maps. The new map,
 address cache and generation are published together; removed nodes close outside
-the topology lock. Priority and metadata changes replace routing inputs while
-reusing the node and pool. No deep-equality or separate membership comparison is
+the topology lock. Reordering the addresses replaces routing inputs while reusing
+the same nodes and pools. No deep-equality or separate membership comparison is
 needed.
 
-Equal nonzero generations for one target must represent identical complete
-content, including routing attributes, and skip publication. Zero means
+Equal nonzero generations for one target must represent identical ordered address
+lists and skip publication. Zero means
 unspecified and every successful result is applied. Version changes alone reuse
 all existing node pools. Source-specific version ordering belongs to Resolver.
 

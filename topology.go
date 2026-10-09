@@ -3,13 +3,11 @@ package memcached
 import (
 	"context"
 	"log"
-	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
 	pkgerrors "github.com/pkg/errors"
 
 	"github.com/yeqown/memcached/picker"
@@ -29,7 +27,7 @@ type topology struct {
 
 	mu          sync.RWMutex
 	cachedAddrs []*resolver.Addr // immutable until replaced by an update
-	nodes       map[resolver.AddrKey]*node
+	nodes       map[resolver.Addr]*node
 	generation  uint64
 	closed      atomic.Bool
 }
@@ -53,7 +51,7 @@ func newTopology(
 
 		mu:          sync.RWMutex{},
 		cachedAddrs: nil,
-		nodes:       make(map[resolver.AddrKey]*node),
+		nodes:       make(map[resolver.Addr]*node),
 		generation:  0,
 		closed:      atomic.Bool{},
 	}
@@ -91,7 +89,7 @@ func (t *topology) pickNode(p picker.Picker, cmd, key []byte) (*node, error) {
 	if addr == nil {
 		return nil, pkgerrors.Wrap(ErrInvalidAddress, "nil picker address")
 	}
-	n := t.nodes[addr.AddrKey]
+	n := t.nodes[*addr]
 	if n == nil {
 		return nil, pkgerrors.Wrap(ErrInvalidAddress, "picker selected a node outside the available addresses")
 	}
@@ -108,7 +106,7 @@ func (t *topology) allNodes() ([]*node, error) {
 	defer t.mu.RUnlock()
 	nodes := make([]*node, 0, len(t.nodes))
 	for _, addr := range t.cachedAddrs {
-		nodes = append(nodes, t.nodes[addr.AddrKey])
+		nodes = append(nodes, t.nodes[*addr])
 	}
 	return nodes, nil
 }
@@ -139,33 +137,27 @@ func (t *topology) apply(ctx context.Context, result resolver.ResolveResult) err
 	// Resolver validates and canonicalizes addresses. Check the membership's
 	// structure before creating nodes, then take ownership of routing inputs.
 	addrs := make([]*resolver.Addr, 0, len(result.Addrs))
-	seen := make(map[resolver.AddrKey]struct{}, len(result.Addrs))
+	seen := make(map[resolver.Addr]struct{}, len(result.Addrs))
 	for _, addr := range result.Addrs {
 		if addr == nil {
 			t.mu.Unlock()
 			return pkgerrors.Wrap(ErrInvalidAddress, "nil topology node")
 		}
-		if _, duplicate := seen[addr.AddrKey]; duplicate {
+		if _, duplicate := seen[*addr]; duplicate {
 			t.mu.Unlock()
 			return pkgerrors.Wrap(ErrInvalidAddress, "duplicate topology node")
 		}
-		seen[addr.AddrKey] = struct{}{}
+		seen[*addr] = struct{}{}
 		addrs = append(addrs, addr.Clone())
 	}
-	// Keep modulo routing stable when a resolver changes only response order.
-	slices.SortFunc(addrs, func(a, b *resolver.Addr) int {
-		if cmp := strings.Compare(a.Network, b.Network); cmp != 0 {
-			return cmp
-		}
-		return strings.Compare(a.Address, b.Address)
-	})
-	nodes := make(map[resolver.AddrKey]*node, len(addrs))
+
+	nodes := make(map[resolver.Addr]*node, len(addrs))
 	for _, addr := range addrs {
-		n := t.nodes[addr.AddrKey]
+		n := t.nodes[*addr]
 		if n == nil {
 			n = t.makeNode(addr)
 		}
-		nodes[addr.AddrKey] = n
+		nodes[*addr] = n
 	}
 	var removed []*node
 	for key, n := range t.nodes {

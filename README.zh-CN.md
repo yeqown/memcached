@@ -90,9 +90,9 @@ AWS ElastiCache Memcached 和 Google Memorystore Memcached 可使用同一个内
 
 ## Resolver / Picker API 迁移
 
-Resolver、Picker 及其内置实现分别位于 `github.com/yeqown/memcached/resolver`、`github.com/yeqown/memcached/picker`，地址类型由 `resolver.Addr` 定义。自定义 Resolver 需要实现 `Resolve(ctx context.Context, target string) (resolver.ResolveResult, *time.Time, error)` 和 `Close() error`；Client 在关闭或初始化失败时释放 Resolver。通过 `ResolveResult.Addrs` 返回完整节点列表，并单独返回下次解析时间。时间为 nil 时停止刷新，返回 error 时也一样；暂时失败应同时返回重试时间。默认 `resolver.NewStatic()` 只解析一次。
+Resolver、Picker 及其内置实现分别位于 `github.com/yeqown/memcached/resolver`、`github.com/yeqown/memcached/picker`，地址类型由 `resolver.Addr{Network, Address}` 定义，只有两个字符串字段，可直接作为 map 的 key，通过 `resolver.NewAddr(network, address)` 创建。自定义 Resolver 需要实现 `Resolve(ctx context.Context, target string) (resolver.ResolveResult, *time.Time, error)` 和 `Close() error`；Client 在关闭或初始化失败时释放 Resolver。通过 `ResolveResult.Addrs` 返回完整节点列表，并单独返回下次解析时间。时间为 nil 时停止刷新，返回 error 时也一样；暂时失败应同时返回重试时间。默认 `resolver.NewStatic()` 只解析一次。
 
-自定义路由算法实现 `picker.Picker`，通过 `memcached.WithPicker(p)` 直接传入实例。Builder 接口已移除，`picker.NewCRC32HashPicker()` 等内置构造函数直接返回可用的 Picker。哈希函数收拢到 `picker` 内部，原 `hash` 包已移除。Client 在拓扑变更时复用传入的 Picker，每次 `Pick` 都传入当前不可变地址快照。Picker 必须支持并发调用，不能保存或修改传入的地址。地址会被规范化并排序，因此升级后已有键的分布可能变化。节点增减或切换哈希策略也可能造成缓存未命中，业务需要准备回源或预热。
+自定义路由算法实现 `picker.Picker`，通过 `memcached.WithPicker(p)` 直接传入实例。Builder 接口已移除，`picker.NewCRC32HashPicker()` 等内置构造函数直接返回可用的 Picker。哈希函数收拢到 `picker` 内部，原 `hash` 包已移除。Client 在拓扑变更时复用传入的 Picker，每次 `Pick` 都传入当前不可变地址快照。Picker 必须支持并发调用，不能保存或修改传入的地址。地址顺序由 Resolver 控制：静态解析保留输入顺序，自动发现按 network/address 排序，topology 按原顺序使用。升级到新的 Rendezvous 评分算法会改变已有键的分布。节点增减或切换哈希策略也可能造成缓存未命中，业务需要准备回源或预热。
 自动发现与节点生命周期由内部 topology 层管理；Client 通过 topology 选择节点，由 node 代理连接的借出和归还。节点下线后，已借出的连接可以完成请求，等待或建连中的请求可能失败；每个 node 独立持有身份、状态和连接池。职责与扩展边界见 [topology 设计说明](./docs/topology.md)。
 
 

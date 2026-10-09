@@ -9,7 +9,7 @@ import (
 )
 
 // NewRendezvousHashPicker creates a rendezvous Picker using the seed. Scores
-// depend only on node identity and key, not Priority or discovery result order.
+// depend only on node identity and key, independently of discovery result order.
 // Upgrading from the former priority-based scoring changes existing key placement.
 func NewRendezvousHashPicker(seed uint64) Picker {
 	return NewRendezvousHashPickerWithHash(newMurmur3Hash(seed).sum64)

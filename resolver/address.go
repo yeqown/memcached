@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"errors"
-	"maps"
 	"net"
 	"net/netip"
 	"path/filepath"
@@ -19,58 +18,22 @@ var (
 	ErrInvalidNetworkProtocol = errors.New("invalid network protocol")
 )
 
-// AddrKey identifies a Memcached node by its network and address and can be used
-// as a map key.
-type AddrKey struct {
+// Addr identifies a Memcached node by its network and address and can be used
+// as a map key. Published addresses must be treated as immutable.
+type Addr struct {
 	Network string
 	Address string
 }
 
-// Equal reports whether keys have the same Network and Address.
-func (a AddrKey) Equal(other AddrKey) bool {
-	return a == other
+// NewAddr creates a node address with the given network and address.
+func NewAddr(network, address string) *Addr {
+	return &Addr{Network: network, Address: address}
 }
 
-// Addr represents a Memcached node. Published addresses and their metadata must
-// be treated as immutable; metadata values must also be immutable.
-type Addr struct {
-	AddrKey
-
-	// Priority is available to custom pickers. Built-in pickers ignore it.
-	Priority int
-
-	metadata map[string]any
-}
-
-// NewAddr creates a node address with the given network, address and priority.
-func NewAddr(network, address string, priority int) *Addr {
-	return &Addr{AddrKey: AddrKey{Network: network, Address: address}, Priority: priority}
-}
-
-// GetMetadata returns the metadata value associated with key.
-func (a *Addr) GetMetadata(key string) any { return a.metadata[key] }
-
-// Add sets metadata on an unpublished address. It must not run concurrently
-// with cloning, reading or publishing that address.
-func (a *Addr) Add(key string, value any) {
-	if a.metadata == nil {
-		a.metadata = make(map[string]any)
-	}
-	a.metadata[key] = value
-}
-
-// Clone copies the address and metadata map. Values in the map remain shared.
+// Clone copies the address.
 func (a *Addr) Clone() *Addr {
-	copyAddr := &Addr{AddrKey: a.AddrKey, Priority: a.Priority}
-	if len(a.metadata) > 0 {
-		copyAddr.metadata = maps.Clone(a.metadata)
-	}
-	return copyAddr
-}
-
-// CanonicalAddress validates and normalizes a node address without a DNS lookup.
-func CanonicalAddress(network, address string) (string, error) {
-	return canonicalAddress(network, address)
+	copyAddr := *a
+	return &copyAddr
 }
 
 // canonicalAddress validates syntax without a DNS lookup. The dialer, or a
@@ -120,7 +83,7 @@ func validHostname(host string) bool {
 		return false
 	}
 	nonNumeric := false
-	for _, label := range strings.Split(host, ".") {
+	for label := range strings.SplitSeq(host, ".") {
 		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return false
 		}

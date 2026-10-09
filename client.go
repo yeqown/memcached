@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
@@ -59,20 +60,17 @@ func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Cli
 	cfg := telemetry.NewConfig(options.telemetryOptions...)
 	makeNode := func(addr *resolver.Addr) *node {
 		n := &node{
-			addr:          addr.Clone(),
-			dialTimeout:   options.dialTimeout,
-			enableSASL:    options.enableSASL,
-			plainUsername: options.plainUsername,
-			plainPassword: options.plainPassword,
+			addr: addr.Clone(),
+			pool: newConnPool(
+				options.maxIdleConns,
+				options.maxConns,
+				options.maxLifetime,
+				options.maxIdleTimeout,
+				createConnFactory(addr, options.dialTimeout, options.enableSASL, options.plainUsername, options.plainPassword),
+			),
+			state: atomic.Uint32{},
 		}
-
-		n.pool = newConnPool(
-			options.maxIdleConns,
-			options.maxConns,
-			options.maxLifetime,
-			options.maxIdleTimeout,
-			n.createConn,
-		)
+		n.state.Store(uint32(nodeAvailable))
 
 		return n
 	}
@@ -100,13 +98,12 @@ func (c *client) pickConn(ctx context.Context, cmd, key []byte) (context.Context
 	if err != nil {
 		return ctx, nil, nil, err
 	}
-	addr := n.addr
 	start := time.Now()
-	ctx, span := c.tracer.Start(ctx, string(cmd), addr.Address, addr.Network, string(key))
+	ctx, span := c.tracer.Start(ctx, string(cmd), n.addr.Address, n.addr.Network, string(key))
 
 	finish := func(err error) {
 		c.tracer.End(span, err)
-		c.metrics.RecordDuration(context.Background(), string(cmd), addr.Address, time.Since(start), err)
+		c.metrics.RecordDuration(context.Background(), string(cmd), n.addr.Address, time.Since(start), err)
 	}
 	cn, releaseConn, err := n.getConn(ctx)
 	if err != nil {

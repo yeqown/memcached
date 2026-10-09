@@ -137,6 +137,7 @@ func (r *AutoDiscovery) Resolve(ctx context.Context, target string) (result Reso
 		}
 	}
 
+	result.SortAddrs()
 	r.cached = result
 
 	return r.cached.Clone(), nextResolveAt, nil
@@ -286,7 +287,7 @@ func readConfigResponse(ctx context.Context, r *bufio.Reader) (ResolveResult, er
 			if err != nil {
 				return emptyResolveResult, fmt.Errorf("%w: %w", ErrMalformedResponse, err)
 			}
-			result.Addrs = append(result.Addrs, NewAddr("tcp", address, 0))
+			result.Addrs = append(result.Addrs, NewAddr("tcp", address))
 		}
 	}
 	if err := ctx.Err(); err != nil {

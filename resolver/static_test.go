@@ -12,15 +12,18 @@ func TestStaticResolve(t *testing.T) {
 		name, target string
 		want         []*Addr
 	}{
-		{"IPv4", "127.0.0.1:11211", []*Addr{NewAddr("tcp", "127.0.0.1:11211", 0)}},
-		{"hostname", "google.com:11211", []*Addr{NewAddr("tcp", "google.com:11211", 0)}},
-		{"IPv6", "[::1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211", 0)}},
-		{"canonical hostname", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "cache.example:11211", 0)}},
-		{"canonical IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211", 0)}},
-		{"Unix socket", "unix:///tmp/memcached.sock", []*Addr{NewAddr("unix", "/tmp/memcached.sock", 0)}},
-		{"UDP", "udp://localhost:11211", []*Addr{NewAddr("udp", "localhost:11211", 0)}},
+		{"IPv4", "127.0.0.1:11211", []*Addr{NewAddr("tcp", "127.0.0.1:11211")}},
+		{"hostname", "google.com:11211", []*Addr{NewAddr("tcp", "google.com:11211")}},
+		{"IPv6", "[::1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211")}},
+		{"canonical hostname", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "cache.example:11211")}},
+		{"canonical IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211")}},
+		{"Unix socket", "unix:///tmp/memcached.sock", []*Addr{NewAddr("unix", "/tmp/memcached.sock")}},
+		{"UDP", "udp://localhost:11211", []*Addr{NewAddr("udp", "localhost:11211")}},
+		{"preserves input order", "localhost:11213,localhost:11211,localhost:11212", []*Addr{
+			NewAddr("tcp", "localhost:11213"), NewAddr("tcp", "localhost:11211"), NewAddr("tcp", "localhost:11212"),
+		}},
 		{"multiple addresses", "localhost:11211,localhost:11212,localhost:11213", []*Addr{
-			NewAddr("tcp", "localhost:11211", 0), NewAddr("tcp", "localhost:11212", 1), NewAddr("tcp", "localhost:11213", 2),
+			NewAddr("tcp", "localhost:11211"), NewAddr("tcp", "localhost:11212"), NewAddr("tcp", "localhost:11213"),
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

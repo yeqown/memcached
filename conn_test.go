@@ -53,7 +53,7 @@ func TestNewConnContext(t *testing.T) {
 			}()
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 			defer cancel()
-			cn, err := newConnContext(ctx, resolver.NewAddr(network, listener.Addr().String(), 0), time.Second)
+			cn, err := newConnContext(ctx, resolver.NewAddr(network, listener.Addr().String()), time.Second)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, cn.Close()) })
 			require.NoError(t, cn.setReadDeadline(time.Now().Add(time.Second)))
@@ -79,7 +79,7 @@ func TestNewConnContext(t *testing.T) {
 func TestNewConnContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	cn, err := newConnContext(ctx, resolver.NewAddr("tcp", "127.0.0.1:11211", 0), time.Second)
+	cn, err := newConnContext(ctx, resolver.NewAddr("tcp", "127.0.0.1:11211"), time.Second)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, cn)
 }
@@ -104,7 +104,7 @@ func TestNewConnContextUDP(t *testing.T) {
 		_, err = listener.WriteTo([]byte("VERSION test\r\n"), address)
 		done <- err
 	}()
-	cn, err := newConnContext(t.Context(), resolver.NewAddr("udp", listener.LocalAddr().String(), 0), time.Second)
+	cn, err := newConnContext(t.Context(), resolver.NewAddr("udp", listener.LocalAddr().String()), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cn.Close()) })
 	require.NoError(t, cn.setReadDeadline(time.Now().Add(time.Second)))

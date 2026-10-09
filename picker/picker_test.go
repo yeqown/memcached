@@ -17,7 +17,7 @@ func TestBuiltInPickersEmptyAndSingleNode(t *testing.T) {
 			addr, err := p.Pick(nil, []byte("get"), []byte("key"))
 			require.ErrorIs(t, err, resolver.ErrInvalidAddress)
 			require.Nil(t, addr)
-			only := resolver.NewAddr("tcp", "cache.example:11211", 0)
+			only := resolver.NewAddr("tcp", "cache.example:11211")
 			addr, err = p.Pick([]*resolver.Addr{only}, []byte("get"), []byte("key"))
 			require.NoError(t, err)
 			require.Same(t, only, addr)

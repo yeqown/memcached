@@ -11,9 +11,9 @@ import (
 
 func TestNodeCloseRejectsWaitingBorrow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a := resolver.NewAddr("tcp", "a:11211", 0)
+		a := resolver.NewAddr("tcp", "a:11211")
 		c := newTestClient(t, []*resolver.Addr{a}, WithMaxConns(1))
-		n := clientView(c).nodes[a.AddrKey]
+		n := clientView(c).nodes[*a]
 		raw := newTestConn()
 		n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
 		_, releaseOwner, err := n.getConn(t.Context())
@@ -43,9 +43,9 @@ func TestNodeCloseRejectsWaitingBorrow(t *testing.T) {
 
 func TestNodeCloseRejectsDialingBorrow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		a := resolver.NewAddr("tcp", "a:11211", 0)
+		a := resolver.NewAddr("tcp", "a:11211")
 		c := newTestClient(t, []*resolver.Addr{a})
-		n := clientView(c).nodes[a.AddrKey]
+		n := clientView(c).nodes[*a]
 		started, proceed := make(chan struct{}), make(chan struct{})
 		raw := newTestConn()
 		n.pool.createConn = func(context.Context) (memcachedConn, error) {
@@ -74,7 +74,7 @@ func TestNodeCloseRejectsDialingBorrow(t *testing.T) {
 }
 
 func TestNodeConfirmsAvailabilityAfterPoolBorrow(t *testing.T) {
-	a := resolver.NewAddr("tcp", "a:11211", 0)
+	a := resolver.NewAddr("tcp", "a:11211")
 	n := newTestNode(t, a, 1)
 	raw := newTestConn()
 	n.pool.createConn = func(context.Context) (memcachedConn, error) {
