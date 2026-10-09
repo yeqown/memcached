@@ -8,9 +8,9 @@ import (
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
-	"go.opentelemetry.io/otel/trace"
+	pkgerrors "github.com/pkg/errors"
 
+	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -30,235 +30,150 @@ var _ Client = (*client)(nil)
 type client struct {
 	options *clientOptions
 
-	// addrs represents the list of memcached addresses.
-	// each one of them means a memcached server instance.
-	addrs []*Addr
-
-	// picker represents the picker strategy.
-	// it is used to pick a memcached server instance to execute a command.
-	picker Picker
-
-	mu        sync.Mutex // guards following
-	connPools map[*Addr]*connPool
+	topology *topology // owns discovery, membership and node lifetimes
 
 	// telemetry holds the OpenTelemetry tracers and metrics.
 	tracer  *telemetry.Tracer
 	metrics *telemetry.Metrics
 }
 
-// New creates a new memcached client with the given address and options.
+// New creates a Client for a comma-separated static address list or a custom
+// resolver target. The resolver controls when discovery runs again; each
+// attempt is bounded by WithResolveTimeout (five seconds by default).
 //
-// The client contains a connection pool to manage the connections to
-// one memcached instance. And it can manage multiple memcached instances with
-// cluster mode.
-//
-// The Cluster mode means that the client can connect to multiple memcached instances
-// and automatically pick a memcached instance to execute a command, of course,
-// the client makes sure that the same key will be executed on the same memcached instance.
-// Be careful, there are some `keys` command does not obey this rule, such as `gets`, `gats`.
+// Borrowed connections may finish their requests after their node is removed.
+// Gets and GetAndTouches send all requested keys to the node selected by the
+// first key; callers must ensure those keys reside together.
 func New(addr string, opts ...ClientOption) (Client, error) {
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return newClientWithContext(timeoutCtx, addr, opts...)
+	return NewWithContext(context.Background(), addr, opts...)
 }
 
-func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) (Client, error) {
+// NewWithContext creates a Client with target address and context.
+// The context is used for the initial resolve ONLY.
+func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Client, error) {
 	options := newClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	addrs, err := options.resolver.Resolve(addr)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve failed")
-	}
-
-	if len(addrs) == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
-	}
-	picker := options.pickBuilder.Build(addrs)
-
-	// Initialize telemetry
 	cfg := telemetry.NewConfig(options.telemetryOptions...)
+	makeNode := func(addr *resolver.Addr) *node {
+		n := &node{
+			addr:          addr.Clone(),
+			dialTimeout:   options.dialTimeout,
+			enableSASL:    options.enableSASL,
+			plainUsername: options.plainUsername,
+			plainPassword: options.plainPassword,
+		}
+
+		n.pool = newConnPool(
+			options.maxIdleConns,
+			options.maxConns,
+			options.maxLifetime,
+			options.maxIdleTimeout,
+			n.createConn,
+		)
+
+		return n
+	}
+
+	topology, err := newTopology(ctx, addr, options.resolver, options.resolveTimeout, makeNode, cfg.Metrics())
+	if err != nil {
+		return nil, pkgerrors.Wrap(err, "newTopology failed")
+	}
 
 	return &client{
-		options: options,
-		addrs:   addrs,
-		picker:  picker,
-
-		mu:        sync.Mutex{},
-		connPools: make(map[*Addr]*connPool, 4),
-
-		tracer:  cfg.Tracer(),
-		metrics: cfg.Metrics(),
+		options:  options,
+		topology: topology,
+		tracer:   cfg.Tracer(),
+		metrics:  cfg.Metrics(),
 	}, nil
 }
 
-func (c *client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *client) Close() error { return c.topology.close() }
 
-	for _, pool := range c.connPools {
-		if err := pool.close(); err != nil {
-			return errors.Wrap(err, "Close")
-		}
+// pickConn keeps routing, borrowing and request cleanup together. The returned
+// context contains the request span; releaseFn records the result and releases
+// the connection through node. It is safe to call more than once.
+func (c *client) pickConn(ctx context.Context, cmd, key []byte) (context.Context, memcachedConn, func(error), error) {
+	n, err := c.topology.pickNode(c.options.picker, cmd, key)
+	if err != nil {
+		return ctx, nil, nil, err
 	}
+	addr := n.addr
+	start := time.Now()
+	ctx, span := c.tracer.Start(ctx, string(cmd), addr.Address, addr.Network, string(key))
 
-	return nil
-}
-
-// getConn returns a true connection from the pool.
-func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
-	c.mu.Lock()
-	pool, ok := c.connPools[addr]
-	if ok {
-		c.mu.Unlock()
-		cn, err := pool.get(ctx)
-		return cn, err
+	finish := func(err error) {
+		c.tracer.End(span, err)
+		c.metrics.RecordDuration(context.Background(), string(cmd), addr.Address, time.Since(start), err)
 	}
-
-	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
-		switch addr.Network {
-		case
-			"tcp", "tcp4", "tcp6",
-			"unix",
-			"udp", "udp4", "udp6":
-		default:
-			return nil, ErrInvalidNetworkProtocol
-		}
-
-		cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
-		if err != nil {
-			return nil, errors.Wrap(err, "newConnContext failed")
-		}
-
-		// SASL auth if enabled
-		if c.options.enableSASL {
-			if err = authSASL(cn, c.options.plainUsername, c.options.plainPassword); err != nil {
-				_ = cn.Close()
-				return nil, err
-			}
-		}
-
-		return cn, nil
+	cn, releaseConn, err := n.getConn(ctx)
+	if err != nil {
+		finish(err)
+		return ctx, nil, nil, pkgerrors.Wrap(err, "alloc connection failed")
 	}
-
-	// could not find a pool for the given addr, create a new one
-	pool = newConnPool(
-		c.options.maxIdleConns, c.options.maxConns,
-		c.options.maxLifetime, c.options.maxIdleTimeout,
-		wrapNewConn,
-	)
-	c.connPools[addr] = pool
-	c.mu.Unlock()
-
-	cn, err := pool.get(ctx)
-	return cn, err
+	var once sync.Once
+	releaseFn := func(err error) {
+		once.Do(func() {
+			finish(err)
+			releaseConn()
+		})
+	}
+	return ctx, cn, releaseFn, nil
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
 
-func (c *client) autoSwitchToUDP(_ context.Context, req *request, resp *response) {
-	req.udpEnabled = c.options.enableUDP
-	resp.udpEnabled = c.options.enableUDP
+func switchToUDP(req *request, resp *response, enabled bool) {
+	req.udpEnabled = enabled
+	resp.udpEnabled = enabled
 }
 
 func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	nodes, err := c.topology.allNodes()
+	if err != nil {
+		return err
 	}
-
-	wg := sync.WaitGroup{}
-
-	errCh := make(chan error, len(c.addrs))
-
-	for _, addr := range c.addrs {
-		wg.Add(1)
-		addrCopy := addr
-		go func() {
-			defer wg.Done()
-
-			cn, err := c.getConn(ctx, addrCopy)
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(nodes))
+	for _, n := range nodes {
+		wg.Go(func() {
+			cn, releaseFn, err := n.getConn(ctx)
 			if err != nil {
 				errCh <- err
 				return
 			}
-			defer func() { _ = cn.release() }()
-
-			if err = call(ctx, cn); err != nil {
+			defer releaseFn()
+			if err := call(ctx, cn); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
-
 	wg.Wait()
 	close(errCh)
-
 	var multiErr error
 	for err := range errCh {
 		multiErr = multierror.Append(multiErr, err)
 	}
-
 	return multiErr
 }
 
 func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
+	connCtx, cn, releaseFn, err := c.pickConn(ctx, req.cmd, req.key)
 	if err != nil {
-		return errors.Wrap(err, "pick node failed")
+		return pkgerrors.Wrap(err, "pickConn failed")
+	}
+	defer func() { releaseFn(err) }()
+
+	switchToUDP(req, resp, c.options.enableUDP)
+
+	if err = req.send(connCtx, cn, c.options.writeTimeout); err != nil {
+		return pkgerrors.Wrap(err, "send failed")
 	}
 
-	// START: Telemetry
-	start := time.Now()
-	var span trace.Span
-	if c.tracer != nil {
-		ctx, span = c.tracer.Start(ctx, string(req.cmd), addr.Address, addr.Network, string(req.key))
-	}
-	// END: Telemetry
-
-	cn, err := c.getConn(ctx, addr)
-	if err != nil {
-		if c.tracer != nil {
-			c.tracer.End(span, err)
-		}
-		if c.metrics != nil {
-			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
-		}
-		return errors.Wrap(err, "alloc connection failed")
-	}
-	defer func() { _ = cn.release() }()
-
-	c.autoSwitchToUDP(ctx, req, resp)
-
-	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
-		if c.tracer != nil {
-			c.tracer.End(span, err)
-		}
-		if c.metrics != nil {
-			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
-		}
-		return errors.Wrap(err, "send failed")
-	}
-
-	recvErr := resp.recv(ctx, cn, c.options.readTimeout)
-
-	// END: Telemetry
-	if c.tracer != nil {
-		c.tracer.End(span, recvErr)
-	}
-	if c.metrics != nil {
-		c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), recvErr)
-	}
-
-	return recvErr
+	err = resp.recv(connCtx, cn, c.options.readTimeout)
+	return err
 }
 
 // authSASL performs the Binary SASL authentication.
@@ -275,29 +190,29 @@ func authSASL(conn memcachedConn, username, password string) error {
 	// 1. first, list mechanisms the server supports
 	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	if !bytes.Contains(resp.value, []byte("PLAIN")) {
-		return errors.New("memcached server does not support PLAIN mechanism")
+		return pkgerrors.New("memcached server does not support PLAIN mechanism")
 	}
 
 	// 2. choose one mechanism and send the authentication request
 	req, resp = saslAuthRequestPlain(username, password)
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	return nil

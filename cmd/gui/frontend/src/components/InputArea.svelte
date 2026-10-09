@@ -6,7 +6,7 @@
   export let disabled = false
 
   // Store values for each possible input
-  let values: Record<string, string | number> = {
+  let values: { key: string; value: string; [field: string]: string | number } = {
     key: '',
     value: '',
     flags: 0,
@@ -26,7 +26,7 @@
   }
 
   export function getKey(): string {
-    return values.key as string
+    return values.key
   }
 
   export function clearKey() {

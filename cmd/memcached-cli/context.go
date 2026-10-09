@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yeqown/memcached/picker"
+
 	"github.com/samber/lo"
 	"github.com/yeqown/memcached"
 )
@@ -47,12 +49,12 @@ func defaultConfig(hashStrategy *string) clientConfig {
 }
 
 func createClient(ctx *Context) (memcached.Client, error) {
-	var builder memcached.Builder = memcached.NewCr32HashPickBuilder()
+	p := picker.NewCRC32HashPicker()
 	switch ctx.Config.HashStrategy {
 	case "rendezvous":
-		builder = memcached.NewRendezvousHashPickBuilder(magicSeed)
+		p = picker.NewRendezvousHashPicker(magicSeed)
 	case "murmur3":
-		builder = memcached.NewMurmur3HashPickBuilder(magicSeed)
+		p = picker.NewMurmur3HashPicker(magicSeed)
 	}
 
 	_uniqueServers := make([]string, 0, 4)
@@ -67,7 +69,7 @@ func createClient(ctx *Context) (memcached.Client, error) {
 
 	client, err := memcached.New(
 		uniqServers,
-		memcached.WithPickBuilder(builder),
+		memcached.WithPicker(p),
 		memcached.WithMaxConns(ctx.Config.PoolSize),
 		memcached.WithDialTimeout(ctx.Config.DialTimeout),
 		memcached.WithReadTimeout(ctx.Config.ReadTimeout),

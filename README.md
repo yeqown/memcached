@@ -4,7 +4,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/yeqown/memcached.svg)](https://pkg.go.dev/github.com/yeqown/memcached) [![Build Status](https://github.com/yeqown/memcached/workflows/Go/badge.svg)](https://github.com/yeqown/memcached/actions) [![License](https://img.shields.io/github/license/yeqown/memcached)](./LICENSE)
 
-A Go client for Memcached's text and meta text protocols. It provides context-aware operations, configurable multi-node routing and connection pools, value codecs, and optional OpenTelemetry instrumentation. Requires Go 1.26 or newer.
+A Go client for Memcached's text and meta text protocols. It provides context-aware operations, resolver-driven node discovery, configurable multi-node routing and connection pools, value codecs, and optional OpenTelemetry instrumentation. Requires Go 1.26 or newer.
 
 ## Compared with gomemcache
 
@@ -14,11 +14,12 @@ Both clients support basic text commands, CAS, multi-server routing, connection 
 | --- | --- | --- |
 | Per-operation context and deadlines | `Get(key)` / `Set(item)` have no call context | `Get(ctx, key)` / `Set(ctx, ...)`; context deadlines and separate dial, read, and write timeouts |
 | Meta text protocol | No meta command API | `MetaGet`, `MetaSet`, `MetaDelete`, `MetaArithmetic`, `MetaDebug`, `MetaNoOp`; CAS and TTL options, but not all recache response markers are exposed |
-| Connection limits | Reuses connections per address; configurable `MaxIdleConns` | Also pools per address; adds `MaxConns`, lifetime, and idle timeout for every node; `MaxConns` is not a strict cap during concurrent dialing |
+| Connection limits | Reuses connections per address; configurable `MaxIdleConns` | Pools per node with `MaxConns`, lifetime, and idle timeout; concurrent dials reserve capacity before connecting |
 | Value compression | No built-in codec | Pluggable `Codec`; MC-COMPRESS-compatible Deflate, LZ4, Snappy, and Zstd |
-| OpenTelemetry | No built-in instrumentation | Opt-in tracing and operation metrics |
-| Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, or a custom resolver/picker |
-| Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./gui/README.md) |
+| OpenTelemetry | No built-in instrumentation | Opt-in tracing, operation metrics, and discovery/topology metrics |
+| Built-in key routing | CRC32 `ServerList` or a custom selector | CRC32, Murmur3, rendezvous hashing, or a custom picker |
+| Node discovery | Configure addresses through a selector | The `resolver` package provides static addresses and AWS / Google discovery; custom resolvers decide the next refresh time |
+| Tools | Client library | Interactive [CLI](./cmd/memcached-cli/README.md) and [Wails GUI](./cmd/gui/README.md) |
 
 Comparison checked against gomemcache [revision `4d751bb`](https://github.com/bradfitz/gomemcache/tree/4d751bb6e37cf0da5fd57a86b880f76791307adf); later upstream changes may differ.
 
@@ -76,14 +77,24 @@ The values above are examples to tune for your workload. `New` also accepts comm
 
 | To configure | Address or option |
 | --- | --- |
-| Multiple nodes and key placement | `"cache-1:11211,cache-2:11211"` plus `memcached.WithPickBuilder(memcached.NewRendezvousHashPickBuilder(0))` |
-| Custom address resolution | `memcached.WithResolver(resolver)` |
+| Multiple nodes and key placement | `"cache-1:11211,cache-2:11211"` plus `memcached.WithPicker(picker.NewRendezvousHashPicker(0))` |
+| Custom address resolution and discovery | `memcached.WithResolver(resolver)` and `memcached.WithResolveTimeout(5*time.Second)` |
 | Compression or another value codec | `memcached.WithCodec(codec)` |
 | Traces and metrics | `memcached.WithTelemetry(telemetry.WithTracerProvider(tp), telemetry.WithMeterProvider(mp))` |
 | Writes without server acknowledgments | `memcached.WithNoReply()` |
 | Legacy UDP transport | A `udp://` address plus `memcached.WithUDPEnabled()` |
 
 See the [usage guide](./docs/usage.md) for codec and telemetry setup. With multiple servers, `Gets` and `GetAndTouches` send all requested keys to one node; use per-key reads unless the keys are known to reside together.
+
+AWS ElastiCache Memcached and Google Memorystore Memcached use the same built-in resolver: pass the configuration / discovery endpoint, including its port, to `New` with `memcached.WithResolver(resolver.NewAutoDiscovery(time.Minute))`. It uses only `config get cluster`, reuses its discovery connection, rejects older generations, and returns its cached topology on timeout. Non-positive intervals default to one minute. See the [automatic discovery guide](./docs/usage.md#aws-and-google-automatic-discovery).
+
+## Resolver / Picker API migration
+
+Resolver and picker APIs and built-ins now live in `github.com/yeqown/memcached/resolver` and `github.com/yeqown/memcached/picker`. Node addresses are defined by `resolver.Addr`. Custom resolvers implement `Resolve(ctx context.Context, target string) (resolver.ResolveResult, *time.Time, error)` and `Close() error`. The client owns their lifetime and closes them on shutdown or failed initialization. Return the full node list in `ResolveResult.Addrs` and a separate next resolve time. A nil time stops refreshing, including on error; transient errors should return a retry time. The default `resolver.NewStatic()` resolves once.
+
+Custom pickers implement `picker.Picker` and are passed directly through `memcached.WithPicker(p)`. The Builder interface has been removed; built-in constructors such as `picker.NewCRC32HashPicker()` return a ready-to-use Picker. Hash functions are internal to `picker`; the standalone `hash` package has been removed. The client reuses the supplied picker across topology changes and supplies the current immutable address snapshot to each `Pick` call. Pickers must support concurrent calls and must not retain or modify the supplied addresses. Published addresses are normalized and sorted; upgrading can change existing key placement. Changing membership or switching hash strategies can cause cache misses, so applications need an origin fallback or cache warming.
+Discovery and node lifetimes are managed by an internal topology; Client selects nodes through topology and borrows connections through node. Removed nodes drain already borrowed connections; waiting or dialing requests may fail. See [the topology design](./docs/topology.md).
+
 
 ## More
 
