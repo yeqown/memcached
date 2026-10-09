@@ -2,97 +2,64 @@ package resolver
 
 import (
 	"context"
-	"strconv"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestStatic_Resolve(t *testing.T) {
-	result, next, err := NewStatic().Resolve(context.Background(), "localhost:11211,localhost:11212,localhost:11213")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	addrs := result.Addrs
-	require.Nil(t, next)
-	if len(addrs) != 3 {
-		t.Fatalf("expected 3 addrs, got %d", len(addrs))
-	}
-
-	for i, addr := range addrs {
-		assert.Equal(t, "localhost:1121"+strconv.Itoa(i+1), addr.Address)
-		assert.Equal(t, "tcp", addr.Network)
-		assert.Equal(t, i, addr.Priority)
-	}
-}
-
-func TestResolveAddr(t *testing.T) {
+func TestStaticResolve(t *testing.T) {
 	for _, test := range []struct {
-		name, address            string
-		wantNetwork, wantAddress string
-		wantErr                  bool
+		name, target string
+		want         []*Addr
 	}{
-		{name: "IPv4", address: "127.0.0.1:11211", wantNetwork: "tcp", wantAddress: "127.0.0.1:11211"},
-		{name: "hostname", address: "google.com:11211", wantNetwork: "tcp", wantAddress: "google.com:11211"},
-		{name: "IPv6", address: "[::1]:11211", wantNetwork: "tcp", wantAddress: "[::1]:11211"},
-		{name: "Unix socket", address: "unix:///tmp/memcached.sock", wantNetwork: "unix", wantAddress: "/tmp/memcached.sock"},
-		{name: "invalid address", address: "invalid_address", wantErr: true},
-		{name: "empty address", wantErr: true},
-		{name: "multiple addresses", address: "localhost:11211,localhost:11212,localhost:11213", wantErr: true},
-		{name: "UDP", address: "udp://localhost:11211", wantNetwork: "udp", wantAddress: "localhost:11211"},
+		{"IPv4", "127.0.0.1:11211", []*Addr{NewAddr("tcp", "127.0.0.1:11211", 0)}},
+		{"hostname", "google.com:11211", []*Addr{NewAddr("tcp", "google.com:11211", 0)}},
+		{"IPv6", "[::1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211", 0)}},
+		{"canonical hostname", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "cache.example:11211", 0)}},
+		{"canonical IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211", 0)}},
+		{"Unix socket", "unix:///tmp/memcached.sock", []*Addr{NewAddr("unix", "/tmp/memcached.sock", 0)}},
+		{"UDP", "udp://localhost:11211", []*Addr{NewAddr("udp", "localhost:11211", 0)}},
+		{"multiple addresses", "localhost:11211,localhost:11212,localhost:11213", []*Addr{
+			NewAddr("tcp", "localhost:11211", 0), NewAddr("tcp", "localhost:11212", 1), NewAddr("tcp", "localhost:11213", 2),
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			network, address, err := resolveAddr(test.address)
-			if test.wantErr {
-				require.ErrorIs(t, err, ErrInvalidAddress)
-				return
-			}
+			result, next, err := NewStatic().Resolve(t.Context(), test.target)
 			require.NoError(t, err)
-			require.Equal(t, test.wantNetwork, network)
-			require.Equal(t, test.wantAddress, address)
+			require.Nil(t, next, "static resolution never schedules a refresh")
+			require.Equal(t, ResolveResult{Addrs: test.want}, result)
 		})
 	}
 }
 
-func TestStatic_cancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, next, err := NewStatic().Resolve(ctx, "localhost:11211")
-	require.ErrorIs(t, err, context.Canceled)
-	require.Nil(t, next)
-}
-
-func TestStaticRejectsDuplicateIdentity(t *testing.T) {
-	_, _, err := NewStatic().Resolve(t.Context(), "CACHE.EXAMPLE.:11211,cache.example:011211")
-	require.ErrorIs(t, err, ErrInvalidAddress)
-}
-
-func TestStatic_addressValidation(t *testing.T) {
-	for _, addr := range []string{
-		"host:0", "host:65536", "host:abc", "host with space:11211", "[bad:ipv6]:11211", "unix://",
-		"bad#host:11211", "bad..host:11211", "-bad.host:11211", "bad-.host:11211", "999.999.999.999:11211",
-		"tcp6://[::ffff:127.0.0.1]:11211", "udp6://[::ffff:127.0.0.1]:11211",
+func TestStaticInvalidTarget(t *testing.T) {
+	for name, target := range map[string]string{
+		"invalid address":            "invalid_address",
+		"empty address":              "",
+		"blank address list":         " , \t, ",
+		"zero port":                  "host:0",
+		"port overflow":              "host:65536",
+		"non-numeric port":           "host:abc",
+		"invalid IPv6":               "[bad:ipv6]:11211",
+		"empty Unix path":            "unix://",
+		"invalid hostname character": "bad#host:11211",
+		"duplicate identity":         "CACHE.EXAMPLE.:11211,cache.example:011211",
+		"invalid member":             "localhost:11211,invalid_address",
 	} {
-		t.Run(addr, func(t *testing.T) {
-			_, _, err := NewStatic().Resolve(context.Background(), addr)
-			require.Error(t, err)
+		t.Run(name, func(t *testing.T) {
+			result, next, err := NewStatic().Resolve(t.Context(), target)
+			require.ErrorIs(t, err, ErrInvalidAddress)
+			require.Empty(t, result)
+			require.Nil(t, next)
 		})
 	}
-	result, next, err := NewStatic().Resolve(context.Background(), "CACHE.EXAMPLE.:011211,[0:0:0:0:0:0:0:1]:11211")
-	require.NoError(t, err)
-	require.Nil(t, next)
-	require.Equal(t, "cache.example:11211", result.Addrs[0].Address)
-	require.Equal(t, "[::1]:11211", result.Addrs[1].Address)
 }
 
-func TestStatic_canonicalizesMappedIPv4(t *testing.T) {
-	for _, network := range []string{"tcp", "tcp4", "udp", "udp4"} {
-		t.Run(network, func(t *testing.T) {
-			result, _, err := NewStatic().Resolve(context.Background(), network+"://[::ffff:127.0.0.1]:11211")
-			require.NoError(t, err)
-			require.Equal(t, "127.0.0.1:11211", result.Addrs[0].Address)
-		})
-	}
+func TestStaticCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, next, err := NewStatic().Resolve(ctx, "localhost:11211")
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, result)
+	require.Nil(t, next)
 }

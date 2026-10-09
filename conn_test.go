@@ -1,11 +1,16 @@
 package memcached
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -111,84 +116,141 @@ func TestNewConnContextUDP(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-var _ memcachedConn = (*mockConn)(nil)
+func TestConnAgeBoundaries(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		created := time.Now()
+		cn := &conn{createdAt: created, returnedAt: created.Add(time.Second)}
+		time.Sleep(2 * time.Second)
+		for _, test := range []struct {
+			name    string
+			since   time.Time
+			expired bool
+		}{
+			{name: "disabled"},
+			{name: "before creation", since: created.Add(-time.Nanosecond)},
+			{name: "at creation", since: created},
+			{name: "after creation", since: created.Add(time.Nanosecond), expired: true},
+		} {
+			age, expired := cn.expired(test.since)
+			require.Equal(t, 2*time.Second, age, test.name)
+			require.Equal(t, test.expired, expired, test.name)
+		}
+	})
+}
 
-// mockConn is an implementation of the memcachedConn interface for testing purposes.
-type mockConn struct {
-	createdAt     time.Time
-	returnedAt    time.Time
+func TestConnIdleBoundaries(t *testing.T) {
+	returned := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	cn := &conn{returnedAt: returned}
+	for _, test := range []struct {
+		name      string
+		since     time.Time
+		idle      bool
+		remaining time.Duration
+	}{
+		{name: "disabled", remaining: returned.Sub(zeroTime)},
+		{name: "before return", since: returned.Add(-time.Second), remaining: time.Second},
+		{name: "at return", since: returned},
+		{name: "after return", since: returned.Add(time.Nanosecond), idle: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remaining, idle := cn.idle(test.since)
+			require.Equal(t, test.remaining, remaining)
+			require.Equal(t, test.idle, idle)
+		})
+	}
+}
+
+// testConn replaces transport I/O while keeping conn's age and idle checks.
+// Each write supplies a fresh response so a returned connection can be reused.
+type testConn struct {
+	*conn
+	ioMu          sync.Mutex
+	reader        *bufio.Reader
+	response      []byte
+	writes        [][]byte
+	respond       func([]byte) ([]byte, error)
+	readErr       error
+	writeErr      error
 	readDeadline  time.Time
 	writeDeadline time.Time
-	pool          *connPool
+	closes        atomic.Int32
+	onClose       func()
+	closeErr      error
 }
 
-func newMockConn() *mockConn {
-	return &mockConn{
-		createdAt:  time.Now(),
-		returnedAt: time.Now(),
+var _ memcachedConn = (*testConn)(nil)
+
+func newTestConn(response ...[]byte) *testConn {
+	data := bytes.Join(response, nil)
+	return &testConn{
+		conn:     &conn{createdAt: nowFunc(), returnedAt: nowFunc()},
+		response: data,
+		reader:   bufio.NewReader(bytes.NewReader(data)),
 	}
 }
 
-func (m *mockConn) Read(_ []byte) (b int, err error) { return 0, nil }
-
-func (m *mockConn) Write(_ []byte) (n int, err error) { return 0, nil }
-
-func (m *mockConn) Close() error { return nil }
-
-func (m *mockConn) readLine(_ byte) ([]byte, error) { return nil, nil }
-
-func (m *mockConn) expired(since time.Time) (time.Duration, bool) {
-	now := nowFunc()
-	past := now.Sub(m.createdAt)
-	if since.IsZero() {
-		return past, false
+func (c *testConn) Write(p []byte) (int, error) {
+	c.ioMu.Lock()
+	c.writes = append(c.writes, bytes.Clone(p))
+	c.ioMu.Unlock()
+	if c.writeErr != nil {
+		return 0, c.writeErr
 	}
-
-	return past, m.createdAt.Before(since)
+	data := c.response
+	if c.respond != nil {
+		var err error
+		data, err = c.respond(p)
+		if err != nil {
+			return 0, err
+		}
+	}
+	c.ioMu.Lock()
+	c.reader.Reset(bytes.NewReader(data))
+	c.ioMu.Unlock()
+	return len(p), nil
 }
 
-func (m *mockConn) idle(since time.Time) (time.Duration, bool) {
-	if since.IsZero() {
-		return m.returnedAt.Sub(since), false
+func (c *testConn) Read(p []byte) (int, error) {
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
+	if c.readErr != nil {
+		return 0, c.readErr
 	}
-
-	ok := m.returnedAt.Before(since)
-	if ok {
-		return 0, true
-	}
-
-	return m.returnedAt.Sub(since), false
+	return c.reader.Read(p)
 }
 
-func (m *mockConn) release() error {
-	m.returnedAt = time.Now()
+func (c *testConn) readLine(delim byte) ([]byte, error) {
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
+	if c.readErr != nil {
+		return nil, c.readErr
+	}
+	return c.reader.ReadBytes(delim)
+}
+
+func (c *testConn) Close() error {
+	c.closes.Add(1)
+	if c.onClose != nil {
+		c.onClose()
+	}
+	return c.closeErr
+}
+
+func (c *testConn) setReadDeadline(d time.Time) error {
+	c.readDeadline = d
 	return nil
 }
 
-func (m *mockConn) setConnPool(pool *connPool) { m.pool = pool }
-
-func (m *mockConn) getConnPool() *connPool { return m.pool }
-
-func (m *mockConn) setReadDeadline(d time.Time) error {
-	if d.IsZero() {
-		m.readDeadline = zeroTime
-		return nil
-	}
-
-	m.readDeadline = d
+func (c *testConn) setWriteDeadline(d time.Time) error {
+	c.writeDeadline = d
 	return nil
 }
 
-func (m *mockConn) setWriteDeadline(d time.Time) error {
-	if d.IsZero() {
-		m.writeDeadline = zeroTime
-		return nil
-	}
-
-	m.writeDeadline = d
-	return nil
+func (c *testConn) release() error {
+	_ = c.setReadDeadline(zeroTime)
+	_ = c.setWriteDeadline(zeroTime)
+	c.returnedAt = nowFunc()
+	return c.pool.put(c)
 }
 
-func createConn(_ context.Context) (memcachedConn, error) {
-	return newMockConn(), nil
-}
+func createTestConn(context.Context) (memcachedConn, error) { return newTestConn(), nil }

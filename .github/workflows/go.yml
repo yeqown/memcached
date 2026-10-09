@@ -29,12 +29,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    services:
-      memcached:
-        image: memcached:latest
-        ports:
-          - 11211:11211
-
     steps:
     - uses: actions/checkout@v3
 
@@ -65,3 +59,27 @@ jobs:
         fail_ci_if_error: true
         use_oidc: true
         use_pypi: true
+
+  integration:
+    name: Memcached compatibility
+    runs-on: ubuntu-latest
+    services:
+      memcached:
+        image: memcached:1.6.37
+        ports:
+          - 11211:11211
+    env:
+      MEMCACHED_TEST_ADDR: 127.0.0.1:11211
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.26'
+
+      - name: Get dependencies
+        run: go mod download
+
+      - name: Check daemon compatibility
+        run: go test -v -race -run '^TestMemcachedIntegration$' -count=1 .

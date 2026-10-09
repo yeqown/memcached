@@ -123,6 +123,10 @@ func (t *topology) apply(ctx context.Context, result resolver.ResolveResult) err
 	// }
 
 	t.mu.Lock()
+	if t.closed.Load() {
+		t.mu.Unlock()
+		return ErrClientClosed
+	}
 	if len(result.Addrs) == 0 {
 		t.mu.Unlock()
 		return pkgerrors.Wrap(ErrInvalidAddress, "empty topology")
@@ -190,7 +194,14 @@ func (t *topology) close() error {
 		err = multierror.Append(err, pkgerrors.Wrap(re, "resolver close"))
 	}
 
+	t.mu.RLock()
+	nodes := make([]*node, 0, len(t.nodes))
 	for _, n := range t.nodes {
+		nodes = append(nodes, n)
+	}
+	t.mu.RUnlock()
+
+	for _, n := range nodes {
 		if ne := n.close(); ne != nil {
 			err = multierror.Append(err, pkgerrors.Wrap(ne, "node close"))
 		}

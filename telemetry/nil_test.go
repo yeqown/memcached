@@ -1,7 +1,6 @@
 package telemetry_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -10,37 +9,17 @@ import (
 	"github.com/yeqown/memcached/telemetry"
 )
 
-func TestNilTracerStartPreservesContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+func TestNilTelemetry(t *testing.T) {
+	ctx := t.Context()
 	var tracer *telemetry.Tracer
+	got, span := tracer.Start(ctx, "get", "cache.example:11211", "tcp", "key")
+	require.Same(t, ctx, got)
+	require.Nil(t, span)
 
-	require.NotPanics(t, func() {
-		got, span := tracer.Start(ctx, "get", "cache.example:11211", "tcp", "key")
-		require.Same(t, ctx, got)
-		require.Nil(t, span)
-	})
-}
-
-func TestNilTelemetryFinish(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		err  error
-	}{
-		{name: "success"},
-		{name: "failure", err: errors.New("request failed")},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Run("tracer", func(t *testing.T) {
-				var tracer *telemetry.Tracer
-				require.NotPanics(t, func() { tracer.End(nil, test.err) })
-			})
-			t.Run("metrics", func(t *testing.T) {
-				var metrics *telemetry.Metrics
-				require.NotPanics(t, func() {
-					metrics.RecordDuration(t.Context(), "get", "cache.example:11211", time.Millisecond, test.err)
-				})
-			})
-		})
-	}
+	failure := errors.New("request failed")
+	tracer.End(span, failure)
+	var metrics *telemetry.Metrics
+	metrics.RecordDuration(ctx, "get", "cache.example:11211", time.Millisecond, failure)
+	metrics.RecordResolve(ctx, time.Millisecond, failure)
+	metrics.RecordTopology(ctx, 1, 1)
 }

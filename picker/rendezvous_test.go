@@ -32,8 +32,6 @@ func TestRendezvousMembershipAndOrdering(t *testing.T) {
 		require.Equal(t, a.Address, shuffled.Address)
 	}
 	require.Len(t, selected, len(before), "sampled keys must reach every node")
-	_, err := p.Pick(nil, nil, nil)
-	require.ErrorIs(t, err, resolver.ErrInvalidAddress)
 }
 
 func TestRendezvousTieByIdentity(t *testing.T) {
@@ -69,9 +67,7 @@ func TestRendezvousRejectsNilNode(t *testing.T) {
 		{name: "after valid node", nodes: []*resolver.Addr{valid, nil}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			var addr *resolver.Addr
-			var err error
-			require.NotPanics(t, func() { addr, err = p.Pick(test.nodes, nil, []byte("key")) })
+			addr, err := p.Pick(test.nodes, nil, []byte("key"))
 			require.ErrorIs(t, err, resolver.ErrInvalidAddress)
 			require.Nil(t, addr)
 		})

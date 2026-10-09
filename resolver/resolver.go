@@ -38,3 +38,12 @@ type ResolveResult struct {
 	// Zero means unspecified; topology applies the result without version skipping.
 	Generation uint64
 }
+
+func (r ResolveResult) Clone() ResolveResult {
+	cloned := ResolveResult{Generation: r.Generation, Addrs: make([]*Addr, len(r.Addrs))}
+	for i, addr := range r.Addrs {
+		cloned.Addrs[i] = addr.Clone()
+	}
+
+	return cloned
+}

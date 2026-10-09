@@ -3,124 +3,26 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	memcached "github.com/yeqown/memcached"
 )
 
-type structuredOperationResult struct {
-	Success          bool   `json:"success"`
-	Data             string `json:"data"`
-	Error            string `json:"error"`
-	Key              string `json:"key"`
-	Value            string `json:"value"`
-	TTL              int64  `json:"ttl"`
-	LastAccessedTime int64  `json:"lastAccessedTime"`
-	CAS              uint64 `json:"cas"`
-	Flags            uint32 `json:"flags"`
-	Size             uint64 `json:"size"`
-	HitBefore        bool   `json:"hitBefore"`
-	Opaque           uint64 `json:"opaque"`
-	ValueKind        string `json:"valueKind"`
-}
-
+// Unimplemented methods fail through the nil embedded Client.
 type fakeMemcachedClient struct {
-	getCalled     bool
+	memcached.Client
 	metaGetCalled bool
 	metaGetKey    string
-}
-
-func (f *fakeMemcachedClient) Close() error { return nil }
-
-func (f *fakeMemcachedClient) Set(context.Context, string, []byte, uint32, time.Duration) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Add(context.Context, string, []byte, uint32, time.Duration) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Replace(context.Context, string, []byte, uint32, time.Duration) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Append(context.Context, string, []byte, uint32, time.Duration) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Prepend(context.Context, string, []byte, uint32, time.Duration) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Cas(context.Context, string, []byte, uint32, time.Duration, uint64) error {
-	return nil
-}
-
-func (f *fakeMemcachedClient) Get(ctx context.Context, key string) (*memcached.Item, error) {
-	f.getCalled = true
-	return &memcached.Item{Key: key, Value: []byte("plain-value")}, nil
-}
-
-func (f *fakeMemcachedClient) Gets(context.Context, ...string) ([]*memcached.Item, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) GetAndTouch(context.Context, time.Duration, string) (*memcached.Item, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) GetAndTouches(context.Context, time.Duration, ...string) ([]*memcached.Item, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) Delete(context.Context, string) error { return nil }
-
-func (f *fakeMemcachedClient) Incr(context.Context, string, uint64) (uint64, error) { return 0, nil }
-
-func (f *fakeMemcachedClient) Decr(context.Context, string, uint64) (uint64, error) { return 0, nil }
-
-func (f *fakeMemcachedClient) Touch(context.Context, string, time.Duration) error { return nil }
-
-func (f *fakeMemcachedClient) Version(context.Context) (string, error) { return "", nil }
-
-func (f *fakeMemcachedClient) FlushAll(context.Context) error { return nil }
-
-func (f *fakeMemcachedClient) MetaSet(context.Context, []byte, []byte, ...memcached.MetaSetOption) (*memcached.MetaItem, error) {
-	return nil, nil
 }
 
 func (f *fakeMemcachedClient) MetaGet(ctx context.Context, key []byte, options ...memcached.MetaGetOption) (*memcached.MetaItem, error) {
 	f.metaGetCalled = true
 	f.metaGetKey = string(key)
 	return &memcached.MetaItem{
-		Key:              key,
-		Value:            []byte(`{"name":"meta-value"}`),
-		TTL:              120,
-		LastAccessedTime: 42,
-		CAS:              99,
-		Flags:            7,
-		Size:             17,
-		Opaque:           13,
-		HitBefore:        true,
+		Key:   key,
+		Value: []byte(`{"name":"meta-value"}`),
 	}, nil
 }
-
-func (f *fakeMemcachedClient) MetaDelete(context.Context, []byte, ...memcached.MetaDeleteOption) (*memcached.MetaItem, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) MetaArithmetic(context.Context, []byte, uint64, ...memcached.MetaArithmeticOption) (*memcached.MetaItem, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) MetaDebug(context.Context, []byte, ...memcached.MetaDebugOption) (*memcached.MetaItemDebug, error) {
-	return nil, nil
-}
-
-func (f *fakeMemcachedClient) MetaNoOp(context.Context) error { return nil }
-
-func (f *fakeMemcachedClient) Stats(context.Context) (*memcached.Statistic, error) { return nil, nil }
 
 var _ memcached.Client = (*fakeMemcachedClient)(nil)
 

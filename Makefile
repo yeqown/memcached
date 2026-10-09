@@ -1,4 +1,4 @@
-.PHONY: lint test coverage pre-commit docker-up docker-down clean install \
+.PHONY: lint test test-integration coverage pre-commit docker-up docker-down clean install \
         gui-dev gui-build gui-test gui-clean
 
 lint:
@@ -7,6 +7,10 @@ lint:
 test:
 	@echo "Running tests"
 	@go test -v -race ./...
+
+test-integration:
+	@test -n "$(MEMCACHED_TEST_ADDR)" || { echo "Set MEMCACHED_TEST_ADDR to a dedicated Memcached host:port" >&2; exit 1; }
+	@MEMCACHED_TEST_ADDR="$(MEMCACHED_TEST_ADDR)" go test -v -race -run '^TestMemcachedIntegration$$' -count=1 .
 
 coverage:
 	@echo "Running tests with coverage"
@@ -19,7 +23,7 @@ pre-commit:
 
 docker-up:
 	@echo "Starting memcached container"
-	@docker run -d --name memcached-test -p 11211:11211 memcached:latest
+	@docker run -d --name memcached-test -p 127.0.0.1:11211:11211 memcached:1.6.37
 
 docker-down:
 	@echo "Stopping memcached container"
