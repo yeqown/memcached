@@ -14,12 +14,10 @@ import (
 	"github.com/yeqown/log"
 )
 
-const (
-	version = "v1.3.1"
-)
-
 var (
-	logger = newLogger()
+	// Release builds override version with -ldflags="-X main.version=...".
+	version = "v1.3.1"
+	logger  = newLogger()
 )
 
 func main() {

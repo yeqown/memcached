@@ -43,11 +43,13 @@ jobs:
     - name: Run Tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
-    - name: Build standalone CLI
+    - name: Build standalone CLI and verify release version
       working-directory: cmd/memcached-cli
       env:
         GOWORK: 'off'
-      run: go build -mod=readonly ./...
+      run: |
+        go build -mod=readonly -ldflags="-X main.version=ci-version-check" ./...
+        test "$(./memcached-cli version)" = "memcached-cli version ci-version-check"
 
     - name: Build standalone examples
       working-directory: example
