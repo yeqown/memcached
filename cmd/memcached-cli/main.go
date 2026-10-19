@@ -16,7 +16,7 @@ import (
 
 var (
 	// Release builds override version with -ldflags="-X main.version=...".
-	version = "v1.3.1"
+	version = "v1.5.0"
 	logger  = newLogger()
 )
 
