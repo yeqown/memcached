@@ -3,7 +3,7 @@ module github.com/yeqown/memcached/example
 go 1.26.0
 
 require (
-	github.com/yeqown/memcached v1.1.2
+	github.com/yeqown/memcached v1.5.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.40.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.40.0
