@@ -2,12 +2,80 @@ package memcached
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/yeqown/memcached/resolver"
 )
+
+func TestNodeConcurrentReleaseWaitsForCleanup(t *testing.T) {
+	n := newTestNode(t, resolver.NewAddr("tcp", "a:11211"), 1)
+	raw := newTestConn()
+	closing, proceed := make(chan struct{}), make(chan struct{})
+	var unblock sync.Once
+	defer unblock.Do(func() { close(proceed) })
+	raw.onClose = func() {
+		close(closing)
+		<-proceed
+	}
+	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+	_, releaseFn, err := n.getConn(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, n.close())
+
+	returned := make(chan struct{}, 2)
+	go func() { releaseFn(); returned <- struct{}{} }()
+	select {
+	case <-closing:
+	case <-time.After(time.Second):
+		t.Fatal("release did not start connection cleanup")
+	}
+	started := make(chan struct{})
+	go func() { close(started); releaseFn(); returned <- struct{}{} }()
+	<-started
+	var returnedEarly bool
+	select {
+	case <-returned:
+		returnedEarly = true
+	case <-time.After(20 * time.Millisecond):
+	}
+	unblock.Do(func() { close(proceed) })
+	remaining := 2
+	if returnedEarly {
+		remaining--
+	}
+	for range remaining {
+		select {
+		case <-returned:
+		case <-time.After(time.Second):
+			t.Fatal("release did not finish after allowing cleanup")
+		}
+	}
+	require.False(t, returnedEarly, "concurrent release calls must wait for cleanup to finish")
+	releaseFn()
+	require.EqualValues(t, 1, raw.closes.Load())
+	require.Equal(t, nodeClosed, n.status())
+	require.Zero(t, n.pool.stats().TotalConns)
+}
+
+func TestNodeReleaseDoesNotRepeatPanic(t *testing.T) {
+	n := newTestNode(t, resolver.NewAddr("tcp", "a:11211"), 1)
+	raw := newTestConn()
+	const failure = "connection close panicked"
+	raw.onClose = func() { panic(failure) }
+	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+	_, releaseFn, err := n.getConn(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, n.close())
+	// The deliberately panicking Close prevents the pool from releasing its slot.
+	defer n.pool.releaseSlot()
+	require.PanicsWithValue(t, failure, releaseFn)
+	require.NotPanics(t, releaseFn, "a completed release must not repeat an earlier panic")
+	require.EqualValues(t, 1, raw.closes.Load(), "a panicking cleanup must not be retried")
+}
 
 func TestNodeCloseRejectsWaitingBorrow(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
@@ -103,4 +171,11 @@ func newTestNode(t *testing.T, addr *resolver.Addr, maxConns int) *node {
 	n.pool = newConnPool(maxConns, maxConns, 0, 0, createTestConn)
 	t.Cleanup(func() { require.NoError(t, n.close()) })
 	return n
+}
+
+func requireNodeClosed(t *testing.T, n *node) {
+	t.Helper()
+	require.Eventually(t, func() bool { return n.status() == nodeClosed }, time.Second, time.Millisecond,
+		"node must finish asynchronous connection cleanup")
+	requirePoolClosed(t, n.pool)
 }

@@ -85,9 +85,12 @@ func (n *node) getConn(ctx context.Context) (memcachedConn, func(), error) {
 		return nil, nil, ErrInstanceAbnormal
 	}
 
-	releaseFn := sync.OnceFunc(func() {
-		_ = n.putConn(cn)
-	})
+	var once sync.Once
+	releaseFn := func() {
+		once.Do(func() {
+			_ = n.putConn(cn)
+		})
+	}
 
 	return cn, releaseFn, nil
 }
@@ -96,11 +99,14 @@ func (n *node) putConn(cn memcachedConn) error {
 	return cn.release()
 }
 
+// drain rejects new borrows without waiting for connection cleanup.
+func (n *node) drain() {
+	n.state.CompareAndSwap(uint32(nodeAvailable), uint32(nodeDraining))
+}
+
 func (n *node) close() error {
-	if n.state.CompareAndSwap(uint32(nodeAvailable), uint32(nodeDraining)) {
-		return n.pool.close()
-	}
-	return nil
+	n.drain()
+	return n.pool.close()
 }
 
 func (n *node) status() nodeState {

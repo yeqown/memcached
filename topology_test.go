@@ -17,6 +17,8 @@ import (
 	"github.com/yeqown/memcached/picker"
 	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 func TestTopologyUpdatesMembership(t *testing.T) {
@@ -42,7 +44,7 @@ func TestTopologyUpdatesMembership(t *testing.T) {
 			require.Same(t, old.nodes[*b], current.nodes[*b])
 			if test.removed {
 				require.NotContains(t, current.nodes, *a)
-				require.Equal(t, nodeClosed, old.nodes[*a].status())
+				requireNodeClosed(t, old.nodes[*a])
 			} else {
 				require.Same(t, old.nodes[*a], current.nodes[*a])
 			}
@@ -84,9 +86,40 @@ func TestTopologyInvalidRefreshPreservesNodes(t *testing.T) {
 	a := resolver.NewAddr("tcp", "a:11211")
 	top := newTestTopology(t, []*resolver.Addr{a})
 	before := topologyView(top)
-	for _, addrs := range [][]*resolver.Addr{nil, {nil}, {a, a.Clone()}} {
+	for _, addrs := range [][]*resolver.Addr{nil, {nil}, {a, a.Clone(), nil}} {
 		require.Error(t, applyTopology(top, addrs))
 		require.Equal(t, before, topologyView(top))
+	}
+}
+
+func TestTopologyResolveSkipsDuplicateNodes(t *testing.T) {
+	a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
+	udpA := resolver.NewAddr("udp", "a:11211")
+	top := newTestTopology(t, []*resolver.Addr{a, b})
+	before := topologyView(top)
+	next := time.Now().Add(time.Minute)
+	top.resolver = resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
+		return resolver.ResolveResult{
+			Generation: 2,
+			Addrs:      []*resolver.Addr{b, b.Clone(), udpA, udpA.Clone(), a, a.Clone()},
+		}, &next, nil
+	})
+
+	nextAt, err := top.resolve(t.Context())
+	require.NoError(t, err, "duplicate identities must not prevent publication")
+	require.Equal(t, &next, nextAt)
+	view := topologyView(top)
+	want := []*resolver.Addr{b, udpA, a}
+	require.Equal(t, want, view.addrs, "routing must preserve the first occurrence of each identity")
+	require.Equal(t, uint64(2), view.generation)
+	require.Len(t, view.nodes, 3)
+	require.Same(t, before.nodes[*a], view.nodes[*a])
+	require.Same(t, before.nodes[*b], view.nodes[*b])
+	nodes, err := top.allNodes()
+	require.NoError(t, err)
+	require.Len(t, nodes, len(want), "broadcast must target each identity once")
+	for i, addr := range want {
+		require.Equal(t, addr, nodes[i].addr)
 	}
 }
 
@@ -104,9 +137,8 @@ func TestTopologyCloseDrainsRemovedNode(t *testing.T) {
 	require.Equal(t, nodeDraining, n.status())
 	require.Zero(t, raw.closes.Load(), "shutdown preserves the borrowed connection")
 	releaseFn()
-	requirePoolClosed(t, n.pool)
+	requireNodeClosed(t, n)
 	require.EqualValues(t, 1, raw.closes.Load())
-	require.Equal(t, nodeClosed, n.status())
 }
 
 func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
@@ -147,7 +179,7 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 	require.ErrorIs(t, err, ErrInstanceAbnormal, "selection does not reserve a connection before removal")
 	require.Nil(t, cn)
 	require.Nil(t, releaseFn)
-	requirePoolClosed(t, inst.pool)
+	requireNodeClosed(t, inst)
 }
 
 func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
@@ -171,7 +203,7 @@ func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
 	require.NotSame(t, old.pool, current.pool)
 	require.Zero(t, raw.closes.Load())
 	releaseOld()
-	require.Equal(t, nodeClosed, old.status())
+	requireNodeClosed(t, old)
 	require.EqualValues(t, 1, raw.closes.Load())
 	require.Equal(t, nodeAvailable, current.status())
 }
@@ -195,6 +227,94 @@ func TestTopologyRemovalDoesNotWaitForOtherNodes(t *testing.T) {
 		require.Zero(t, raw.closes.Load())
 		release()
 		require.Equal(t, 1, raw.pool.stats().IdleConns)
+	})
+}
+
+func TestTopologyRemovalRejectsBorrowingDuringIdleClose(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, b, c := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211"), resolver.NewAddr("tcp", "c:11211")
+		top := newTestTopology(t, []*resolver.Addr{a, b, c})
+		before := topologyView(top)
+		proceed := make(chan struct{})
+		finish := sync.OnceFunc(func() { close(proceed) })
+		defer finish()
+
+		for _, addr := range []*resolver.Addr{a, b} {
+			n := before.nodes[*addr]
+			raw := newTestConn()
+			raw.onClose = func() { <-proceed }
+			n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+			_, release, err := n.getConn(t.Context())
+			require.NoError(t, err)
+			release()
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- applyTopology(top, []*resolver.Addr{c}) }()
+		synctest.Wait()
+		require.Equal(t, []*resolver.Addr{c}, topologyView(top).addrs)
+		for _, addr := range []*resolver.Addr{a, b} {
+			n := before.nodes[*addr]
+			cn, release, err := n.getConn(t.Context())
+			if release != nil {
+				release()
+			}
+			require.ErrorIs(t, err, ErrInstanceAbnormal, "every removed node must reject borrowing while idle closes are blocked")
+			require.Nil(t, cn)
+			require.True(t, n.pool.stats().Closed, "a slow close must not delay another node's pool shutdown")
+		}
+		require.Len(t, done, 1, "publication must not wait for idle connection closes")
+		require.NoError(t, <-done)
+		finish()
+		synctest.Wait()
+		for _, addr := range []*resolver.Addr{a, b} {
+			require.Equal(t, nodeClosed, before.nodes[*addr].status())
+		}
+	})
+}
+
+func TestTopologyIdleCloseDoesNotDelayRefresh(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
+		var calls atomic.Int32
+		r := resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
+			call := calls.Add(1)
+			var nextAt *time.Time
+			if call < 3 {
+				next := time.Now().Add(time.Minute)
+				nextAt = &next
+			}
+			if call == 1 {
+				return resolver.ResolveResult{Addrs: []*resolver.Addr{a, b}}, nextAt, nil
+			}
+			return resolver.ResolveResult{Addrs: []*resolver.Addr{b}}, nextAt, nil
+		})
+		top, err := newTopology(t.Context(), "directory", r, time.Second, func(addr *resolver.Addr) *node {
+			return newTestNode(t, addr, 4)
+		}, nil)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, top.close()) }()
+		removed := topologyView(top).nodes[*a]
+		proceed := make(chan struct{})
+		finish := sync.OnceFunc(func() { close(proceed) })
+		defer finish()
+		raw := newTestConn()
+		raw.onClose = func() { <-proceed }
+		removed.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+		_, release, err := removed.getConn(t.Context())
+		require.NoError(t, err)
+		release()
+
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.Equal(t, int32(2), calls.Load())
+		require.Equal(t, nodeDraining, removed.status())
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.Equal(t, int32(3), calls.Load(), "the next discovery must run while a removed node's idle close is blocked")
+		finish()
+		synctest.Wait()
+		require.Equal(t, nodeClosed, removed.status())
 	})
 }
 
@@ -273,7 +393,8 @@ func TestTopologyResolverTimeoutAndClose(t *testing.T) {
 					if initial || calls > 1 {
 						<-ctx.Done()
 						resolveErrors <- ctx.Err()
-						return resolver.ResolveResult{}, nil, ctx.Err()
+						next := time.Now().Add(time.Minute)
+						return resolver.ResolveResult{}, &next, ctx.Err()
 					}
 					next := time.Now().Add(time.Minute)
 					return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
@@ -288,16 +409,39 @@ func TestTopologyResolverTimeoutAndClose(t *testing.T) {
 				time.Sleep(time.Minute)
 				synctest.Wait()
 				require.NoError(t, top.close())
-				require.Empty(t, resolveErrors, "closing a custom resolver does not cancel its attempt context")
-				time.Sleep(time.Second)
 				synctest.Wait()
-				require.ErrorIs(t, <-resolveErrors, context.DeadlineExceeded)
+				require.ErrorIs(t, <-resolveErrors, context.Canceled, "shutdown cancels the active resolve context")
+				time.Sleep(2 * time.Minute)
+				synctest.Wait()
+				require.Equal(t, 2, calls, "shutdown stops refreshing even when the resolver returns a retry time")
 				require.NoError(t, top.close())
 				_, closedErr := top.allNodes()
 				require.ErrorIs(t, closedErr, ErrClientClosed)
 			})
 		})
 	}
+}
+
+func TestTopologyCloseStopsScheduledResolve(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int32
+		r := resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
+			calls.Add(1)
+			next := time.Now().Add(time.Minute)
+			return resolver.ResolveResult{Addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")}}, &next, nil
+		})
+		top, err := newTopology(t.Context(), "directory", r, time.Second, func(addr *resolver.Addr) *node { return newTestNode(t, addr, 4) }, nil)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, top.close()) }()
+		synctest.Wait()
+		require.EqualValues(t, 1, calls.Load())
+
+		require.NoError(t, top.close())
+		synctest.Wait()
+		time.Sleep(2 * time.Minute)
+		synctest.Wait()
+		require.EqualValues(t, 1, calls.Load(), "shutdown cancels the wait for the next scheduled resolve")
+	})
 }
 
 func TestTopologyResolverCopiesReturnedSchedule(t *testing.T) {
@@ -448,7 +592,7 @@ func TestTopologyResolveGeneration(t *testing.T) {
 				require.Len(t, view.addrs, 1)
 				require.Equal(t, "b:11211", view.addrs[0].Address)
 				require.Equal(t, test.generation, view.generation)
-				requirePoolClosed(t, before.nodes[*a].pool)
+				requireNodeClosed(t, before.nodes[*a])
 			}
 		})
 	}
@@ -492,7 +636,7 @@ func TestTopologyResolvePublishesSuccessfulResultAfterCancellation(t *testing.T)
 	require.Len(t, view.addrs, 1)
 	require.Equal(t, "b:11211", view.addrs[0].Address)
 	require.Equal(t, uint64(2), view.generation)
-	requirePoolClosed(t, before.nodes[resolver.Addr{Network: "tcp", Address: "a:11211"}].pool)
+	requireNodeClosed(t, before.nodes[resolver.Addr{Network: "tcp", Address: "a:11211"}])
 }
 
 type closingTopologyResolver struct {
@@ -673,4 +817,123 @@ func TestTopologySourceGenerationChangeUpdatesGauge(t *testing.T) {
 	require.Equal(t, []float64{1, 2}, meter.Values("memcached.topology.generation"),
 		"source generation changes must be observable without replacing nodes")
 	require.Equal(t, []float64{1, 1}, meter.Values("memcached.topology.nodes"))
+}
+
+func TestTopologyMetricsDoNotBlockMembershipOperations(t *testing.T) {
+	for _, operation := range []string{"routing", "broadcast", "retirement", "close"} {
+		t.Run(operation, func(t *testing.T) {
+			meter := &blockingTopologyMeter{CaptureMeter: &testutil.CaptureMeter{}, entered: make(chan struct{}), proceed: make(chan struct{})}
+			metrics := telemetry.NewConfig(telemetry.WithMeterProvider(blockingTopologyMeterProvider{meter: meter})).Metrics()
+			a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
+			top := newTestTopology(t, []*resolver.Addr{a, b}, metrics)
+			removed := topologyView(top).nodes[*a]
+			idleClosed := make(chan struct{})
+			raw := newTestConn()
+			raw.onClose = func() { close(idleClosed) }
+			removed.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
+			_, release, err := removed.getConn(t.Context())
+			require.NoError(t, err)
+			release()
+
+			finish := sync.OnceFunc(func() { close(meter.proceed) })
+			defer finish()
+			meter.armed.Store(true)
+			updated := make(chan error, 1)
+			go func() {
+				updated <- top.apply(t.Context(), resolver.ResolveResult{Addrs: []*resolver.Addr{b}, Generation: 2})
+			}()
+			select {
+			case <-meter.entered:
+			case <-time.After(2 * time.Second):
+				t.Fatal("topology update did not reach metric recording")
+			}
+
+			completed := make(chan error, 1)
+			go func() {
+				var err error
+				switch operation {
+				case "routing":
+					var selected *node
+					selected, err = top.pickNode(picker.NewCRC32HashPicker(), nil, nil)
+					if err == nil && *selected.addr != *b {
+						err = fmt.Errorf("routing selected %v instead of %v", selected.addr, b)
+					}
+				case "broadcast":
+					var targets []*node
+					targets, err = top.allNodes()
+					if err == nil && (len(targets) != 1 || *targets[0].addr != *b) {
+						err = errors.New("broadcast did not see the published topology")
+					}
+				case "retirement":
+					<-idleClosed
+				case "close":
+					err = top.close()
+				}
+				completed <- err
+			}()
+			completedBeforeMetric := false
+			select {
+			case err := <-completed:
+				require.NoError(t, err)
+				completedBeforeMetric = true
+			case <-time.After(2 * time.Second):
+			}
+			finish()
+			select {
+			case err := <-updated:
+				require.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("topology update did not finish after metric recording resumed")
+			}
+			if !completedBeforeMetric {
+				select {
+				case err := <-completed:
+					require.NoError(t, err)
+				case <-time.After(2 * time.Second):
+					t.Fatalf("%s did not finish after metric recording resumed", operation)
+				}
+			}
+			require.True(t, completedBeforeMetric, "%s must proceed while topology metric recording is blocked", operation)
+			require.Equal(t, []float64{2, 1}, meter.Values("memcached.topology.nodes"))
+			require.Equal(t, []float64{1, 2}, meter.Values("memcached.topology.generation"))
+		})
+	}
+}
+
+// blockingTopologyMeter lets initialization finish before blocking the update's
+// node-count measurement until the test releases it.
+type blockingTopologyMeter struct {
+	*testutil.CaptureMeter
+	armed            atomic.Bool
+	entered, proceed chan struct{}
+}
+
+func (m *blockingTopologyMeter) Int64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
+	gauge, err := m.CaptureMeter.Int64Gauge(name, opts...)
+	if name == "memcached.topology.nodes" {
+		return blockingTopologyGauge{Int64Gauge: gauge, meter: m}, err
+	}
+	return gauge, err
+}
+
+type blockingTopologyGauge struct {
+	metric.Int64Gauge
+	meter *blockingTopologyMeter
+}
+
+func (g blockingTopologyGauge) Record(ctx context.Context, value int64, opts ...metric.RecordOption) {
+	if g.meter.armed.Load() {
+		close(g.meter.entered)
+		<-g.meter.proceed
+	}
+	g.Int64Gauge.Record(ctx, value, opts...)
+}
+
+type blockingTopologyMeterProvider struct {
+	noop.MeterProvider
+	meter *blockingTopologyMeter
+}
+
+func (p blockingTopologyMeterProvider) Meter(string, ...metric.MeterOption) metric.Meter {
+	return p.meter
 }

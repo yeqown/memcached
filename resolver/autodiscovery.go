@@ -231,6 +231,7 @@ var (
 func readConfigResponse(ctx context.Context, r *bufio.Reader) (ResolveResult, error) {
 	scanner := bufio.NewScanner(r)
 	result := ResolveResult{}
+	seen := make(map[Addr]struct{})
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return emptyResolveResult, pkgerrors.Wrap(err, "context canceled while reading config response")
@@ -275,19 +276,23 @@ func readConfigResponse(ctx context.Context, r *bufio.Reader) (ResolveResult, er
 			if len(nodeHostPort) != 3 {
 				return emptyResolveResult, fmt.Errorf("%w: host address (%s) not in expected format", ErrMalformedResponse, node)
 			}
-			nodePort, err := strconv.ParseUint(nodeHostPort[2], 10, 16)
-			if err != nil {
+			if _, err := strconv.ParseUint(nodeHostPort[2], 10, 16); err != nil {
 				return emptyResolveResult, fmt.Errorf("%w: parsing node port failed: %w", ErrMalformedResponse, err)
 			}
 			host := nodeHostPort[1]
 			if host == "" {
 				host = nodeHostPort[0]
 			}
-			address, err := canonicalAddress("tcp", net.JoinHostPort(host, strconv.FormatUint(nodePort, 10)))
-			if err != nil {
+			address := net.JoinHostPort(host, nodeHostPort[2])
+			if err := validateAddress("tcp", address); err != nil {
 				return emptyResolveResult, fmt.Errorf("%w: %w", ErrMalformedResponse, err)
 			}
-			result.Addrs = append(result.Addrs, NewAddr("tcp", address))
+			addr := NewAddr("tcp", address)
+			if _, duplicate := seen[*addr]; duplicate {
+				return emptyResolveResult, fmt.Errorf("%w: duplicate node address %s", ErrMalformedResponse, address)
+			}
+			seen[*addr] = struct{}{}
+			result.Addrs = append(result.Addrs, addr)
 		}
 	}
 	if err := ctx.Err(); err != nil {

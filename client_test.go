@@ -19,7 +19,10 @@ import (
 
 	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
@@ -102,6 +105,24 @@ func TestClientCloseAggregatesNodeErrors(t *testing.T) {
 	}
 }
 
+func TestClientAcceptsDuplicateInitialTopology(t *testing.T) {
+	a := resolver.NewAddr("tcp", "a:11211")
+	cc, err := New("directory", WithResolver(resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
+		return resolver.ResolveResult{Generation: 1, Addrs: []*resolver.Addr{a, a.Clone()}}, nil, nil
+	})))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cc.Close()) })
+	top := cc.(*client).topology
+	view := topologyView(top)
+	require.Equal(t, []*resolver.Addr{a}, view.addrs)
+	require.Len(t, view.nodes, 1)
+	require.Equal(t, uint64(1), view.generation)
+	nodes, err := top.allNodes()
+	require.NoError(t, err)
+	require.Len(t, nodes, 1, "duplicate initial members must not create duplicate broadcast targets")
+	require.Equal(t, a, nodes[0].addr)
+}
+
 func TestClientRejectsInvalidInitialTopology(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -109,7 +130,6 @@ func TestClientRejectsInvalidInitialTopology(t *testing.T) {
 	}{
 		{name: "empty"},
 		{name: "nil node", addrs: []*resolver.Addr{nil}},
-		{name: "duplicate identity", addrs: []*resolver.Addr{resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "a:11211")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cc, err := New("directory", WithResolver(resolverFunc(func(context.Context, string) (resolver.ResolveResult, *time.Time, error) {
@@ -243,18 +263,28 @@ func TestClientPickConnReleaseDrainsNodeOnce(t *testing.T) {
 	n := clientView(c).nodes[*a]
 	raw := newTestConn()
 	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	_, cn, releaseFn, err := c.pickConn(t.Context(), nil, nil)
+	addr, cn, releaseFn, err := c.pickConn(t.Context(), nil, nil)
 	require.NoError(t, err)
-	defer releaseFn(nil)
+	defer releaseFn()
+	require.Equal(t, a, addr)
 	require.Same(t, raw, cn)
 	require.NoError(t, updateTopology(c, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}))
 	require.NoError(t, c.Close())
 	require.Zero(t, raw.closes.Load(), "the lease preserves the borrowed connection during shutdown")
-	releaseFn(nil)
-	releaseFn(nil)
-	requirePoolClosed(t, n.pool)
+	releaseFn()
+	releaseFn()
+	requireNodeClosed(t, n)
 	require.EqualValues(t, 1, raw.closes.Load())
-	require.Equal(t, nodeClosed, n.status())
+}
+
+func TestClientPickConnRoutingFailureReturnsNoAddr(t *testing.T) {
+	c := newTestClient(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
+	require.NoError(t, c.Close())
+	addr, cn, releaseFn, err := c.pickConn(t.Context(), nil, nil)
+	require.ErrorIs(t, err, ErrClientClosed)
+	require.Nil(t, addr)
+	require.Nil(t, cn)
+	require.Nil(t, releaseFn)
 }
 
 func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
@@ -268,7 +298,7 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 				defer cancel()
 				failure := pkgerrors.New("dial failed")
 				proceed := make(chan struct{})
-				var releaseOwner func(error)
+				var releaseOwner func()
 				if stage == "interrupted pool wait" {
 					n.pool.createConn = func(context.Context) (memcachedConn, error) {
 						return newTestConn(), nil
@@ -276,7 +306,7 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 					var err error
 					_, _, releaseOwner, err = c.pickConn(ctx, nil, nil)
 					require.NoError(t, err)
-					defer releaseOwner(nil)
+					defer releaseOwner()
 					failure = nil
 				} else {
 					n.pool.createConn = func(context.Context) (memcachedConn, error) {
@@ -288,7 +318,7 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 				go func() {
 					_, cn, releaseFn, err := c.pickConn(ctx, nil, nil)
 					if releaseFn != nil {
-						releaseFn(err)
+						releaseFn()
 					}
 					done <- poolGetResult{cn, err}
 				}()
@@ -306,64 +336,141 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 					require.ErrorContains(t, got.err, "connection pool is closed")
 				}
 				if releaseOwner != nil {
-					releaseOwner(nil)
+					releaseOwner()
 				}
-				requirePoolClosed(t, n.pool)
+				requireNodeClosed(t, n)
 			})
 		})
 	}
 }
 
-func TestClientPickConnTracesBorrowingAndRequestResult(t *testing.T) {
-	for _, stage := range []string{"success", "borrow failure", "request failure"} {
-		t.Run(stage, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				a := resolver.NewAddr("tcp", "a:11211")
-				c := newTestClient(t, []*resolver.Addr{a})
-				span := &requestTraceSpan{Span: trace.SpanFromContext(t.Context())}
-				provider := &requestTraceProvider{
-					TracerProvider: noop.NewTracerProvider(),
-					tracer:         &requestTracer{Tracer: noop.NewTracerProvider().Tracer("test"), span: span},
-				}
-				c.tracer = telemetry.NewConfig(telemetry.WithTracerProvider(provider)).Tracer()
-				failure := pkgerrors.New("request failed")
-				clientView(c).nodes[*a].pool.createConn = func(ctx context.Context) (memcachedConn, error) {
-					require.Same(t, span, trace.SpanFromContext(ctx), "borrowing must use the request span context")
-					time.Sleep(100 * time.Millisecond)
-					if stage == "borrow failure" {
-						return nil, failure
-					}
-					return newTestConn(), nil
-				}
-				ctx, _, releaseFn, err := c.pickConn(t.Context(), []byte("get"), []byte("key"))
-				if stage == "borrow failure" {
-					require.ErrorIs(t, err, failure)
-					require.Nil(t, releaseFn)
-					require.Equal(t, 100*time.Millisecond, span.duration)
-				} else {
-					require.NoError(t, err)
-					defer releaseFn(nil)
-					require.Same(t, span, trace.SpanFromContext(ctx))
-					require.Zero(t, span.ends, "a borrowed connection keeps its span open")
-					time.Sleep(200 * time.Millisecond)
-					if stage == "request failure" {
-						releaseFn(failure)
-					} else {
-						releaseFn(nil)
-					}
-					releaseFn(nil)
-					require.Equal(t, 300*time.Millisecond, span.duration, "duration includes borrowing and the request")
-				}
-				require.Equal(t, 1, span.ends)
-				if stage == "success" {
-					require.Nil(t, span.err)
-					require.Equal(t, codes.Ok, span.status)
-				} else {
-					require.ErrorIs(t, span.err, failure)
-					require.Equal(t, codes.Error, span.status)
-				}
-			})
+func TestClientDispatchWithoutTracingDoesNotAllocateForKey(t *testing.T) {
+	for _, metricsEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("metrics=%t", metricsEnabled), func(t *testing.T) {
+			c := newTestClient(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
+			if metricsEnabled {
+				c.metrics = telemetry.NewConfig(telemetry.WithMeterProvider(metricnoop.NewMeterProvider())).Metrics()
+			}
+			// A closed client isolates telemetry allocations from connection and I/O work.
+			require.NoError(t, c.Close())
+			ctx := t.Context()
+			req, resp := &request{cmd: []byte("get")}, &response{}
+			var requestErr error
+			measure := func(key []byte) float64 {
+				req.key = key
+				return testing.AllocsPerRun(100, func() {
+					requestErr = c.dispatchRequest(ctx, req, resp)
+				})
+			}
+			withoutKey := measure(nil)
+			require.ErrorIs(t, requestErr, ErrClientClosed)
+			withKey := measure([]byte(strings.Repeat("k", 250)))
+			require.ErrorIs(t, requestErr, ErrClientClosed)
+			require.Equal(t, withoutKey, withKey, "request keys must not add allocations when tracing is disabled")
 		})
+	}
+}
+
+func TestClientDispatchRecordsBorrowingAndRequestResult(t *testing.T) {
+	for _, stage := range []string{"success", "routing failure", "borrow failure", "send failure", "receive failure"} {
+		for _, tracingEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/tracing=%t", stage, tracingEnabled), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					a := resolver.NewAddr("tcp", "a:11211")
+					c := newTestClient(t, []*resolver.Addr{a})
+					n := clientView(c).nodes[*a]
+					span := &requestTraceSpan{Span: trace.SpanFromContext(t.Context())}
+					provider := &requestTraceProvider{
+						TracerProvider: noop.NewTracerProvider(),
+						tracer:         &requestTracer{Tracer: noop.NewTracerProvider().Tracer("test"), span: span},
+					}
+					meter := &testutil.CaptureMeter{}
+					cfg := telemetry.NewConfig(telemetry.WithTracerProvider(provider), telemetry.WithMeterProvider(meter.Provider()))
+					c.metrics = cfg.Metrics()
+					if tracingEnabled {
+						c.tracer = cfg.Tracer()
+					}
+					failure := pkgerrors.New("request failed")
+					raw := newTestConn()
+					raw.respond = func([]byte) ([]byte, error) {
+						require.Zero(t, span.ends, "request I/O must run before ending its span")
+						require.Empty(t, meter.Values("memcached.operation.calls"))
+						time.Sleep(200 * time.Millisecond)
+						if stage == "send failure" {
+							return nil, failure
+						}
+						return []byte("VERSION test\r\n"), nil
+					}
+					if stage == "receive failure" {
+						raw.readErr = failure
+					}
+					n.pool.createConn = func(ctx context.Context) (memcachedConn, error) {
+						if tracingEnabled {
+							require.Same(t, span, trace.SpanFromContext(ctx), "borrowing must use the request span context")
+						}
+						time.Sleep(100 * time.Millisecond)
+						if stage == "borrow failure" {
+							return nil, failure
+						}
+						return raw, nil
+					}
+					wantDuration := 300 * time.Millisecond
+					if stage == "routing failure" {
+						failure = ErrClientClosed
+						require.NoError(t, c.Close())
+						wantDuration = 0
+					} else if stage == "borrow failure" {
+						wantDuration = 100 * time.Millisecond
+					}
+
+					version, err := c.Version(t.Context())
+					wantServer, wantNetwork := a.Address, a.Network
+					if stage == "routing failure" {
+						wantServer, wantNetwork = "", ""
+					}
+					if tracingEnabled {
+						require.Equal(t, wantServer, span.attributes["net.peer.name"].AsString())
+						require.Equal(t, wantNetwork, span.attributes["net.transport"].AsString())
+					}
+					for _, measurement := range meter.Measurements() {
+						if !strings.HasPrefix(measurement.Name, "memcached.operation.") {
+							continue
+						}
+						operation, exists := measurement.Attributes.Value("db.operation")
+						require.True(t, exists, "%s must have an operation attribute", measurement.Name)
+						require.Equal(t, "version", operation.AsString(), measurement.Name)
+						server, exists := measurement.Attributes.Value("net.peer.name")
+						require.True(t, exists, "%s must have a server attribute", measurement.Name)
+						require.Equal(t, wantServer, server.AsString(), measurement.Name)
+					}
+					if tracingEnabled {
+						require.Equal(t, wantDuration, span.duration, "duration includes borrowing and request I/O")
+						require.Equal(t, 1, span.ends)
+					}
+					require.Equal(t, []float64{1}, meter.Values("memcached.operation.calls"))
+					require.Equal(t, []float64{wantDuration.Seconds()}, meter.Values("memcached.operation.duration"))
+					if stage == "success" {
+						require.NoError(t, err)
+						require.Equal(t, "test", version)
+						if tracingEnabled {
+							require.Nil(t, span.err)
+							require.Equal(t, codes.Ok, span.status)
+						}
+						require.Empty(t, meter.Values("memcached.operation.errors"))
+					} else {
+						require.ErrorIs(t, err, failure)
+						if tracingEnabled {
+							require.ErrorIs(t, span.err, failure)
+							require.Equal(t, codes.Error, span.status)
+						}
+						require.Equal(t, []float64{1}, meter.Values("memcached.operation.errors"))
+					}
+					if stage != "routing failure" && stage != "borrow failure" {
+						require.Equal(t, 1, raw.pool.stats().IdleConns, "dispatch must release the borrowed connection")
+					}
+				})
+			})
+		}
 	}
 }
 
@@ -381,8 +488,10 @@ type requestTracer struct {
 	span *requestTraceSpan
 }
 
-func (t *requestTracer) Start(ctx context.Context, _ string, _ ...trace.SpanStartOption) (context.Context, trace.Span) {
+func (t *requestTracer) Start(ctx context.Context, _ string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	t.span.start = time.Now()
+	cfg := trace.NewSpanStartConfig(opts...)
+	t.span.SetAttributes(cfg.Attributes()...)
 	return trace.ContextWithSpan(ctx, t.span), t.span
 }
 
@@ -393,6 +502,17 @@ type requestTraceSpan struct {
 	ends     int
 	status   codes.Code
 	err      error
+
+	attributes map[attribute.Key]attribute.Value
+}
+
+func (s *requestTraceSpan) SetAttributes(attrs ...attribute.KeyValue) {
+	if s.attributes == nil {
+		s.attributes = make(map[attribute.Key]attribute.Value)
+	}
+	for _, attr := range attrs {
+		s.attributes[attr.Key] = attr.Value
+	}
 }
 
 func (s *requestTraceSpan) End(...trace.SpanEndOption) {
@@ -466,8 +586,8 @@ func TestClientRequestsKeepSelectedNode(t *testing.T) {
 		got := <-done
 		require.NoError(t, got.err)
 		require.Equal(t, "a", got.version)
+		requireNodeClosed(t, old)
 		require.EqualValues(t, 1, rawA.closes.Load())
-		requirePoolClosed(t, old.pool)
 	})
 }
 
@@ -513,7 +633,7 @@ func TestClientBroadcastRejectsRemovedUnborrowedTarget(t *testing.T) {
 			done <- c.broadcastRequest(context.Background(), func(_ context.Context, cn memcachedConn) error {
 				called <- cn.getConnPool()
 				return nil
-			})
+			}, "test")
 		}()
 		<-started
 		synctest.Wait()
@@ -522,8 +642,8 @@ func TestClientBroadcastRejectsRemovedUnborrowedTarget(t *testing.T) {
 		finish()
 		require.Error(t, <-done, "removal rejects a target that is still dialing")
 		require.Empty(t, called, "removed and newly added targets must not execute")
+		requireNodeClosed(t, first)
 		require.EqualValues(t, 1, rawA.closes.Load())
-		requirePoolClosed(t, first.pool)
 		require.Zero(t, rawB.closes.Load(), "the retained node keeps its idle connection")
 		require.Zero(t, clientView(c).nodes[resolver.Addr{Network: "tcp", Address: "c:11211"}].pool.stats().TotalConns)
 	})
@@ -551,7 +671,7 @@ func TestClientBroadcastKeepsOriginalTargets(t *testing.T) {
 				}
 				_, err := cn.readLine('\n')
 				return err
-			})
+			}, "test")
 		}()
 		targets := []*connPool{<-entered, <-entered}
 		require.ElementsMatch(t, []*connPool{initial.nodes[*a].pool, initial.nodes[*b].pool}, targets)
@@ -562,7 +682,7 @@ func TestClientBroadcastKeepsOriginalTargets(t *testing.T) {
 		require.Equal(t, [][]byte{[]byte("flush_all\r\n")}, rawA.writes)
 		require.Equal(t, rawA.writes, rawB.writes)
 		require.Empty(t, rawD.writes, "new members wait for the next broadcast")
-		requirePoolClosed(t, initial.nodes[*a].pool)
+		requireNodeClosed(t, initial.nodes[*a])
 		require.NoError(t, c.FlushAll(t.Context()))
 		require.Len(t, rawA.writes, 1)
 		require.Len(t, rawB.writes, 2)
@@ -571,38 +691,90 @@ func TestClientBroadcastKeepsOriginalTargets(t *testing.T) {
 }
 
 func TestClientBroadcastContinuesAfterFailure(t *testing.T) {
-	for _, stage := range []string{"borrow", "call"} {
-		t.Run(stage, func(t *testing.T) {
-			a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
-			c := newTestClient(t, []*resolver.Addr{a, b})
-			view := clientView(c)
-			first, second := view.nodes[*a], view.nodes[*b]
-			failure := errors.New("node failed")
-			first.pool.createConn = func(context.Context) (memcachedConn, error) {
-				if stage == "borrow" {
-					return nil, failure
-				}
-				return newTestConn(), nil
-			}
-			second.pool.createConn = func(context.Context) (memcachedConn, error) {
-				return newTestConn(), nil
-			}
-			called := make(chan *connPool, 2)
-			err := c.broadcastRequest(t.Context(), func(_ context.Context, cn memcachedConn) error {
-				if cn.getConnPool() == first.pool {
-					return failure
-				}
-				called <- cn.getConnPool()
-				return nil
+	for _, mode := range []struct {
+		name             string
+		tracing, metrics bool
+	}{
+		{name: "disabled"},
+		{name: "tracing", tracing: true},
+		{name: "metrics", metrics: true},
+		{name: "both", tracing: true, metrics: true},
+	} {
+		for _, stage := range []string{"borrow", "call"} {
+			t.Run(mode.name+"/"+stage, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					a, b := resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp", "b:11211")
+					span := &requestTraceSpan{Span: trace.SpanFromContext(t.Context())}
+					provider := &requestTraceProvider{
+						TracerProvider: noop.NewTracerProvider(),
+						tracer:         &requestTracer{Tracer: noop.NewTracerProvider().Tracer("test"), span: span},
+					}
+					meter := &testutil.CaptureMeter{}
+					cfg := telemetry.NewConfig(telemetry.WithTracerProvider(provider), telemetry.WithMeterProvider(meter.Provider()))
+					c := newTestClient(t, []*resolver.Addr{a, b})
+					if mode.tracing {
+						c.tracer = cfg.Tracer()
+					}
+					if mode.metrics {
+						c.metrics = cfg.Metrics()
+					}
+					view := clientView(c)
+					first, second := view.nodes[*a], view.nodes[*b]
+					failure := errors.New("node failed")
+					first.pool.createConn = func(context.Context) (memcachedConn, error) {
+						time.Sleep(100 * time.Millisecond)
+						if stage == "borrow" {
+							return nil, failure
+						}
+						return newTestConn(), nil
+					}
+					second.pool.createConn = func(context.Context) (memcachedConn, error) {
+						time.Sleep(100 * time.Millisecond)
+						return newTestConn(), nil
+					}
+					called := make(chan *connPool, 2)
+					err := c.broadcastRequest(t.Context(), func(_ context.Context, cn memcachedConn) error {
+						time.Sleep(200 * time.Millisecond)
+						if cn.getConnPool() == first.pool {
+							return failure
+						}
+						called <- cn.getConnPool()
+						return nil
+					}, "test")
+					require.ErrorIs(t, err, failure)
+					if mode.tracing {
+						require.ErrorIs(t, span.err, failure)
+						require.Equal(t, codes.Error, span.status)
+						require.Equal(t, 1, span.ends)
+						require.Equal(t, 300*time.Millisecond, span.duration)
+						require.Equal(t, "broadcast:test", span.attributes["db.operation"].AsString())
+					} else {
+						require.Zero(t, span.ends)
+					}
+					if mode.metrics {
+						require.Equal(t, []float64{1}, meter.Values("memcached.operation.calls"))
+						require.Equal(t, []float64{1}, meter.Values("memcached.operation.errors"))
+						require.Equal(t, []float64{0.3}, meter.Values("memcached.operation.duration"))
+						for _, measurement := range meter.Measurements() {
+							operation, exists := measurement.Attributes.Value("db.operation")
+							require.True(t, exists)
+							require.Equal(t, "test", operation.AsString())
+							server, exists := measurement.Attributes.Value("net.peer.name")
+							require.True(t, exists)
+							require.Empty(t, server.AsString())
+						}
+					} else {
+						require.Empty(t, meter.Measurements())
+					}
+					require.Len(t, called, 1, "the healthy target must run even when another target fails")
+					require.Same(t, second.pool, <-called)
+					require.Equal(t, 1, second.pool.stats().IdleConns)
+					require.NoError(t, c.Close())
+					requirePoolClosed(t, first.pool)
+					requirePoolClosed(t, second.pool)
+				})
 			})
-			require.ErrorIs(t, err, failure)
-			require.Len(t, called, 1, "the healthy target must run even when another target fails")
-			require.Same(t, second.pool, <-called)
-			require.Equal(t, 1, second.pool.stats().IdleConns)
-			require.NoError(t, c.Close())
-			requirePoolClosed(t, first.pool)
-			requirePoolClosed(t, second.pool)
-		})
+		}
 	}
 }
 
@@ -1507,4 +1679,44 @@ func TestClientWiresTopologyMetrics(t *testing.T) {
 	require.NotNil(t, c.topology.metrics)
 	require.Equal(t, []float64{1}, meter.Values("memcached.discovery.resolve.calls"))
 	require.Equal(t, []float64{1}, meter.Values("memcached.topology.nodes"))
+}
+
+func TestClientReusesInitializedMetricsForRequests(t *testing.T) {
+	meter := &singleInitializationMeter{CaptureMeter: &testutil.CaptureMeter{}}
+	provider := singleInitializationMeterProvider{meter: meter}
+	c := clientWithConn(t, newTestConn([]byte("VERSION test\r\n")), WithTelemetry(telemetry.WithMeterProvider(provider)))
+
+	version, err := c.Version(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "test", version)
+	require.Equal(t, []float64{1}, meter.Values("memcached.discovery.resolve.calls"))
+	require.Equal(t, []float64{1}, meter.Values("memcached.topology.nodes"))
+	require.Equal(t, []float64{1}, meter.Values("memcached.operation.calls"), "requests must retain successfully initialized metrics")
+	require.Equal(t, 1, meter.operationRegistrations)
+}
+
+// singleInitializationMeter rejects a second metrics construction, so a client
+// that initializes request metrics again loses its operation measurements.
+type singleInitializationMeter struct {
+	*testutil.CaptureMeter
+	operationRegistrations int
+}
+
+func (m *singleInitializationMeter) Float64Histogram(name string, options ...metric.Float64HistogramOption) (metric.Float64Histogram, error) {
+	if name == "memcached.operation.duration" {
+		m.operationRegistrations++
+		if m.operationRegistrations > 1 {
+			return nil, errors.New("metrics already initialized")
+		}
+	}
+	return m.CaptureMeter.Float64Histogram(name, options...)
+}
+
+type singleInitializationMeterProvider struct {
+	metricnoop.MeterProvider
+	meter *singleInitializationMeter
+}
+
+func (p singleInitializationMeterProvider) Meter(string, ...metric.MeterOption) metric.Meter {
+	return p.meter
 }

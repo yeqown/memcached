@@ -17,7 +17,8 @@ type Static struct{}
 // NewStatic returns a resolver for TCP, UDP and Unix socket address lists.
 func NewStatic() *Static { return &Static{} }
 
-// Resolve validates and normalizes the target's addresses without DNS lookups.
+// Resolve validates address syntax and preserves address spelling.
+// It performs no DNS lookups.
 // It always returns a nil next resolve time, including on error.
 func (r Static) Resolve(ctx context.Context, target string) (ResolveResult, *time.Time, error) {
 	if err := ctx.Err(); err != nil {

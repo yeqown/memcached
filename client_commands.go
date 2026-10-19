@@ -422,7 +422,7 @@ func (c *client) FlushAll(ctx context.Context) error {
 		return nil
 	}
 
-	if err := c.broadcastRequest(ctx, call); err != nil {
+	if err := c.broadcastRequest(ctx, call, "flush_all"); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 

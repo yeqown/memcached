@@ -15,6 +15,7 @@ func TestNilTelemetry(t *testing.T) {
 	got, span := tracer.Start(ctx, "get", "cache.example:11211", "tcp", "key")
 	require.Same(t, ctx, got)
 	require.Nil(t, span)
+	tracer.SetServer(span, "cache.example:11211", "tcp")
 
 	failure := errors.New("request failed")
 	tracer.End(span, failure)

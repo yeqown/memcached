@@ -29,9 +29,9 @@ flowchart TD
 - `connPool` owns connection creation, reuse, capacity, idle cleanup, physical
   closing and resource counters. Its stats expose `Closed` and `TotalConns`;
   it does not manage membership or node lifecycle.
-- `resolver` validates/canonicalizes addresses and owns address order, source
-  versions, retry scheduling and discovery resources. The Resolver interface
-  includes `io.Closer`.
+- `resolver` validates addresses, preserves their spelling and owns address order,
+  source versions, retry scheduling and discovery resources. The Resolver
+  interface includes `io.Closer`.
 
 Topology and node keep configuration directly, without additional configuration
 structs or a retained `clientOptions` dependency. Client injects the node factory.
@@ -44,16 +44,20 @@ configured Picker. Topology runs routing and node lookup against the same
 membership while holding its read lock. It releases the lock before any pool
 wait or network operation. There is no retained view or node reference count.
 
-Client starts telemetry before calling `node.getConn`, so pool waits, dialing and
-request I/O are included. Node checks availability before borrowing and again
-after the pool returns a connection. The second successful check is the point at
-which the request owns the connection. Removal before that confirmation may fail
+`client.dispatchRequest` starts telemetry before calling `client.pickConn`, so
+routing, pool waits, dialing and request I/O are included. Node checks availability
+before borrowing and again after the pool returns a connection. The second
+successful check is the point at which the request owns the connection. Removal
+before that confirmation may fail
 the borrow; removal afterward allows the request to finish.
 
 `node.getConn` returns a connection and an idempotent release function. The return
 path is `node.putConn` → `conn.release` → `connPool.put`, preserving deadline reset
-and idle timestamps. Client wraps release with result telemetry; receive errors
-are assigned before release so failed requests are recorded correctly.
+and idle timestamps. `client.dispatchRequest` records the request result and
+duration and ends its span. The release function only returns the connection.
+`client.pickConn` returns the selected address even if borrowing fails. Dispatch
+uses it for span endpoint and transport attributes and operation metric server
+labels.
 
 Broadcast captures a fixed list of node pointers through `allNodes`. Client then
 borrows and executes concurrently on each target, returns each connection and
@@ -63,9 +67,10 @@ borrow may fail; already borrowed connections finish normally.
 
 ## Updates and draining
 
-Resolver returns a complete, nonempty node list. Topology rejects empty results
-and malformed membership structure without changing the last usable topology.
-Address syntax, canonicalization and ordering belong to Resolver. Topology clones
+Resolver returns a complete, nonempty list of unique nodes. Topology rejects empty
+results and nil addresses without changing the last usable topology. It logs and
+skips duplicate identities, preserving the order of their first occurrence.
+Address syntax validation and ordering belong to Resolver. Topology clones
 addresses in the supplied order; returned objects cannot be modified concurrently
 while being accepted. Ordinary routing reuses the cache without rebuilding it.
 `resolver.Addr` contains only `Network` and `Address`. Its comparable value is the
@@ -73,9 +78,11 @@ key for node lookup and membership validation, so fresh address objects with the
 same fields reuse the same node.
 
 Applying a result reuses nodes by network/address identity, creates missing nodes
-with `makeNode`, and finds removals by comparing the old and new maps. The new map,
-address cache and generation are published together; removed nodes close outside
-the topology lock. Reordering the addresses replaces routing inputs while reusing
+with `makeNode`, and finds removals by comparing the old and new maps. All removed
+nodes enter draining before the new map, address cache and generation are
+published together. Each removed node's pool closes in its own goroutine outside
+the topology lock, so slow idle connection closes do not delay other removals or
+the next resolve. Reordering the addresses replaces routing inputs while reusing
 the same nodes and pools. No deep-equality or separate membership comparison is
 needed.
 
@@ -84,10 +91,12 @@ lists and skip publication. Zero means
 unspecified and every successful result is applied. Version changes alone reuse
 all existing node pools. Source-specific version ordering belongs to Resolver.
 
-Node lifecycle is available → draining → closed. `node.close` marks draining,
-then calls the idempotent pool shutdown. Idle connections close immediately,
-capacity waiters wake with an error, and in-progress dials are rejected when they
-complete. Already borrowed connections remain usable and close when returned.
+Node lifecycle is available → draining → closed. `node.drain` marks draining
+without waiting for cleanup. `node.close` marks draining and calls the idempotent
+pool shutdown, including when draining was already marked by a topology update.
+During pool shutdown, idle connections close, capacity waiters wake with an error,
+and in-progress dials are rejected when they complete. Already borrowed
+connections remain usable and close when returned.
 `node.status` confirms closed when pool stats report `Closed` and `TotalConns == 0`.
 The pool count includes dialing and closing connections; node keeps no duplicate
 counter, drain callback or retirement registry. Rejoining creates a new node and
@@ -108,11 +117,20 @@ Resolver. Refreshes are serial, so no additional resolve mutex is needed. Errors
 keep the previous topology; the returned schedule controls retries, and nil stops
 refreshes even on error.
 
-Topology Close atomically marks closed, closes Resolver and closes each current
-node. It retains the map and address cache; lookups and updates reject closed
-topology. Resolver Close owns interruption of its discovery resources. Topology
-does not cancel or join the refresh loop; the resolver's returned schedule
-controls when the loop stops. Close returns aggregated resource errors on its
-first call; repeated calls return nil. Removed nodes and borrowed connections
+Network/address identity compares the supplied strings directly. Different
+hostname, IP or port spellings are distinct identities and use separate pools.
+Built-in resolvers preserve hostname case, trailing DNS root markers, IP
+representations, port spelling and Unix paths.
+
+AutoDiscovery rejects duplicate network/address strings while parsing CONFIG
+responses, before updating its cached generation or membership. A rejected
+response retains the last valid cache and returns a retry schedule.
+
+Topology Close atomically marks closed, cancels the refresh loop's lifetime
+context, closes Resolver and closes each current node. It retains the map and
+address cache; lookups and updates reject closed topology. Resolver Close owns
+interruption of its discovery resources. The refresh loop exits asynchronously;
+Close does not join it. Close returns aggregated resource errors on its first
+call; repeated calls return nil. Removed nodes and borrowed connections
 finish draining independently. Node Close returns the first resource error to its
 caller; later pool closes return nil.

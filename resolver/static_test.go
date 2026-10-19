@@ -15,10 +15,18 @@ func TestStaticResolve(t *testing.T) {
 		{"IPv4", "127.0.0.1:11211", []*Addr{NewAddr("tcp", "127.0.0.1:11211")}},
 		{"hostname", "google.com:11211", []*Addr{NewAddr("tcp", "google.com:11211")}},
 		{"IPv6", "[::1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211")}},
-		{"canonical hostname", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "cache.example:11211")}},
-		{"canonical IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211")}},
+		{"preserves hostname and port", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "CACHE.EXAMPLE.:011211")}},
+		{"preserves IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[0:0:0:0:0:0:0:1]:11211")}},
+		{"preserves mapped IPv4", "[::FFFF:127.0.0.1]:011211", []*Addr{NewAddr("tcp", "[::FFFF:127.0.0.1]:011211")}},
 		{"Unix socket", "unix:///tmp/memcached.sock", []*Addr{NewAddr("unix", "/tmp/memcached.sock")}},
+		{"preserves Unix path", "unix:///tmp/cache/../memcached.sock", []*Addr{NewAddr("unix", "/tmp/cache/../memcached.sock")}},
 		{"UDP", "udp://localhost:11211", []*Addr{NewAddr("udp", "localhost:11211")}},
+		{"distinct hostname spellings", "CACHE.EXAMPLE.:11211,cache.example:011211", []*Addr{
+			NewAddr("tcp", "CACHE.EXAMPLE.:11211"), NewAddr("tcp", "cache.example:011211"),
+		}},
+		{"distinct IP spellings", "127.0.0.1:11211,[::ffff:127.0.0.1]:11211", []*Addr{
+			NewAddr("tcp", "127.0.0.1:11211"), NewAddr("tcp", "[::ffff:127.0.0.1]:11211"),
+		}},
 		{"preserves input order", "localhost:11213,localhost:11211,localhost:11212", []*Addr{
 			NewAddr("tcp", "localhost:11213"), NewAddr("tcp", "localhost:11211"), NewAddr("tcp", "localhost:11212"),
 		}},
@@ -43,10 +51,12 @@ func TestStaticInvalidTarget(t *testing.T) {
 		"zero port":                  "host:0",
 		"port overflow":              "host:65536",
 		"non-numeric port":           "host:abc",
+		"signed port":                "host:+11211",
 		"invalid IPv6":               "[bad:ipv6]:11211",
 		"empty Unix path":            "unix://",
 		"invalid hostname character": "bad#host:11211",
-		"duplicate identity":         "CACHE.EXAMPLE.:11211,cache.example:011211",
+		"duplicate identity":         "CACHE.EXAMPLE.:011211,CACHE.EXAMPLE.:011211",
+		"duplicate explicit network": "tcp://cache.example:11211,cache.example:11211",
 		"invalid member":             "localhost:11211,invalid_address",
 	} {
 		t.Run(name, func(t *testing.T) {

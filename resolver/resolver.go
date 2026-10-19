@@ -16,8 +16,8 @@ import (
 // A nil nextResolveAt stops refreshing, including on error; transient failures
 // should return a retry time. Scheduling, backoff and source version validation
 // belong to Resolver. Returned addresses must not be modified concurrently with
-// their delivery. Resolvers must validate and canonicalize addresses and return
-// unique network/address identities. Resolvers control address order; topology
+// their delivery. Resolvers must validate address syntax and return unique
+// network/address string identities. Resolvers control address order; topology
 // preserves the supplied order, which affects modulo routing.
 // Client owns the Resolver's lifetime and calls Close when Client closes or
 // initialization fails. Each Resolver must be dedicated to one client.

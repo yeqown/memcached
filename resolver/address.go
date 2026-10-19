@@ -36,49 +36,48 @@ func (a *Addr) Clone() *Addr {
 	return &copyAddr
 }
 
-// canonicalAddress validates syntax without a DNS lookup. The dialer, or a
+// validateAddress checks syntax. The dialer, or a
 // dedicated discovery Resolver, performs network resolution with a Context.
-func canonicalAddress(network, address string) (string, error) {
+func validateAddress(network, address string) error {
 	switch network {
 	case "unix":
 		if address == "" || !filepath.IsAbs(address) || strings.ContainsRune(address, '\x00') {
-			return "", pkgerrors.Wrap(ErrInvalidAddress, "invalid unix path")
+			return pkgerrors.Wrap(ErrInvalidAddress, "invalid unix path")
 		}
-		return filepath.Clean(address), nil
+		return nil
 	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
 	default:
-		return "", ErrInvalidNetworkProtocol
+		return ErrInvalidNetworkProtocol
 	}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return "", pkgerrors.Wrap(ErrInvalidAddress, err.Error())
+		return pkgerrors.Wrap(ErrInvalidAddress, err.Error())
 	}
-	n, err := strconv.Atoi(port)
-	if err != nil || n < 1 || n > 65535 || host == "" || strings.ContainsAny(host, " \t\r\n/,\x00") {
-		return "", pkgerrors.Wrap(ErrInvalidAddress, "invalid host or port")
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n == 0 || host == "" || strings.ContainsAny(host, " \t\r\n/,\x00") {
+		return pkgerrors.Wrap(ErrInvalidAddress, "invalid host or port")
 	}
 	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
-		// Go's dialer treats mapped IPv4 as IPv4, even in bracketed form.
+		// IP family validation treats mapped IPv4 like Go's dialer.
 		ip = ip.Unmap()
 		if strings.HasSuffix(network, "4") && !ip.Is4() || strings.HasSuffix(network, "6") && !ip.Is6() {
-			return "", pkgerrors.Wrap(ErrInvalidAddress, "IP family does not match network")
+			return pkgerrors.Wrap(ErrInvalidAddress, "IP family does not match network")
 		}
-		host = ip.String()
 	} else {
 		if strings.ContainsAny(host, ":%[]") {
-			return "", pkgerrors.Wrap(ErrInvalidAddress, "invalid IP address")
+			return pkgerrors.Wrap(ErrInvalidAddress, "invalid IP address")
 		}
-		host = strings.ToLower(strings.TrimSuffix(host, "."))
 		if !validHostname(host) {
-			return "", pkgerrors.Wrap(ErrInvalidAddress, "invalid hostname")
+			return pkgerrors.Wrap(ErrInvalidAddress, "invalid hostname")
 		}
 	}
-	return net.JoinHostPort(host, strconv.Itoa(n)), nil
+	return nil
 }
 
 // validHostname accepts Go-compatible DNS labels without performing a lookup.
 // Purely numeric dotted input must be a valid IP literal, handled above.
 func validHostname(host string) bool {
+	host = strings.TrimSuffix(host, ".")
 	if host == "" || len(host) > 253 {
 		return false
 	}
@@ -89,7 +88,7 @@ func validHostname(host string) bool {
 		}
 		for _, ch := range label {
 			switch {
-			case ch >= 'a' && ch <= 'z', ch == '-', ch == '_':
+			case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch == '-', ch == '_':
 				nonNumeric = true
 			case ch >= '0' && ch <= '9':
 			default:
@@ -113,8 +112,7 @@ func resolveAddr(address string) (network, addr string, err error) {
 	if prefix, suffix, ok := strings.Cut(address, "://"); ok {
 		network, addr = prefix, suffix
 	}
-	addr, err = canonicalAddress(network, addr)
-	if err != nil {
+	if err = validateAddress(network, addr); err != nil {
 		return "", "", pkgerrors.Wrap(err, "invalid address: "+address)
 	}
 

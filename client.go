@@ -10,6 +10,7 @@ import (
 
 	multierror "github.com/hashicorp/go-multierror"
 	pkgerrors "github.com/pkg/errors"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
@@ -58,6 +59,7 @@ func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Cli
 	}
 
 	cfg := telemetry.NewConfig(options.telemetryOptions...)
+	metrics := cfg.Metrics()
 	makeNode := func(addr *resolver.Addr) *node {
 		n := &node{
 			addr: addr.Clone(),
@@ -75,7 +77,7 @@ func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Cli
 		return n
 	}
 
-	topology, err := newTopology(ctx, addr, options.resolver, options.resolveTimeout, makeNode, cfg.Metrics())
+	topology, err := newTopology(ctx, addr, options.resolver, options.resolveTimeout, makeNode, metrics)
 	if err != nil {
 		return nil, pkgerrors.Wrap(err, "newTopology failed")
 	}
@@ -84,40 +86,27 @@ func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Cli
 		options:  options,
 		topology: topology,
 		tracer:   cfg.Tracer(),
-		metrics:  cfg.Metrics(),
+		metrics:  metrics,
 	}, nil
 }
 
 func (c *client) Close() error { return c.topology.close() }
 
-// pickConn keeps routing, borrowing and request cleanup together. The returned
-// context contains the request span; releaseFn records the result and releases
-// the connection through node. It is safe to call more than once.
-func (c *client) pickConn(ctx context.Context, cmd, key []byte) (context.Context, memcachedConn, func(error), error) {
+// pickConn routes and borrows a connection using the supplied request context.
+// It returns the selected address even if borrowing fails.
+// The release function returns the connection through node and is idempotent.
+func (c *client) pickConn(ctx context.Context, cmd, key []byte) (*resolver.Addr, memcachedConn, func(), error) {
 	n, err := c.topology.pickNode(c.options.picker, cmd, key)
 	if err != nil {
-		return ctx, nil, nil, err
+		return nil, nil, nil, pkgerrors.Wrap(err, "pick node failed")
 	}
-	start := time.Now()
-	ctx, span := c.tracer.Start(ctx, string(cmd), n.addr.Address, n.addr.Network, string(key))
 
-	finish := func(err error) {
-		c.tracer.End(span, err)
-		c.metrics.RecordDuration(context.Background(), string(cmd), n.addr.Address, time.Since(start), err)
-	}
 	cn, releaseConn, err := n.getConn(ctx)
 	if err != nil {
-		finish(err)
-		return ctx, nil, nil, pkgerrors.Wrap(err, "alloc connection failed")
+		return n.addr, nil, nil, pkgerrors.Wrap(err, "alloc connection failed")
 	}
-	var once sync.Once
-	releaseFn := func(err error) {
-		once.Do(func() {
-			finish(err)
-			releaseConn()
-		})
-	}
-	return ctx, cn, releaseFn, nil
+
+	return n.addr, cn, releaseConn, nil
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
@@ -127,13 +116,36 @@ func switchToUDP(req *request, resp *response, enabled bool) {
 	resp.udpEnabled = enabled
 }
 
-func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
+func (c *client) broadcastRequest(ctx context.Context, call callFunc, cmd string) error {
+	var start time.Time
+	if c.metrics != nil {
+		start = time.Now()
+	}
+	var span trace.Span
+	if c.tracer != nil {
+		ctx, span = c.tracer.Start(ctx, "broadcast:"+cmd, "", "", "")
+	}
+
+	finish := func(err error) {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), cmd, "", time.Since(start), err)
+		}
+	}
+
 	nodes, err := c.topology.allNodes()
 	if err != nil {
-		return err
+		finish(err)
+		return pkgerrors.Wrap(err, "broadcastRequest fetch nodes failed")
 	}
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(nodes))
+
+	var (
+		wg    sync.WaitGroup
+		errCh = make(chan error, len(nodes))
+	)
+
 	for _, n := range nodes {
 		wg.Go(func() {
 			cn, releaseFn, err := n.getConn(ctx)
@@ -149,27 +161,62 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 	}
 	wg.Wait()
 	close(errCh)
+
 	var multiErr error
 	for err := range errCh {
 		multiErr = multierror.Append(multiErr, err)
 	}
+
+	finish(multiErr)
 	return multiErr
 }
 
 func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
-	connCtx, cn, releaseFn, err := c.pickConn(ctx, req.cmd, req.key)
+	var start time.Time
+	if c.metrics != nil {
+		start = time.Now()
+	}
+	var operation string
+	if c.tracer != nil || c.metrics != nil {
+		operation = string(req.cmd)
+	}
+	var span trace.Span
+	if c.tracer != nil {
+		ctx, span = c.tracer.Start(ctx, operation, "", "", string(req.key))
+	}
+	var server string
+
+	finish := func(err error) {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), operation, server, time.Since(start), err)
+		}
+	}
+
+	addr, cn, releaseFn, err := c.pickConn(ctx, req.cmd, req.key)
+	if addr != nil {
+		server = addr.Address
+		if c.tracer != nil {
+			c.tracer.SetServer(span, server, addr.Network)
+		}
+	}
 	if err != nil {
+		finish(err)
 		return pkgerrors.Wrap(err, "pickConn failed")
 	}
-	defer func() { releaseFn(err) }()
+	defer releaseFn()
 
 	switchToUDP(req, resp, c.options.enableUDP)
 
-	if err = req.send(connCtx, cn, c.options.writeTimeout); err != nil {
+	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
+		finish(err)
 		return pkgerrors.Wrap(err, "send failed")
 	}
 
-	err = resp.recv(connCtx, cn, c.options.readTimeout)
+	err = resp.recv(ctx, cn, c.options.readTimeout)
+	finish(err)
 	return err
 }
 

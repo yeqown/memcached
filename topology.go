@@ -29,7 +29,9 @@ type topology struct {
 	cachedAddrs []*resolver.Addr // immutable until replaced by an update
 	nodes       map[resolver.Addr]*node
 	generation  uint64
-	closed      atomic.Bool
+
+	closed   atomic.Bool
+	cancelFn context.CancelFunc
 }
 
 func newTopology(
@@ -40,7 +42,7 @@ func newTopology(
 	makeNode func(*resolver.Addr) *node,
 	metrics *telemetry.Metrics,
 ) (*topology, error) {
-	lifetimeCtx := context.Background()
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
 	t := &topology{
 		target:   target,
 		makeNode: makeNode,
@@ -53,12 +55,14 @@ func newTopology(
 		cachedAddrs: nil,
 		nodes:       make(map[resolver.Addr]*node),
 		generation:  0,
-		closed:      atomic.Bool{},
+
+		closed:   atomic.Bool{},
+		cancelFn: lifetimeCancel,
 	}
 
 	resolveCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
-	defer cancel()
 	nextAt, err := t.resolve(resolveCtx)
+	cancel()
 	if err != nil {
 		_ = t.close()
 		// Preserve the initialization error.
@@ -134,8 +138,8 @@ func (t *topology) apply(ctx context.Context, result resolver.ResolveResult) err
 		return nil
 	}
 
-	// Resolver validates and canonicalizes addresses. Check the membership's
-	// structure before creating nodes, then take ownership of routing inputs.
+	// Resolver validates addresses. Skip duplicate identities while preserving
+	// their first occurrence's order, and own the routing inputs.
 	addrs := make([]*resolver.Addr, 0, len(result.Addrs))
 	seen := make(map[resolver.Addr]struct{}, len(result.Addrs))
 	for _, addr := range result.Addrs {
@@ -144,8 +148,8 @@ func (t *topology) apply(ctx context.Context, result resolver.ResolveResult) err
 			return pkgerrors.Wrap(ErrInvalidAddress, "nil topology node")
 		}
 		if _, duplicate := seen[*addr]; duplicate {
-			t.mu.Unlock()
-			return pkgerrors.Wrap(ErrInvalidAddress, "duplicate topology node")
+			log.Printf("topology: skipping duplicate node %s://%s", addr.Network, addr.Address)
+			continue
 		}
 		seen[*addr] = struct{}{}
 		addrs = append(addrs, addr.Clone())
@@ -162,16 +166,20 @@ func (t *topology) apply(ctx context.Context, result resolver.ResolveResult) err
 	var removed []*node
 	for key, n := range t.nodes {
 		if nodes[key] == nil {
+			// Reject borrows from old routing snapshots before publishing removal.
+			n.drain()
 			removed = append(removed, n)
 		}
 	}
 	t.cachedAddrs, t.nodes, t.generation = addrs, nodes, result.Generation
-	t.metrics.RecordTopology(ctx, len(addrs), result.Generation)
 	t.mu.Unlock()
 
 	for _, n := range removed {
-		_ = n.close() // Discovery has no caller to receive retirement errors.
+		go func() {
+			_ = n.close() // Discovery has no caller to receive retirement errors.
+		}()
 	}
+	t.metrics.RecordTopology(ctx, len(addrs), result.Generation)
 	return nil
 }
 
@@ -179,6 +187,8 @@ func (t *topology) close() error {
 	if swapped := t.closed.CompareAndSwap(false, true); !swapped {
 		return nil
 	}
+
+	t.cancelFn()
 
 	var err error
 
@@ -227,21 +237,34 @@ func (t *topology) resolve(ctx context.Context) (nextAt *time.Time, err error) {
 }
 
 func (t *topology) resolverLoop(ctx context.Context, nextAt *time.Time) {
-	var err error
+	if nextAt == nil {
+		return
+	}
+
+	var (
+		err   error
+		timer = time.NewTimer(time.Until(*nextAt))
+	)
+
+	defer func() {
+		timer.Stop()
+	}()
+
 	for nextAt != nil {
-		timer := time.NewTimer(max(0, time.Until(*nextAt)))
+		timer.Reset(time.Until(*nextAt))
+
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			log.Printf("topology: resolver loop exiting: %v", ctx.Err())
 			return
 		case <-timer.C:
 		}
 
 		resolveCtx, cancel := context.WithTimeout(ctx, t.resolveTimeout)
-		if nextAt, err = t.resolve(resolveCtx); err != nil {
+		nextAt, err = t.resolve(resolveCtx)
+		cancel()
+		if err != nil {
 			log.Printf("topology: resolve failed: %v", err)
 		}
-		cancel()
 	}
 }

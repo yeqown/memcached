@@ -50,6 +50,16 @@ func (t *Tracer) Start(ctx context.Context, operation, server, network string, k
 	)
 }
 
+// SetServer updates a request span after routing selects its server.
+// A nil Tracer does nothing.
+func (t *Tracer) SetServer(span trace.Span, server, network string) {
+	if t == nil {
+		return
+	}
+
+	span.SetAttributes(attrNetPeerName.String(server), attrNetTransport.String(network))
+}
+
 // End finishes the span with appropriate status.
 // A nil Tracer does nothing.
 func (t *Tracer) End(span trace.Span, err error) {

@@ -235,6 +235,7 @@ func TestAutoDiscoveryFailure(t *testing.T) {
 		{"server error", strings.NewReader("SERVER_ERROR unavailable\r\n"), nil, ErrMalformedResponse, false},
 		{"no config", strings.NewReader("END\r\n"), nil, ErrNoClusterConfig, false},
 		{"invalid config", strings.NewReader(configResponse("invalid", "cache.example|10.0.0.1|11211")), nil, ErrMalformedResponse, false},
+		{"duplicate config at cached generation", strings.NewReader(configResponse("12", "a.example|10.0.0.1|11211 b.example|10.0.0.1|11211")), nil, ErrMalformedResponse, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211")}}
@@ -260,6 +261,37 @@ func TestAutoDiscoveryFailure(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAutoDiscoveryDuplicateConfigPreservesCache(t *testing.T) {
+	r := NewAutoDiscovery(time.Minute)
+	t.Cleanup(func() { require.NoError(t, r.Close()) })
+	conn := &discoveryConn{reader: strings.NewReader(configResponse("12", "a.example|10.0.0.1|11211"))}
+	r.conn = conn
+	wantCached := ResolveResult{Generation: 12, Addrs: []*Addr{NewAddr("tcp", "10.0.0.1:11211")}}
+
+	result, _, err := r.Resolve(t.Context(), "directory:11211")
+	require.NoError(t, err)
+	require.Equal(t, wantCached, result)
+
+	conn.reader = strings.NewReader(configResponse("13", "a.example|10.0.0.2|11211 b.example|10.0.0.2|11211"))
+	result, next, err := r.Resolve(t.Context(), "directory:11211")
+	require.ErrorIs(t, err, ErrMalformedResponse)
+	require.Empty(t, result)
+	require.NotNil(t, next, "invalid membership must leave discovery scheduled to retry")
+
+	r.conn = &discoveryConn{reader: iotest.ErrReader(context.DeadlineExceeded)}
+	result, next, err = r.Resolve(t.Context(), "directory:11211")
+	require.NoError(t, err)
+	require.Equal(t, wantCached, result, "a timeout must return the last valid membership")
+	require.NotNil(t, next)
+
+	r.conn = &discoveryConn{reader: strings.NewReader(configResponse("13", "a.example|10.0.0.2|11211"))}
+	result, next, err = r.Resolve(t.Context(), "directory:11211")
+	require.NoError(t, err)
+	require.Equal(t, ResolveResult{Generation: 13, Addrs: []*Addr{NewAddr("tcp", "10.0.0.2:11211")}}, result,
+		"a corrected response at the rejected generation must recover discovery")
+	require.NotNil(t, next)
 }
 
 func TestAutoDiscoveryGeneration(t *testing.T) {
@@ -424,6 +456,48 @@ func TestReadConfigResponse(t *testing.T) {
 			[]string{"10.0.0.1:11211", "[2001:db8::1]:11212"},
 		},
 		{
+			"preserves hostname and port",
+			configResponse("1", "CACHE.EXAMPLE.||011211"),
+			1,
+			[]string{"CACHE.EXAMPLE.:011211"},
+		},
+		{
+			"preserves IPv6 spelling",
+			configResponse("1", "cache.example|2001:0DB8:0000:0000:0000:0000:0000:0001|011211"),
+			1,
+			[]string{"[2001:0DB8:0000:0000:0000:0000:0000:0001]:011211"},
+		},
+		{
+			"preserves mapped IPv4",
+			configResponse("1", "cache.example|::FFFF:127.0.0.1|011211"),
+			1,
+			[]string{"[::FFFF:127.0.0.1]:011211"},
+		},
+		{
+			"distinct IP spellings",
+			configResponse("1", "a.example|10.0.0.1|11211 b.example|::ffff:10.0.0.1|11211"),
+			1,
+			[]string{"10.0.0.1:11211", "[::ffff:10.0.0.1]:11211"},
+		},
+		{
+			"distinct hostname spellings",
+			configResponse("1", "CACHE.EXAMPLE||11211 cache.example||11211"),
+			1,
+			[]string{"CACHE.EXAMPLE:11211", "cache.example:11211"},
+		},
+		{
+			"absolute and relative hostnames",
+			configResponse("1", "cache.example.||11211 cache.example||11211"),
+			1,
+			[]string{"cache.example.:11211", "cache.example:11211"},
+		},
+		{
+			"distinct port spellings",
+			configResponse("1", "cache.example||011211 cache.example||11211"),
+			1,
+			[]string{"cache.example:011211", "cache.example:11211"},
+		},
+		{
 			"CRLF framing",
 			configResponse("1", "cache.example|127.0.0.1|11211"),
 			1,
@@ -469,6 +543,9 @@ func TestReadConfigResponseInvalid(t *testing.T) {
 		{"extra node field", configResponse("1", "cache.example|10.0.0.1|11211|extra")},
 		{"empty address", configResponse("1", "||11211")},
 		{"bad port", configResponse("1", "cache.example|10.0.0.1|invalid")},
+		{"duplicate node", configResponse("1", "cache.example|10.0.0.1|11211 cache.example|10.0.0.1|11211")},
+		{"duplicate IP with different hostnames", configResponse("1", "a.example|10.0.0.1|11211 b.example|10.0.0.1|11211")},
+		{"duplicate hostname", configResponse("1", "CACHE.EXAMPLE.||011211 CACHE.EXAMPLE.||011211")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := readConfigResponse(t.Context(), bufio.NewReader(strings.NewReader(test.wire)))
