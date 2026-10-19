@@ -5,146 +5,137 @@ import (
 	"io"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_binaryRequest_send(t *testing.T) {
-	tests := []struct {
-		name      string
-		binaryReq *binaryRequest
-		wantError bool
-		wantRaw   []byte
+	req := &binaryRequest{
+		opcode: _binaryOpcodeSASLAuth, opaque: 123, cas: 123,
+		extras: []byte("extra"), key: []byte("key"), value: []byte("value"),
+	}
+	wantRaw := []byte{
+		0x80, 0x21, 0x00, 0x03, // magic, opcode, key length
+		0x05, 0x00, 0x00, 0x00, // extras length, data type, vbucket
+		0x00, 0x00, 0x00, 0x0d, // body length
+		0x00, 0x00, 0x00, 0x7b, // opaque
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x7b, // CAS
+		0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
+		0x6b, 0x65, 0x79, // key: key
+		0x76, 0x61, 0x6c, 0x75, 0x65, // value: value
+	}
+
+	var w bytes.Buffer
+	require.NoError(t, req.send(&w))
+	assert.Equal(t, wantRaw, w.Bytes())
+
+	cn := newTestConn()
+	cn.writeErr = io.ErrClosedPipe
+	assert.ErrorIs(t, req.send(cn), io.ErrClosedPipe)
+}
+
+func Test_binaryResponse_read(t *testing.T) {
+	raw := []byte{
+		0x81, 0x20, 0x00, 0x03, // magic, opcode, key length
+		0x05, 0x00, 0x00, 0x00, // extras length, data type, status
+		0x00, 0x00, 0x00, 0x0d, // body length
+		0x00, 0x00, 0x00, 0x7b, // opaque
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x7b, // CAS
+		0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
+		0x6b, 0x65, 0x79, // key: key
+		0x76, 0x61, 0x6c, 0x75, 0x65, // value: value
+	}
+	invalidMagic := append([]byte(nil), raw...)
+	invalidMagic[0] = 0x1b
+
+	for _, tt := range []struct {
+		name    string
+		raw     []byte
+		want    *binaryResponse
+		wantErr error
 	}{
 		{
-			name: "case1: success",
-			binaryReq: &binaryRequest{
-				opcode: _binaryOpcodeSASLAuth,
-				opaque: 123,
-				cas:    123,
-				extras: []byte("extra"),
-				key:    []byte("key"),
-				value:  []byte("value"),
-			},
-			wantError: false,
-			wantRaw: []byte{
-				0x80, 0x21, 0x0, 0x3, // magic(0x80), opcode(0x21), key length(0x3)
-				0x5, 0x0, 0x0, 0x0, // extras length(0x5), data type(0x0), vbucket id(0x0)
-				0x0, 0x0, 0x0, 0xd, // total body length(0xd),
-				0x0, 0x0, 0x0, 0x7b, // opaque(0x7b) 123
-
-				0x0, 0x0, 0x0, 0x0,
-				0x0, 0x0, 0x0, 0x7b, // cas(0x7b) 123
-
-				0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
-				0x6b, 0x65, 0x79, // key: key
-				0x76, 0x61, 0x6c, 0x75, 0x65, // value: value
+			name: "full response", raw: raw,
+			want: &binaryResponse{
+				opcode: _binaryOpcodeSASLListMechanisms, keyLength: 3, extrasLength: 5,
+				status: _binaryStatusOK, totalBodyLength: 13, opaque: 123, cas: 123,
+				extras: []byte("extra"), key: []byte("key"), value: []byte("value"),
 			},
 		},
-	}
-	for _, tt := range tests {
+		{name: "invalid magic", raw: invalidMagic, wantErr: ErrInvalidBinaryProtocol},
+		{name: "truncated body", raw: raw[:len(raw)-5], wantErr: io.ErrUnexpectedEOF},
+		{name: "truncated header", raw: raw[:23], wantErr: io.ErrUnexpectedEOF},
+		{name: "empty response", wantErr: io.EOF},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			w := &bytes.Buffer{}
-			err := tt.binaryReq.send(w)
-			if tt.wantError {
-				assert.Error(t, err, "send(%v)", w)
+			resp := &binaryResponse{}
+			err := resp.read(bytes.NewReader(tt.raw))
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
 				return
 			}
-
-			assert.Equalf(t, tt.wantRaw, w.Bytes(), "send(%v)", w)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, resp)
 		})
 	}
 }
 
-func Test_binaryResponse_read(t *testing.T) {
-	type args struct {
-		sourceRaw []byte
-	}
-	tests := []struct {
-		name        string
-		args        args
-		wantErr     bool
-		wantSpecErr error
-		want        *binaryResponse
+func Test_binaryResponse_status(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		status  uint16
+		opcode  uint8
+		wantErr error
 	}{
-		{
-			name: "case1: full set and status ok",
-			args: args{
-				sourceRaw: []byte{
-					0x81, 0x20, 0x0, 0x3, // magic(0x81), opcode(0x20), key length(0x3)
-					0x5, 0x0, 0x0, 0x0, // extras length(0x5), data type(0x0), status: 0x0
-					0x0, 0x0, 0x0, 0xd, // total body length(0xd),
-					0x0, 0x0, 0x0, 0x7b, // opaque(0x7b) 123
-					0x0, 0x0, 0x0, 0x0, // cas(0x0) 0
-					0x0, 0x0, 0x0, 0x7b, // cas(0x7b) 123
-					0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
-					0x6b, 0x65, 0x79, // key: key
-					0x76, 0x61, 0x6c, 0x75, 0x65, // value: value
-				},
-			},
-			wantErr: false,
-			want: &binaryResponse{
-				opcode:          _binaryOpcodeSASLListMechanisms,
-				keyLength:       3,
-				extrasLength:    5,
-				status:          _binaryStatusOK,
-				totalBodyLength: 13,
-				opaque:          123,
-				cas:             123,
-				extras:          []byte("extra"),
-				key:             []byte("key"),
-				value:           []byte("value"),
-			},
-		},
-		{
-			name: "case2: invalid magic",
-			args: args{
-				sourceRaw: []byte{
-					0x1b, 0x21, 0x0, 0x3, // magic(0x1b), opcode(0x21), key length(0x3)
-					0x5, 0x0, 0x0, 0x0, // extras length(0x5), data type(0x0), status: 0x0
-					0x0, 0x0, 0x0, 0xd, // total body length(0xd),
-					0x0, 0x0, 0x0, 0x7b, // opaque(0x7b) 123
-					0x0, 0x0, 0x0, 0x0,
-					0x0, 0x0, 0x0, 0x7b, // cas(0x7b) 123
-					0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
-					0x6b, 0x65, 0x79, // key: key
-					0x76, 0x61, 0x6c, 0x75, 0x65, // value: value
-				},
-			},
-			wantErr:     true,
-			wantSpecErr: ErrInvalidBinaryProtocol,
-		},
-		{
-			name: "case3: malformed response: lack of body",
-			args: args{
-				sourceRaw: []byte{
-					0x81, 0x21, 0x0, 0x3, // magic(0x81), opcode(0x21), key length(0x3)
-					0x5, 0x0, 0x0, 0x0, // extras length(0x5), data type(0x0), status: 0x0
-					0x0, 0x0, 0x0, 0xd, // total body length(0xd),
-					0x0, 0x0, 0x0, 0x7b, // opaque(0x7b) 123
-					0x0, 0x0, 0x0, 0x0,
-					0x0, 0x0, 0x0, 0x7b, // cas(0x7b) 123
-					0x65, 0x78, 0x74, 0x72, 0x61, // extras: extra
-					0x6b, 0x65, 0x79, // key: key
-					// lack of value
-				},
-			},
-			wantErr:     true,
-			wantSpecErr: io.ErrUnexpectedEOF,
-		},
-	}
-	for _, tt := range tests {
+		{name: "success", status: _binaryStatusOK},
+		{name: "auth continuation", status: _binaryStatusAuthContinue, wantErr: ErrAuthenticationFailed},
+		{name: "auth error", status: _binaryStatusAuthError, wantErr: ErrAuthenticationFailed},
+		{name: "authentication failed", status: _binaryStatusAuthenticationFailed, wantErr: ErrAuthenticationFailed},
+		{name: "unknown SASL list", status: _binaryStatusUnknownCmd, opcode: _binaryOpcodeSASLListMechanisms, wantErr: ErrAuthenticationUnSupported},
+		{name: "unknown SASL auth", status: _binaryStatusUnknownCmd, opcode: _binaryOpcodeSASLAuth, wantErr: ErrAuthenticationUnSupported},
+		{name: "unknown SASL step", status: _binaryStatusUnknownCmd, opcode: _binaryOpcodeSASLStep, wantErr: ErrAuthenticationUnSupported},
+		{name: "unknown command", status: _binaryStatusUnknownCmd, wantErr: ErrNonexistentCommand},
+		{name: "not supported", status: _binaryStatusNotSupported, wantErr: ErrNotSupported},
+		{name: "internal error", status: _binaryStatusInternalError, wantErr: ErrServerError},
+		{name: "invalid arguments", status: _binaryStatusInvalidArgs, wantErr: ErrInvalidArgument},
+		{name: "out of memory", status: _binaryStatusOutOfMemory, wantErr: ErrServerError},
+		{name: "unknown status", status: 0xbeef, wantErr: ErrServerError},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &binaryResponse{}
-			err := resp.read(bytes.NewReader(tt.args.sourceRaw))
-			if tt.wantErr {
-				assert.Error(t, err, "read(%v)", tt.args.sourceRaw)
-				assert.True(t, errors.Is(err, tt.wantSpecErr), "got error: %v", err)
+			resp := &binaryResponse{status: tt.status, opcode: tt.opcode}
+			err := resp.expect(_binaryStatusOK)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
 				return
 			}
-
-			assert.Equal(t, tt.want, resp)
-			assert.NoError(t, err, "read(%v)", tt.args.sourceRaw)
+			require.NoError(t, err)
 		})
 	}
+}
+
+func Test_binarySASLCommands(t *testing.T) {
+	t.Run("list mechanisms", func(t *testing.T) {
+		req, _ := saslListMechanisms()
+		var w bytes.Buffer
+		require.NoError(t, req.send(&w))
+		assert.Equal(t, []byte{
+			0x80, 0x20, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+		}, w.Bytes())
+	})
+
+	t.Run("PLAIN credentials", func(t *testing.T) {
+		req, _ := saslAuthRequestPlain("user", "secret")
+		var w bytes.Buffer
+		require.NoError(t, req.send(&w))
+		want := append([]byte{
+			0x80, 0x21, 0, 5, 0, 0, 0, 0,
+			0, 0, 0, 17, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+		}, []byte("PLAIN\x00user\x00secret")...)
+		assert.Equal(t, want, w.Bytes())
+	})
 }

@@ -5,12 +5,14 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	multierror "github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
+	pkgerrors "github.com/pkg/errors"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -30,169 +32,132 @@ var _ Client = (*client)(nil)
 type client struct {
 	options *clientOptions
 
-	// addrs represents the list of memcached addresses.
-	// each one of them means a memcached server instance.
-	addrs []*Addr
-
-	// picker represents the picker strategy.
-	// it is used to pick a memcached server instance to execute a command.
-	picker Picker
-
-	mu        sync.Mutex // guards following
-	connPools map[*Addr]*connPool
+	topology *topology // owns discovery, membership and node lifetimes
 
 	// telemetry holds the OpenTelemetry tracers and metrics.
 	tracer  *telemetry.Tracer
 	metrics *telemetry.Metrics
 }
 
-// New creates a new memcached client with the given address and options.
+// New creates a Client for a comma-separated static address list or a custom
+// resolver target. The resolver controls when discovery runs again; each
+// attempt is bounded by WithResolveTimeout (five seconds by default).
 //
-// The client contains a connection pool to manage the connections to
-// one memcached instance. And it can manage multiple memcached instances with
-// cluster mode.
-//
-// The Cluster mode means that the client can connect to multiple memcached instances
-// and automatically pick a memcached instance to execute a command, of course,
-// the client makes sure that the same key will be executed on the same memcached instance.
-// Be careful, there are some `keys` command does not obey this rule, such as `gets`, `gats`.
+// Borrowed connections may finish their requests after their node is removed.
+// Gets and GetAndTouches send all requested keys to the node selected by the
+// first key; callers must ensure those keys reside together.
 func New(addr string, opts ...ClientOption) (Client, error) {
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return newClientWithContext(timeoutCtx, addr, opts...)
+	return NewWithContext(context.Background(), addr, opts...)
 }
 
-func newClientWithContext(_ context.Context, addr string, opts ...ClientOption) (Client, error) {
+// NewWithContext creates a Client with target address and context.
+// The context is used for the initial resolve ONLY.
+func NewWithContext(ctx context.Context, addr string, opts ...ClientOption) (Client, error) {
 	options := newClientOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	addrs, err := options.resolver.Resolve(addr)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve failed")
-	}
-
-	if len(addrs) == 0 {
-		return nil, errors.Wrap(ErrInvalidAddress, "empty address")
-	}
-	picker := options.pickBuilder.Build(addrs)
-
-	// Initialize telemetry
 	cfg := telemetry.NewConfig(options.telemetryOptions...)
+	metrics := cfg.Metrics()
+	makeNode := func(addr *resolver.Addr) *node {
+		n := &node{
+			addr: addr.Clone(),
+			pool: newConnPool(
+				options.maxIdleConns,
+				options.maxConns,
+				options.maxLifetime,
+				options.maxIdleTimeout,
+				createConnFactory(addr, options.dialTimeout, options.enableSASL, options.plainUsername, options.plainPassword),
+			),
+			state: atomic.Uint32{},
+		}
+		n.state.Store(uint32(nodeAvailable))
+
+		return n
+	}
+
+	topology, err := newTopology(ctx, addr, options.resolver, options.resolveTimeout, makeNode, metrics)
+	if err != nil {
+		return nil, pkgerrors.Wrap(err, "newTopology failed")
+	}
 
 	return &client{
-		options: options,
-		addrs:   addrs,
-		picker:  picker,
-
-		mu:        sync.Mutex{},
-		connPools: make(map[*Addr]*connPool, 4),
-
-		tracer:  cfg.Tracer(),
-		metrics: cfg.Metrics(),
+		options:  options,
+		topology: topology,
+		tracer:   cfg.Tracer(),
+		metrics:  metrics,
 	}, nil
 }
 
-func (c *client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *client) Close() error { return c.topology.close() }
 
-	for _, pool := range c.connPools {
-		if err := pool.close(); err != nil {
-			return errors.Wrap(err, "Close")
-		}
+// pickConn routes and borrows a connection using the supplied request context.
+// It returns the selected address even if borrowing fails.
+// The caller supplies a fresh handle whose release method is idempotent.
+func (c *client) pickConn(ctx context.Context, cmd, key []byte, borrowed *borrowedConn) (*resolver.Addr, error) {
+	n, err := c.topology.pickNode(c.options.picker, cmd, key)
+	if err != nil {
+		return nil, pkgerrors.Wrap(err, "pick node failed")
 	}
 
-	return nil
-}
-
-// getConn returns a true connection from the pool.
-func (c *client) getConn(ctx context.Context, addr *Addr) (memcachedConn, error) {
-	c.mu.Lock()
-	pool, ok := c.connPools[addr]
-	if ok {
-		c.mu.Unlock()
-		cn, err := pool.get(ctx)
-		return cn, err
+	if err := n.getConn(ctx, borrowed); err != nil {
+		return n.addr, pkgerrors.Wrap(err, "alloc connection failed")
 	}
 
-	wrapNewConn := func(ctx2 context.Context) (cn memcachedConn, err error) {
-		switch addr.Network {
-		case
-			"tcp", "tcp4", "tcp6",
-			"unix",
-			"udp", "udp4", "udp6":
-		default:
-			return nil, ErrInvalidNetworkProtocol
-		}
-
-		cn, err = newConnContext(ctx2, addr, c.options.dialTimeout)
-		if err != nil {
-			return nil, errors.Wrap(err, "newConnContext failed")
-		}
-
-		// SASL auth if enabled
-		if c.options.enableSASL {
-			if err = authSASL(cn, c.options.plainUsername, c.options.plainPassword); err != nil {
-				_ = cn.Close()
-				return nil, err
-			}
-		}
-
-		return cn, nil
-	}
-
-	// could not find a pool for the given addr, create a new one
-	pool = newConnPool(
-		c.options.maxIdleConns, c.options.maxConns,
-		c.options.maxLifetime, c.options.maxIdleTimeout,
-		wrapNewConn,
-	)
-	c.connPools[addr] = pool
-	c.mu.Unlock()
-
-	cn, err := pool.get(ctx)
-	return cn, err
+	return n.addr, nil
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
 
-func (c *client) autoSwitchToUDP(_ context.Context, req *request, resp *response) {
-	req.udpEnabled = c.options.enableUDP
-	resp.udpEnabled = c.options.enableUDP
+func switchToUDP(req *request, resp *response, enabled bool) {
+	req.udpEnabled = enabled
+	resp.udpEnabled = enabled
 }
 
-func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+func (c *client) broadcastRequest(ctx context.Context, call callFunc, cmd string) error {
+	var start time.Time
+	if c.metrics != nil {
+		start = time.Now()
+	}
+	var span trace.Span
+	if c.tracer != nil {
+		ctx, span = c.tracer.Start(ctx, "broadcast:"+cmd, "", "", "")
 	}
 
-	wg := sync.WaitGroup{}
+	finish := func(err error) {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), cmd, "", time.Since(start), err)
+		}
+	}
 
-	errCh := make(chan error, len(c.addrs))
+	nodes, err := c.topology.allNodes()
+	if err != nil {
+		finish(err)
+		return pkgerrors.Wrap(err, "broadcastRequest fetch nodes failed")
+	}
 
-	for _, addr := range c.addrs {
-		wg.Add(1)
-		addrCopy := addr
-		go func() {
-			defer wg.Done()
+	var (
+		wg    sync.WaitGroup
+		errCh = make(chan error, len(nodes))
+	)
 
-			cn, err := c.getConn(ctx, addrCopy)
-			if err != nil {
+	for _, n := range nodes {
+		wg.Go(func() {
+			var borrowed borrowedConn
+			if err := n.getConn(ctx, &borrowed); err != nil {
 				errCh <- err
 				return
 			}
-			defer func() { _ = cn.release() }()
-
-			if err = call(ctx, cn); err != nil {
+			defer borrowed.release()
+			if err := call(ctx, borrowed.conn); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
-
 	wg.Wait()
 	close(errCh)
 
@@ -201,64 +166,58 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc) error {
 		multiErr = multierror.Append(multiErr, err)
 	}
 
+	finish(multiErr)
 	return multiErr
 }
 
 func (c *client) dispatchRequest(ctx context.Context, req *request, resp *response) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	var start time.Time
+	if c.metrics != nil {
+		start = time.Now()
 	}
-
-	addr, err := c.picker.Pick(c.addrs, req.cmd, req.key)
-	if err != nil {
-		return errors.Wrap(err, "pick node failed")
+	var operation string
+	if c.tracer != nil || c.metrics != nil {
+		operation = string(req.cmd)
 	}
-
-	// START: Telemetry
-	start := time.Now()
 	var span trace.Span
 	if c.tracer != nil {
-		ctx, span = c.tracer.Start(ctx, string(req.cmd), addr.Address, addr.Network, string(req.key))
+		ctx, span = c.tracer.Start(ctx, operation, "", "", string(req.key))
 	}
-	// END: Telemetry
+	var server string
 
-	cn, err := c.getConn(ctx, addr)
+	finish := func(err error) {
+		if c.tracer != nil {
+			c.tracer.End(span, err)
+		}
+		if c.metrics != nil {
+			c.metrics.RecordDuration(context.Background(), operation, server, time.Since(start), err)
+		}
+	}
+
+	var borrowed borrowedConn
+	addr, err := c.pickConn(ctx, req.cmd, req.key, &borrowed)
+	if addr != nil {
+		server = addr.Address
+		if c.tracer != nil {
+			c.tracer.SetServer(span, server, addr.Network)
+		}
+	}
 	if err != nil {
-		if c.tracer != nil {
-			c.tracer.End(span, err)
-		}
-		if c.metrics != nil {
-			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
-		}
-		return errors.Wrap(err, "alloc connection failed")
+		finish(err)
+		return pkgerrors.Wrap(err, "pickConn failed")
 	}
-	defer func() { _ = cn.release() }()
+	defer borrowed.release()
 
-	c.autoSwitchToUDP(ctx, req, resp)
+	switchToUDP(req, resp, c.options.enableUDP)
 
-	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
-		if c.tracer != nil {
-			c.tracer.End(span, err)
-		}
-		if c.metrics != nil {
-			c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), err)
-		}
-		return errors.Wrap(err, "send failed")
+	if err = req.send(ctx, borrowed.conn, c.options.writeTimeout); err != nil {
+		finish(err)
+		return pkgerrors.Wrap(err, "send failed")
 	}
 
-	recvErr := resp.recv(ctx, cn, c.options.readTimeout)
-
-	// END: Telemetry
-	if c.tracer != nil {
-		c.tracer.End(span, recvErr)
-	}
-	if c.metrics != nil {
-		c.metrics.RecordDuration(context.Background(), string(req.cmd), addr.Address, time.Since(start), recvErr)
-	}
-
-	return recvErr
+	err = resp.recv(ctx, borrowed.conn, c.options.readTimeout)
+	finish(err)
+	return err
 }
 
 // authSASL performs the Binary SASL authentication.
@@ -275,29 +234,29 @@ func authSASL(conn memcachedConn, username, password string) error {
 	// 1. first, list mechanisms the server supports
 	req, resp := saslListMechanisms()
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	if !bytes.Contains(resp.value, []byte("PLAIN")) {
-		return errors.New("memcached server does not support PLAIN mechanism")
+		return pkgerrors.New("memcached server does not support PLAIN mechanism")
 	}
 
 	// 2. choose one mechanism and send the authentication request
 	req, resp = saslAuthRequestPlain(username, password)
 	if err := req.send(conn); err != nil {
-		return errors.Wrap(err, "authSASL send")
+		return pkgerrors.Wrap(err, "authSASL send")
 	}
 	if err := resp.read(conn); err != nil {
-		return errors.Wrap(err, "authSASL recv")
+		return pkgerrors.Wrap(err, "authSASL recv")
 	}
 	if err := resp.expect(_binaryStatusOK); err != nil {
-		return errors.Wrap(err, "authSASL")
+		return pkgerrors.Wrap(err, "authSASL")
 	}
 
 	return nil

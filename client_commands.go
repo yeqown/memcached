@@ -405,7 +405,7 @@ func (c *client) FlushAll(ctx context.Context) error {
 		req, resp := buildFlushAllCommand(c.options.noReply)
 		defer releaseReqAndResp(req, resp)
 
-		c.autoSwitchToUDP(ctx, req, resp)
+		switchToUDP(req, resp, c.options.enableUDP)
 
 		if err := req.send(ctx, cn, c.options.writeTimeout); err != nil {
 			return errors.Wrap(err, "send failed")
@@ -422,7 +422,7 @@ func (c *client) FlushAll(ctx context.Context) error {
 		return nil
 	}
 
-	if err := c.broadcastRequest(ctx, call); err != nil {
+	if err := c.broadcastRequest(ctx, call, "flush_all"); err != nil {
 		return errors.Wrap(err, "request failed")
 	}
 

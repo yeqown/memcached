@@ -5,7 +5,7 @@
   export let selected: CommandId = 'get'
   export let disabled = false
 
-  const dispatch = createEventDispatcher<'change', CommandId>()
+  const dispatch = createEventDispatcher<{ change: CommandId }>()
 
   let open = false
 
@@ -13,10 +13,10 @@
     if (!disabled) open = !open
   }
 
-  function selectCommand(id: string) {
-    selected = id as CommandId
+  function selectCommand(id: CommandId) {
+    selected = id
     open = false
-    dispatch('change', id as CommandId)
+    dispatch('change', id)
   }
 
   function handleKeydown(e: KeyboardEvent) {

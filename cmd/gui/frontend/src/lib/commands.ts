@@ -8,7 +8,7 @@ export interface InputField {
 }
 
 export interface CommandDef {
-  id: string
+  id: CommandId
   label: string
   group: 'storage' | 'counter' | 'admin'
   inputs: InputField[]

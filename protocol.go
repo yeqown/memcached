@@ -15,7 +15,7 @@ import (
 // The key is passed as read-only context so codecs can choose behavior per key,
 // but codecs must not rewrite it. Protocol metadata such as CAS, TTL, size,
 // opaque tokens, and meta flags other than client flags remain owned by the
-// memcached client.
+// Memcached client.
 type Codec interface {
 	// Encode transforms a value and raw 32-bit client flags before storage.
 	Encode(key, value []byte, flag uint32) (encodedValue []byte, encodedFlags uint32, err error)
@@ -147,7 +147,6 @@ func buildStorageCommand(
 	noReply bool,
 	codec Codec,
 ) (*request, *response, error) {
-
 	if err := checkCodecSupportsOperation(codec, command); err != nil {
 		return nil, nil, errors.Wrap(err, "codec does not support operation")
 	}
@@ -288,7 +287,13 @@ func buildGetsCommand(command string, keys ...string) (*request, *response) {
 	}
 	b.AddCRLF()
 
-	req := buildRequest([]byte(command), nil, b.build())
+	// Retrieval remains a single-node operation; its first key determines the
+	// same route as storage. Multi-key callers must use keys on that node.
+	var routingKey []byte
+	if len(keys) > 0 {
+		routingKey = []byte(keys[0])
+	}
+	req := buildRequest([]byte(command), routingKey, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp
@@ -308,7 +313,11 @@ func buildGetAndTouchesCommand(command string, expiry time.Duration, keys ...str
 
 	b.AddCRLF()
 
-	req := buildRequest([]byte(command), nil, b.build())
+	var routingKey []byte
+	if len(keys) > 0 {
+		routingKey = []byte(keys[0])
+	}
+	req := buildRequest([]byte(command), routingKey, b.build())
 	resp := buildSpecEndLineResponse(_EndCRLFBytes, len(keys)*2+1)
 
 	return req, resp

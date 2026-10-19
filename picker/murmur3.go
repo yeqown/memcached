@@ -1,25 +1,52 @@
-// Package hash provides hash functions.
-//
-//revive:disable:var-naming // this is a well-known hash library, renaming would be breaking
-package hash
+package picker
+
+import (
+	"github.com/pkg/errors"
+	"github.com/yeqown/memcached/resolver"
+)
+
+// The murmur3HashPicker is the implementation of Picker using murmur3 hash algorithm.
+type murmur3HashPicker struct {
+	hash func([]byte) uint64
+}
+
+func (p *murmur3HashPicker) Pick(addrs []*resolver.Addr, _, key []byte) (*resolver.Addr, error) {
+	n := len(addrs)
+	if n == 0 {
+		return nil, errors.Wrap(resolver.ErrInvalidAddress, "no available address")
+	}
+	if n == 1 {
+		return addrs[0], nil
+	}
+
+	sum := p.hash(key)
+	return addrs[sum%uint64(n)], nil
+}
+
+// NewMurmur3HashPicker creates a Picker using Murmur3 hashing with the given seed.
+func NewMurmur3HashPicker(seed uint64) Picker {
+	return &murmur3HashPicker{
+		hash: newMurmur3Hash(seed).sum64,
+	}
+}
 
 const (
 	c1 = uint64(0x87c37b91114253d5)
 	c2 = uint64(0x4cf5ad432745937f)
 )
 
-// Murmur3 implements the Murmur3 digest 64 algorithm.
-type Murmur3 struct {
+// murmur3Hash implements the existing 64-bit digest used by the pickers.
+type murmur3Hash struct {
 	seed uint64
 }
 
-// NewMurmur3 creates a new Murmur3 hash function with the given seed.
-func NewMurmur3(seed uint64) *Murmur3 {
-	return &Murmur3{seed: seed}
+// newMurmur3Hash creates a digest with the given seed.
+func newMurmur3Hash(seed uint64) *murmur3Hash {
+	return &murmur3Hash{seed: seed}
 }
 
-// Hash returns the Murmur3 hash of the given key.
-func (h *Murmur3) Hash(key []byte) uint64 {
+// sum64 returns the digest of the given key.
+func (h *murmur3Hash) sum64(key []byte) uint64 {
 	length := len(key)
 	hash := h.seed
 

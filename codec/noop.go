@@ -1,9 +1,7 @@
 package codec
 
-var (
-	// Noop is the default codec that leaves values and flags unchanged.
-	Noop = &NoopCodec{}
-)
+// Noop is the default codec that leaves values and flags unchanged.
+var Noop = &NoopCodec{}
 
 // NoopCodec passes key, value and flags through unchanged.
 type NoopCodec struct{}

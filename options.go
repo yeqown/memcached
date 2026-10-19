@@ -4,6 +4,8 @@ import (
 	"time"
 
 	memcodec "github.com/yeqown/memcached/codec"
+	"github.com/yeqown/memcached/picker"
+	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
 )
 
@@ -11,20 +13,15 @@ import (
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	pickBuilder Builder
+	picker picker.Picker
 
-	// resolver is the resolver for the client to resolve the given address
-	// to a list of Addr. It supports both single address and cluster address.
-	// .e.g.
-	//  1. single address: IP_ADDRESS:11211
-	// 	2. cluster address: IP_ADDRESS:11211,IP_ADDRESS:11212,IP_ADDRESS_ADDRESS:11211
-	//
-	// The defaultResolver supports tcp、udp and unix domain socket. Default is tcp if the address
-	// is not specified start with `udp://` or `unix://`.
-	resolver Resolver
+	// resolver maps the target to data nodes and supplies the refresh schedule.
+	// The default static resolver supports TCP, UDP and Unix socket addresses.
+	resolver       resolver.Resolver
+	resolveTimeout time.Duration
 
-	// dialTimeout is the timeout for dialing a connection to the memcached server
-	// instance. Default is 5 seconds.
+	// dialTimeout is the timeout for dialing a connection to the Memcached server
+	// node. Default is 5 seconds.
 	// (Connection Timeout)
 	dialTimeout time.Duration
 	// readTimeout is the timeout for reading from the connection.
@@ -68,8 +65,9 @@ type clientOptions struct {
 
 func newClientOptions() *clientOptions {
 	return &clientOptions{
-		pickBuilder: crc32HashPickBuilder{},
-		resolver:    defaultResolver{},
+		picker:         picker.NewCRC32HashPicker(),
+		resolver:       resolver.NewStatic(),
+		resolveTimeout: 5 * time.Second,
 
 		dialTimeout:  3 * time.Second,
 		readTimeout:  5 * time.Second,
@@ -90,9 +88,8 @@ func newClientOptions() *clientOptions {
 	}
 }
 
-// WithResolver sets the resolver for the client to resolve the given address
-// to a list of Addr.
-func WithResolver(r Resolver) ClientOption {
+// WithResolver sets the target resolver and its refresh schedule.
+func WithResolver(r resolver.Resolver) ClientOption {
 	return func(o *clientOptions) {
 		if r == nil {
 			return
@@ -102,15 +99,25 @@ func WithResolver(r Resolver) ClientOption {
 	}
 }
 
-// WithPickBuilder sets the pickBuilder for the client to build a Picker from
-// a list of Addr.
-func WithPickBuilder(p Builder) ClientOption {
+// WithResolveTimeout bounds each initialization and background resolution.
+// Non-positive values select the default timeout of five seconds.
+func WithResolveTimeout(timeout time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		o.resolveTimeout = timeout
+	}
+}
+
+// WithPicker sets the client's Picker. It must support concurrent Pick calls.
+func WithPicker(p picker.Picker) ClientOption {
 	return func(o *clientOptions) {
 		if p == nil {
 			return
 		}
 
-		o.pickBuilder = p
+		o.picker = p
 	}
 }
 

@@ -1,0 +1,78 @@
+package resolver
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestStaticResolve(t *testing.T) {
+	for _, test := range []struct {
+		name, target string
+		want         []*Addr
+	}{
+		{"IPv4", "127.0.0.1:11211", []*Addr{NewAddr("tcp", "127.0.0.1:11211")}},
+		{"hostname", "google.com:11211", []*Addr{NewAddr("tcp", "google.com:11211")}},
+		{"IPv6", "[::1]:11211", []*Addr{NewAddr("tcp", "[::1]:11211")}},
+		{"preserves hostname and port", "CACHE.EXAMPLE.:011211", []*Addr{NewAddr("tcp", "CACHE.EXAMPLE.:011211")}},
+		{"preserves IPv6", "[0:0:0:0:0:0:0:1]:11211", []*Addr{NewAddr("tcp", "[0:0:0:0:0:0:0:1]:11211")}},
+		{"preserves mapped IPv4", "[::FFFF:127.0.0.1]:011211", []*Addr{NewAddr("tcp", "[::FFFF:127.0.0.1]:011211")}},
+		{"Unix socket", "unix:///tmp/memcached.sock", []*Addr{NewAddr("unix", "/tmp/memcached.sock")}},
+		{"preserves Unix path", "unix:///tmp/cache/../memcached.sock", []*Addr{NewAddr("unix", "/tmp/cache/../memcached.sock")}},
+		{"UDP", "udp://localhost:11211", []*Addr{NewAddr("udp", "localhost:11211")}},
+		{"distinct hostname spellings", "CACHE.EXAMPLE.:11211,cache.example:011211", []*Addr{
+			NewAddr("tcp", "CACHE.EXAMPLE.:11211"), NewAddr("tcp", "cache.example:011211"),
+		}},
+		{"distinct IP spellings", "127.0.0.1:11211,[::ffff:127.0.0.1]:11211", []*Addr{
+			NewAddr("tcp", "127.0.0.1:11211"), NewAddr("tcp", "[::ffff:127.0.0.1]:11211"),
+		}},
+		{"preserves input order", "localhost:11213,localhost:11211,localhost:11212", []*Addr{
+			NewAddr("tcp", "localhost:11213"), NewAddr("tcp", "localhost:11211"), NewAddr("tcp", "localhost:11212"),
+		}},
+		{"multiple addresses", "localhost:11211,localhost:11212,localhost:11213", []*Addr{
+			NewAddr("tcp", "localhost:11211"), NewAddr("tcp", "localhost:11212"), NewAddr("tcp", "localhost:11213"),
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, next, err := NewStatic().Resolve(t.Context(), test.target)
+			require.NoError(t, err)
+			require.Nil(t, next, "static resolution never schedules a refresh")
+			require.Equal(t, ResolveResult{Addrs: test.want}, result)
+		})
+	}
+}
+
+func TestStaticInvalidTarget(t *testing.T) {
+	for name, target := range map[string]string{
+		"invalid address":            "invalid_address",
+		"empty address":              "",
+		"blank address list":         " , \t, ",
+		"zero port":                  "host:0",
+		"port overflow":              "host:65536",
+		"non-numeric port":           "host:abc",
+		"signed port":                "host:+11211",
+		"invalid IPv6":               "[bad:ipv6]:11211",
+		"empty Unix path":            "unix://",
+		"invalid hostname character": "bad#host:11211",
+		"duplicate identity":         "CACHE.EXAMPLE.:011211,CACHE.EXAMPLE.:011211",
+		"duplicate explicit network": "tcp://cache.example:11211,cache.example:11211",
+		"invalid member":             "localhost:11211,invalid_address",
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, next, err := NewStatic().Resolve(t.Context(), target)
+			require.ErrorIs(t, err, ErrInvalidAddress)
+			require.Empty(t, result)
+			require.Nil(t, next)
+		})
+	}
+}
+
+func TestStaticCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, next, err := NewStatic().Resolve(ctx, "localhost:11211")
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, result)
+	require.Nil(t, next)
+}
