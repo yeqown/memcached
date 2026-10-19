@@ -257,13 +257,22 @@ func TestCompressionDisablesAppendPrepend(t *testing.T) {
 	}
 }
 
+func pickTestConn(ctx context.Context, c *client, cmd, key []byte) (*resolver.Addr, memcachedConn, func(), error) {
+	var borrowed borrowedConn
+	addr, err := c.pickConn(ctx, cmd, key, &borrowed)
+	if err != nil {
+		return addr, nil, nil, err
+	}
+	return addr, borrowed.conn, borrowed.release, nil
+}
+
 func TestClientPickConnReleaseDrainsNodeOnce(t *testing.T) {
 	a := resolver.NewAddr("tcp", "a:11211")
 	c := newTestClient(t, []*resolver.Addr{a})
 	n := clientView(c).nodes[*a]
 	raw := newTestConn()
 	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	addr, cn, releaseFn, err := c.pickConn(t.Context(), nil, nil)
+	addr, cn, releaseFn, err := pickTestConn(t.Context(), c, nil, nil)
 	require.NoError(t, err)
 	defer releaseFn()
 	require.Equal(t, a, addr)
@@ -280,7 +289,7 @@ func TestClientPickConnReleaseDrainsNodeOnce(t *testing.T) {
 func TestClientPickConnRoutingFailureReturnsNoAddr(t *testing.T) {
 	c := newTestClient(t, []*resolver.Addr{resolver.NewAddr("tcp", "a:11211")})
 	require.NoError(t, c.Close())
-	addr, cn, releaseFn, err := c.pickConn(t.Context(), nil, nil)
+	addr, cn, releaseFn, err := pickTestConn(t.Context(), c, nil, nil)
 	require.ErrorIs(t, err, ErrClientClosed)
 	require.Nil(t, addr)
 	require.Nil(t, cn)
@@ -304,7 +313,7 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 						return newTestConn(), nil
 					}
 					var err error
-					_, _, releaseOwner, err = c.pickConn(ctx, nil, nil)
+					_, _, releaseOwner, err = pickTestConn(ctx, c, nil, nil)
 					require.NoError(t, err)
 					defer releaseOwner()
 					failure = nil
@@ -316,7 +325,7 @@ func TestClientPickConnFailureDoesNotLeakRemovedNode(t *testing.T) {
 				}
 				done := make(chan poolGetResult, 1)
 				go func() {
-					_, cn, releaseFn, err := c.pickConn(ctx, nil, nil)
+					_, cn, releaseFn, err := pickTestConn(ctx, c, nil, nil)
 					if releaseFn != nil {
 						releaseFn()
 					}

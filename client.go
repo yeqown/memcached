@@ -94,19 +94,18 @@ func (c *client) Close() error { return c.topology.close() }
 
 // pickConn routes and borrows a connection using the supplied request context.
 // It returns the selected address even if borrowing fails.
-// The release function returns the connection through node and is idempotent.
-func (c *client) pickConn(ctx context.Context, cmd, key []byte) (*resolver.Addr, memcachedConn, func(), error) {
+// The caller supplies a fresh handle whose release method is idempotent.
+func (c *client) pickConn(ctx context.Context, cmd, key []byte, borrowed *borrowedConn) (*resolver.Addr, error) {
 	n, err := c.topology.pickNode(c.options.picker, cmd, key)
 	if err != nil {
-		return nil, nil, nil, pkgerrors.Wrap(err, "pick node failed")
+		return nil, pkgerrors.Wrap(err, "pick node failed")
 	}
 
-	cn, releaseConn, err := n.getConn(ctx)
-	if err != nil {
-		return n.addr, nil, nil, pkgerrors.Wrap(err, "alloc connection failed")
+	if err := n.getConn(ctx, borrowed); err != nil {
+		return n.addr, pkgerrors.Wrap(err, "alloc connection failed")
 	}
 
-	return n.addr, cn, releaseConn, nil
+	return n.addr, nil
 }
 
 type callFunc func(ctx context.Context, conn memcachedConn) error
@@ -148,13 +147,13 @@ func (c *client) broadcastRequest(ctx context.Context, call callFunc, cmd string
 
 	for _, n := range nodes {
 		wg.Go(func() {
-			cn, releaseFn, err := n.getConn(ctx)
-			if err != nil {
+			var borrowed borrowedConn
+			if err := n.getConn(ctx, &borrowed); err != nil {
 				errCh <- err
 				return
 			}
-			defer releaseFn()
-			if err := call(ctx, cn); err != nil {
+			defer borrowed.release()
+			if err := call(ctx, borrowed.conn); err != nil {
 				errCh <- err
 			}
 		})
@@ -195,7 +194,8 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		}
 	}
 
-	addr, cn, releaseFn, err := c.pickConn(ctx, req.cmd, req.key)
+	var borrowed borrowedConn
+	addr, err := c.pickConn(ctx, req.cmd, req.key, &borrowed)
 	if addr != nil {
 		server = addr.Address
 		if c.tracer != nil {
@@ -206,16 +206,16 @@ func (c *client) dispatchRequest(ctx context.Context, req *request, resp *respon
 		finish(err)
 		return pkgerrors.Wrap(err, "pickConn failed")
 	}
-	defer releaseFn()
+	defer borrowed.release()
 
 	switchToUDP(req, resp, c.options.enableUDP)
 
-	if err = req.send(ctx, cn, c.options.writeTimeout); err != nil {
+	if err = req.send(ctx, borrowed.conn, c.options.writeTimeout); err != nil {
 		finish(err)
 		return pkgerrors.Wrap(err, "send failed")
 	}
 
-	err = resp.recv(ctx, cn, c.options.readTimeout)
+	err = resp.recv(ctx, borrowed.conn, c.options.readTimeout)
 	finish(err)
 	return err
 }

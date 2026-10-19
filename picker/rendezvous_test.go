@@ -1,12 +1,90 @@
 package picker
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/yeqown/memcached/resolver"
 )
+
+func TestRendezvousPreservesKeyPlacement(t *testing.T) {
+	addrs := []*resolver.Addr{
+		resolver.NewAddr("tcp", "a:11211"),
+		resolver.NewAddr("tcp", "b:11211"),
+		resolver.NewAddr("tcp6", "[::1]:11211"),
+	}
+	for _, test := range []struct {
+		seed uint64
+		key  string
+		want int
+	}{
+		{seed: 0, key: "", want: 2},
+		{seed: 0, key: "key", want: 2},
+		{seed: 0, key: "user:42", want: 2},
+		{seed: 0, key: "中文", want: 1},
+		{seed: 0, key: strings.Repeat("k", 300), want: 2},
+		{seed: 0, key: strings.Repeat("k", 600), want: 1},
+		{seed: 42, key: "", want: 0},
+		{seed: 42, key: "key", want: 1},
+		{seed: 42, key: "user:42", want: 1},
+		{seed: 42, key: "中文", want: 2},
+		{seed: 42, key: strings.Repeat("k", 300), want: 0},
+		{seed: 42, key: strings.Repeat("k", 600), want: 0},
+	} {
+		t.Run(fmt.Sprintf("seed=%d/key=%s", test.seed, test.key), func(t *testing.T) {
+			addr, err := NewRendezvousHashPicker(test.seed).Pick(addrs, nil, []byte(test.key))
+			require.NoError(t, err)
+			require.Same(t, addrs[test.want], addr)
+		})
+	}
+}
+
+func TestRendezvousCommonKeysDoNotAllocate(t *testing.T) {
+	p := NewRendezvousHashPicker(42)
+	addrs := []*resolver.Addr{resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp6", "[::1]:11211")}
+	key := []byte("user:42")
+	allocs := testing.AllocsPerRun(100, func() {
+		if _, err := p.Pick(addrs, nil, key); err != nil {
+			t.Fatal(err)
+		}
+	})
+	require.Zero(t, allocs, "routing common keys with the built-in hash must not allocate")
+}
+
+func TestRendezvousCustomHashInput(t *testing.T) {
+	var inputs [][]byte
+	p := NewRendezvousHashPickerWithHash(func(input []byte) uint64 {
+		inputs = append(inputs, input)
+		return 0
+	})
+	addrs := []*resolver.Addr{resolver.NewAddr("tcp", "a:11211"), resolver.NewAddr("tcp6", "[::1]:11211")}
+	_, err := p.Pick(addrs, nil, []byte("key"))
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{[]byte("\x03tcp\x07a:11211key"), []byte("\x04tcp6\x0b[::1]:11211key")}, inputs)
+}
+
+func BenchmarkRendezvousHashPicker(b *testing.B) {
+	for _, size := range []int{3, 10, 50} {
+		b.Run(fmt.Sprintf("nodes=%d", size), func(b *testing.B) {
+			addrs := make([]*resolver.Addr, size)
+			for i := range addrs {
+				addrs[i] = resolver.NewAddr("tcp", fmt.Sprintf("10.0.0.%d:11211", i+1))
+			}
+			p := NewRendezvousHashPicker(1)
+			key := []byte("review-key-0123456789")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := p.Pick(addrs, nil, key); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
 
 func TestRendezvousMembershipAndOrdering(t *testing.T) {
 	p := NewRendezvousHashPicker(42)

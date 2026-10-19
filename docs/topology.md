@@ -9,7 +9,7 @@ flowchart TD
     Client[client] -->|pickNode / allNodes| Topology[topology]
     Topology -->|Resolve / Close| Resolver[resolver]
     Topology -->|create / remove| Node[node]
-    Client -->|getConn / releaseFn| Node
+    Client -->|getConn / borrowedConn.release| Node
     Node -->|get / put / close / stats| Pool[connPool]
     Pool --> Conn[conn]
     Client -->|send / recv| Protocol[protocol]
@@ -51,10 +51,12 @@ successful check is the point at which the request owns the connection. Removal
 before that confirmation may fail
 the borrow; removal afterward allows the request to finish.
 
-`node.getConn` returns a connection and an idempotent release function. The return
+`node.getConn` fills a fresh caller-owned `borrowedConn` handle with its connection.
+The handle's idempotent `release` method waits for concurrent cleanup and avoids
+allocating a closure per request. Handles must not be copied or reused. The return
 path is `node.putConn` → `conn.release` → `connPool.put`, preserving deadline reset
 and idle timestamps. `client.dispatchRequest` records the request result and
-duration and ends its span. The release function only returns the connection.
+duration and ends its span. The release method only returns the connection.
 `client.pickConn` returns the selected address even if borrowing fails. Dispatch
 uses it for span endpoint and transport attributes and operation metric server
 labels.

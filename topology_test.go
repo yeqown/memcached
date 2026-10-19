@@ -129,7 +129,7 @@ func TestTopologyCloseDrainsRemovedNode(t *testing.T) {
 	require.NoError(t, err)
 	raw := newTestConn()
 	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	_, releaseFn, err := n.getConn(t.Context())
+	_, releaseFn, err := getTestNodeConn(t.Context(), n)
 	require.NoError(t, err)
 	defer releaseFn()
 	require.NoError(t, applyTopology(top, []*resolver.Addr{resolver.NewAddr("tcp", "b:11211")}))
@@ -175,7 +175,7 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 	<-picked
 	require.NoError(t, pickErr)
 	require.NoError(t, <-updated)
-	cn, releaseFn, err := inst.getConn(context.Background())
+	cn, releaseFn, err := getTestNodeConn(context.Background(), inst)
 	require.ErrorIs(t, err, ErrInstanceAbnormal, "selection does not reserve a connection before removal")
 	require.Nil(t, cn)
 	require.Nil(t, releaseFn)
@@ -188,12 +188,12 @@ func TestTopologyRemovalAndReaddUsesNewPool(t *testing.T) {
 	old := topologyView(top).nodes[*a]
 	raw := newTestConn()
 	old.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	_, releaseOld, err := old.getConn(t.Context())
+	_, releaseOld, err := getTestNodeConn(t.Context(), old)
 	require.NoError(t, err)
 	defer releaseOld()
 	require.NoError(t, applyTopology(top, []*resolver.Addr{b}))
 	require.Equal(t, nodeDraining, old.status())
-	cn, releaseFn, err := old.getConn(t.Context())
+	cn, releaseFn, err := getTestNodeConn(t.Context(), old)
 	require.ErrorIs(t, err, ErrInstanceAbnormal, "removal rejects a selected node before borrowing")
 	require.Nil(t, cn)
 	require.Nil(t, releaseFn)
@@ -215,7 +215,7 @@ func TestTopologyRemovalDoesNotWaitForOtherNodes(t *testing.T) {
 		initial := topologyView(top)
 		raw := newTestConn()
 		initial.nodes[*b].pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-		_, release, err := initial.nodes[*b].getConn(t.Context())
+		_, release, err := getTestNodeConn(t.Context(), initial.nodes[*b])
 		require.NoError(t, err)
 		defer release()
 		done := make(chan error, 1)
@@ -244,7 +244,7 @@ func TestTopologyRemovalRejectsBorrowingDuringIdleClose(t *testing.T) {
 			raw := newTestConn()
 			raw.onClose = func() { <-proceed }
 			n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-			_, release, err := n.getConn(t.Context())
+			_, release, err := getTestNodeConn(t.Context(), n)
 			require.NoError(t, err)
 			release()
 		}
@@ -255,7 +255,7 @@ func TestTopologyRemovalRejectsBorrowingDuringIdleClose(t *testing.T) {
 		require.Equal(t, []*resolver.Addr{c}, topologyView(top).addrs)
 		for _, addr := range []*resolver.Addr{a, b} {
 			n := before.nodes[*addr]
-			cn, release, err := n.getConn(t.Context())
+			cn, release, err := getTestNodeConn(t.Context(), n)
 			if release != nil {
 				release()
 			}
@@ -301,7 +301,7 @@ func TestTopologyIdleCloseDoesNotDelayRefresh(t *testing.T) {
 		raw := newTestConn()
 		raw.onClose = func() { <-proceed }
 		removed.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-		_, release, err := removed.getConn(t.Context())
+		_, release, err := getTestNodeConn(t.Context(), removed)
 		require.NoError(t, err)
 		release()
 
@@ -831,7 +831,7 @@ func TestTopologyMetricsDoNotBlockMembershipOperations(t *testing.T) {
 			raw := newTestConn()
 			raw.onClose = func() { close(idleClosed) }
 			removed.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-			_, release, err := removed.getConn(t.Context())
+			_, release, err := getTestNodeConn(t.Context(), removed)
 			require.NoError(t, err)
 			release()
 

@@ -29,6 +29,20 @@ type node struct {
 	state atomic.Uint32
 }
 
+// borrowedConn is a single-use handle owned by one request. It must not be
+// copied or reused; concurrent release calls wait for the first cleanup.
+type borrowedConn struct {
+	node *node
+	conn memcachedConn
+	once sync.Once
+}
+
+func (b *borrowedConn) release() {
+	b.once.Do(func() {
+		_ = b.node.putConn(b.conn)
+	})
+}
+
 type createConnFunc func(ctx context.Context) (memcachedConn, error)
 
 func createConnFactory(
@@ -70,29 +84,23 @@ func createConnFactory(
 
 // getConn confirms availability both before and after waiting or dialing.
 // Once confirmed, the request may finish even if the node starts draining.
-func (n *node) getConn(ctx context.Context) (memcachedConn, func(), error) {
+func (n *node) getConn(ctx context.Context, borrowed *borrowedConn) error {
 	if n.status() != nodeAvailable {
-		return nil, nil, ErrInstanceAbnormal
+		return ErrInstanceAbnormal
 	}
 
 	cn, err := n.pool.get(ctx)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "getConn failed")
+		return errors.Wrap(err, "getConn failed")
 	}
 
 	if n.status() != nodeAvailable {
 		_ = n.putConn(cn)
-		return nil, nil, ErrInstanceAbnormal
+		return ErrInstanceAbnormal
 	}
 
-	var once sync.Once
-	releaseFn := func() {
-		once.Do(func() {
-			_ = n.putConn(cn)
-		})
-	}
-
-	return cn, releaseFn, nil
+	borrowed.node, borrowed.conn = n, cn
+	return nil
 }
 
 func (n *node) putConn(cn memcachedConn) error {

@@ -11,6 +11,19 @@ import (
 	"github.com/yeqown/memcached/resolver"
 )
 
+func TestNodeBorrowAllocationBudget(t *testing.T) {
+	n := newTestNode(t, resolver.NewAddr("tcp", "a:11211"), 1)
+	ctx := context.Background()
+	allocs := testing.AllocsPerRun(100, func() {
+		var borrowed borrowedConn
+		if err := n.getConn(ctx, &borrowed); err != nil {
+			t.Fatal(err)
+		}
+		borrowed.release()
+	})
+	require.LessOrEqual(t, allocs, float64(1), "borrowing must only allocate the single-use release handle")
+}
+
 func TestNodeConcurrentReleaseWaitsForCleanup(t *testing.T) {
 	n := newTestNode(t, resolver.NewAddr("tcp", "a:11211"), 1)
 	raw := newTestConn()
@@ -22,7 +35,7 @@ func TestNodeConcurrentReleaseWaitsForCleanup(t *testing.T) {
 		<-proceed
 	}
 	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	_, releaseFn, err := n.getConn(t.Context())
+	_, releaseFn, err := getTestNodeConn(t.Context(), n)
 	require.NoError(t, err)
 	require.NoError(t, n.close())
 
@@ -67,7 +80,7 @@ func TestNodeReleaseDoesNotRepeatPanic(t *testing.T) {
 	const failure = "connection close panicked"
 	raw.onClose = func() { panic(failure) }
 	n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-	_, releaseFn, err := n.getConn(t.Context())
+	_, releaseFn, err := getTestNodeConn(t.Context(), n)
 	require.NoError(t, err)
 	require.NoError(t, n.close())
 	// The deliberately panicking Close prevents the pool from releasing its slot.
@@ -84,12 +97,12 @@ func TestNodeCloseRejectsWaitingBorrow(t *testing.T) {
 		n := clientView(c).nodes[*a]
 		raw := newTestConn()
 		n.pool.createConn = func(context.Context) (memcachedConn, error) { return raw, nil }
-		_, releaseOwner, err := n.getConn(t.Context())
+		_, releaseOwner, err := getTestNodeConn(t.Context(), n)
 		require.NoError(t, err)
 		defer releaseOwner()
 		result := make(chan poolGetResult, 1)
 		go func() {
-			cn, releaseFn, err := n.getConn(t.Context())
+			cn, releaseFn, err := getTestNodeConn(t.Context(), n)
 			if releaseFn != nil {
 				releaseFn()
 			}
@@ -123,7 +136,7 @@ func TestNodeCloseRejectsDialingBorrow(t *testing.T) {
 		}
 		result := make(chan poolGetResult, 1)
 		go func() {
-			cn, releaseFn, err := n.getConn(t.Context())
+			cn, releaseFn, err := getTestNodeConn(t.Context(), n)
 			if releaseFn != nil {
 				releaseFn()
 			}
@@ -151,7 +164,7 @@ func TestNodeConfirmsAvailabilityAfterPoolBorrow(t *testing.T) {
 		n.state.Store(uint32(nodeDraining))
 		return raw, nil
 	}
-	cn, releaseFn, err := n.getConn(t.Context())
+	cn, releaseFn, err := getTestNodeConn(t.Context(), n)
 	if releaseFn != nil {
 		releaseFn()
 	}
@@ -163,6 +176,14 @@ func TestNodeConfirmsAvailabilityAfterPoolBorrow(t *testing.T) {
 	require.NoError(t, n.pool.close())
 	require.EqualValues(t, 1, raw.closes.Load())
 	require.Equal(t, nodeClosed, n.status())
+}
+
+func getTestNodeConn(ctx context.Context, n *node) (memcachedConn, func(), error) {
+	var borrowed borrowedConn
+	if err := n.getConn(ctx, &borrowed); err != nil {
+		return nil, nil, err
+	}
+	return borrowed.conn, borrowed.release, nil
 }
 
 func newTestNode(t *testing.T, addr *resolver.Addr, maxConns int) *node {

@@ -43,6 +43,22 @@ jobs:
     - name: Run Tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+    - name: Build standalone CLI
+      working-directory: cmd/memcached-cli
+      env:
+        GOWORK: 'off'
+      run: go build -mod=readonly ./...
+
+    - name: Build standalone examples
+      working-directory: example
+      env:
+        GOWORK: 'off'
+      run: |
+        for source in *.go; do
+          go build -mod=readonly -o "$RUNNER_TEMP/memcached-example" "$source"
+        done
+        go build -mod=readonly ./SASL ./otel
+
     - name: Save coverage report
       uses: actions/upload-artifact@v4
       with:

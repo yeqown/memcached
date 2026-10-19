@@ -211,6 +211,64 @@ func TestConnPoolReusesReturnedConnections(t *testing.T) {
 	require.Zero(t, pool.stats().TotalConns)
 }
 
+func TestConnPoolReuseDoesNotAllocate(t *testing.T) {
+	pool := newConnPool(1, 1, 0, 0, createTestConn)
+	t.Cleanup(func() { require.NoError(t, pool.close()) })
+	ctx := context.Background()
+	cn, err := pool.get(ctx)
+	require.NoError(t, err)
+	require.NoError(t, pool.put(cn))
+
+	allocs := testing.AllocsPerRun(100, func() {
+		cn, err := pool.get(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.put(cn); err != nil {
+			t.Fatal(err)
+		}
+	})
+	require.Zero(t, allocs, "reusing an idle connection without waiters must not allocate")
+}
+
+func BenchmarkConnPoolReuse(b *testing.B) {
+	for _, parallel := range []bool{false, true} {
+		name := "serial"
+		if parallel {
+			name = "parallel"
+		}
+		b.Run(name, func(b *testing.B) {
+			pool := newConnPool(100, 100, 0, 0, createTestConn)
+			b.Cleanup(func() { _ = pool.close() })
+			ctx := context.Background()
+			once := func() {
+				cn, err := pool.get(ctx)
+				if err != nil {
+					b.Error(err)
+					return
+				}
+				if err := pool.put(cn); err != nil {
+					b.Error(err)
+				}
+			}
+			once()
+			b.ReportAllocs()
+			b.ResetTimer()
+			if parallel {
+				b.RunParallel(func(pb *testing.PB) {
+					for pb.Next() {
+						once()
+					}
+				})
+			} else {
+				for b.Loop() {
+					once()
+				}
+			}
+		})
+	}
+}
+
 func TestConnPoolPutEnforcesMaxIdle(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -315,6 +373,46 @@ func TestConnPoolGetWait(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestConnPoolWakesWaitersAfterCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pool := newConnPool(1, 1, 0, 0, createTestConn)
+		t.Cleanup(func() { require.NoError(t, pool.close()) })
+		for range 2 {
+			owner, err := pool.get(t.Context())
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			canceled := make(chan poolGetResult, 1)
+			go func() {
+				cn, err := pool.get(ctx)
+				canceled <- poolGetResult{cn, err}
+			}()
+			const waiters = 4
+			results := make(chan poolGetResult, waiters)
+			for range waiters {
+				go func() {
+					cn, err := pool.get(t.Context())
+					results <- poolGetResult{cn, err}
+				}()
+			}
+			synctest.Wait()
+			require.Empty(t, results)
+			cancel()
+			got := awaitPoolGet(t, canceled)
+			require.ErrorIs(t, got.err, context.Canceled)
+			require.Nil(t, got.cn)
+			require.NoError(t, pool.put(owner))
+			for range waiters {
+				got := awaitPoolGet(t, results)
+				require.NoError(t, got.err)
+				require.Same(t, owner, got.cn)
+				require.NoError(t, pool.put(got.cn))
+			}
+			require.Equal(t, 1, pool.stats().TotalConns)
+			require.Equal(t, 1, pool.stats().IdleConns)
+		}
+	})
 }
 
 func TestConnPoolGetDialTimeout(t *testing.T) {

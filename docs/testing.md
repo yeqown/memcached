@@ -77,6 +77,32 @@ the GUI additionally needs the current checkout's codec package. See
 [benchmark/README.md](../benchmark/README.md) for comparison and profiling
 commands.
 
+## Running examples
+
+The files directly under `example/` are separate programs with their own `main`
+functions. Run each file individually. They use fixed keys at `localhost:11211`,
+and `flushall.go` clears the server, so use a dedicated daemon. Enable UDP on
+that daemon to run `udp.go` as well.
+
+```sh
+cd example
+for source in *.go; do
+  go run -race "$source" || exit 1
+done
+go run -race ./otel
+```
+
+`options.go` intentionally uses a two-second context and prints deadline errors
+after it expires. `cas.go` prints the expected failure when reusing a stale CAS.
+These are part of the demonstrations. The concurrent example must complete
+without a race report; the OTel example should report successful SET, GET and
+DELETE operations and export telemetry.
+
+The example module's local `replace` also supports `GOWORK=off`; CI builds each
+program with `-mod=readonly` in that mode. The deprecated `SASL` example needs a
+separately configured SASL server; building it does not verify authentication
+or live compatibility. See [its setup instructions](../example/SASL/README.md).
+
 ## Known compatibility gaps
 
 The compatibility suite currently uses values without embedded CRLF. During

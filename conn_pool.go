@@ -29,7 +29,7 @@ type connPool struct {
 
 	mu         sync.Mutex // guards following
 	conns      chan memcachedConn
-	changed    chan struct{} // closed and replaced when waiters should retry
+	changed    chan struct{} // allocated only while capacity waiters need notification
 	createConn func(ctx context.Context) (memcachedConn, error)
 	// Includes connections being dialed or closed so they retain capacity.
 	numOpen atomic.Int32
@@ -56,7 +56,7 @@ func newConnPool(
 
 		mu:         sync.Mutex{},
 		conns:      make(chan memcachedConn, maxConn),
-		changed:    make(chan struct{}),
+		changed:    nil,
 		createConn: createConn,
 		numOpen:    atomic.Int32{},
 		closed:     false,
@@ -119,6 +119,9 @@ func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
 		}
 
 		if int(p.numOpen.Load()) >= p.maxConns {
+			if p.changed == nil {
+				p.changed = make(chan struct{})
+			}
 			changed := p.changed
 			p.mu.Unlock()
 			// Retry when a connection is returned, capacity is released, or the pool closes.
@@ -157,8 +160,10 @@ func (p *connPool) get(ctx context.Context) (memcachedConn, error) {
 
 // notifyChangedLocked wakes all waiters to recheck state under p.mu.
 func (p *connPool) notifyChangedLocked() {
-	close(p.changed)
-	p.changed = make(chan struct{})
+	if p.changed != nil {
+		close(p.changed)
+		p.changed = nil
+	}
 }
 
 func (p *connPool) releaseSlot() {
