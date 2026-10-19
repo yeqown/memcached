@@ -9,7 +9,7 @@ require (
 	github.com/samber/lo v1.49.1
 	github.com/spf13/cobra v1.10.2
 	github.com/yeqown/log v1.1.1
-	github.com/yeqown/memcached v1.4.1-0.20261019055421-2d985b2ae2c6
+	github.com/yeqown/memcached v1.5.0
 )
 
 require (
