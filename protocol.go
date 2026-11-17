@@ -22,6 +22,7 @@ type Codec interface {
 	// Decode transforms a value and raw 32-bit client flags after retrieval.
 	Decode(key, value []byte, flag uint32) (decodedValue []byte, decodedFlags uint32, err error)
 	// SupportsOperation reports whether the codec can preserve semantics for an operation.
+	// Storage operations use set, add, replace, append, prepend, or cas, including for meta set.
 	SupportsOperation(operation string) error
 }
 

@@ -89,16 +89,34 @@ type metaSetMode string
 
 const (
 	// MetaSetModeAdd means add the item only if it does not already exist.
-	MetaSetModeAdd metaSetMode = "add"
+	MetaSetModeAdd metaSetMode = "E"
 	// MetaSetModeReplace means replace the item only if it already exists.
-	MetaSetModeReplace metaSetMode = "replace"
+	MetaSetModeReplace metaSetMode = "R"
 	// MetaSetModeAppend means append the data to the existing item.
-	MetaSetModeAppend metaSetMode = "append"
+	MetaSetModeAppend metaSetMode = "A"
 	// MetaSetModePrepend means prepend the data to the existing item.
-	MetaSetModePrepend metaSetMode = "prepend"
+	MetaSetModePrepend metaSetMode = "P"
 	// MetaSetModeSet means set the item regardless of whether it already exists.
-	MetaSetModeSet metaSetMode = "set"
+	MetaSetModeSet metaSetMode = "S"
 )
+
+// operation returns the storage operation name used for codec capability checks.
+func (m metaSetMode) operation() string {
+	switch m {
+	case MetaSetModeAdd:
+		return "add"
+	case MetaSetModeReplace:
+		return "replace"
+	case MetaSetModeAppend:
+		return "append"
+	case MetaSetModePrepend:
+		return "prepend"
+	case "", MetaSetModeSet:
+		return "set"
+	default:
+		return string(m)
+	}
+}
 
 // MetaSetFlagModeSwitch sets the flag to mode switch to change behavior to: add, replace, append, prepend, set(default).
 func MetaSetFlagModeSwitch(mode metaSetMode) MetaSetOption {
@@ -113,11 +131,7 @@ func MetaSetFlagAutoVivify(ttl uint64) MetaSetOption {
 // ms <key> <datalen> <flags>*\r\n
 // <data block>\r\n
 func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*request, *response, error) {
-	operation := string(flags.M)
-	if operation == "" {
-		operation = string(MetaSetModeSet)
-	}
-	if err := checkCodecSupportsOperation(codec, operation); err != nil {
+	if err := checkCodecSupportsOperation(codec, flags.M.operation()); err != nil {
 		return nil, nil, errors.Wrap(err, "codec does not support operation")
 	}
 
