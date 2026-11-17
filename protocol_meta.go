@@ -100,6 +100,24 @@ const (
 	MetaSetModeSet metaSetMode = "S"
 )
 
+// operation returns the storage operation name used for codec capability checks.
+func (m metaSetMode) operation() string {
+	switch m {
+	case MetaSetModeAdd:
+		return "add"
+	case MetaSetModeReplace:
+		return "replace"
+	case MetaSetModeAppend:
+		return "append"
+	case MetaSetModePrepend:
+		return "prepend"
+	case "", MetaSetModeSet:
+		return "set"
+	default:
+		return string(m)
+	}
+}
+
 // MetaSetFlagModeSwitch sets the flag to mode switch to change behavior to: add, replace, append, prepend, set(default).
 func MetaSetFlagModeSwitch(mode metaSetMode) MetaSetOption {
 	return func(flags *metaSetFlags) { flags.M = mode }
@@ -113,21 +131,7 @@ func MetaSetFlagAutoVivify(ttl uint64) MetaSetOption {
 // ms <key> <datalen> <flags>*\r\n
 // <data block>\r\n
 func buildMetaSetCommand(key, value []byte, flags *metaSetFlags, codec Codec) (*request, *response, error) {
-	operation := string(flags.M)
-	// Codec capabilities use the same storage operation names for both protocols.
-	switch flags.M {
-	case MetaSetModeAdd:
-		operation = "add"
-	case MetaSetModeReplace:
-		operation = "replace"
-	case MetaSetModeAppend:
-		operation = "append"
-	case MetaSetModePrepend:
-		operation = "prepend"
-	case "", MetaSetModeSet:
-		operation = "set"
-	}
-	if err := checkCodecSupportsOperation(codec, operation); err != nil {
+	if err := checkCodecSupportsOperation(codec, flags.M.operation()); err != nil {
 		return nil, nil, errors.Wrap(err, "codec does not support operation")
 	}
 
