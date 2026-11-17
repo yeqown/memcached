@@ -1483,6 +1483,34 @@ func TestMemcachedIntegration(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
+	t.Run("meta modes", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			mode    metaSetMode
+			initial string
+			want    string
+		}{
+			{name: "add", mode: MetaSetModeAdd, want: "bar"},
+			{name: "replace", mode: MetaSetModeReplace, initial: "foo", want: "bar"},
+			{name: "append", mode: MetaSetModeAppend, initial: "foo", want: "foobar"},
+			{name: "prepend", mode: MetaSetModePrepend, initial: "foo", want: "barfoo"},
+			{name: "set", mode: MetaSetModeSet, initial: "foo", want: "bar"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				ctx := t.Context()
+				k := key(t, "meta-mode-"+tt.name)
+				if tt.initial != "" {
+					require.NoError(t, c.Set(ctx, k, []byte(tt.initial), 0, time.Minute))
+				}
+				_, err := c.MetaSet(ctx, []byte(k), []byte("bar"), MetaSetFlagModeSwitch(tt.mode))
+				require.NoError(t, err)
+				item, err := c.Get(ctx, k)
+				require.NoError(t, err)
+				require.Equal(t, []byte(tt.want), item.Value)
+			})
+		}
+	})
+
 	t.Run("compression", func(t *testing.T) {
 		ctx := t.Context()
 		codec, err := memcodec.NewCompressCodec(memcodec.CompressionAlgorithmSnappy, 1, 0)

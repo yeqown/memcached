@@ -206,12 +206,23 @@ func Test_buildMetaGetCommand(t *testing.T) {
 	}
 }
 
+type metaSetOperationCodec struct {
+	memcodec.NoopCodec
+	operation string
+}
+
+func (c *metaSetOperationCodec) SupportsOperation(operation string) error {
+	c.operation = operation
+	return nil
+}
+
 func Test_buildMetaSetCommand(t *testing.T) {
 	for _, tt := range []struct {
-		name      string
-		flags     metaSetFlags
-		wantRaw   string
-		indicator responseEndIndicator
+		name          string
+		flags         metaSetFlags
+		wantRaw       string
+		wantOperation string
+		indicator     responseEndIndicator
 	}{
 		{
 			name: "binary quiet set",
@@ -219,8 +230,9 @@ func Test_buildMetaSetCommand(t *testing.T) {
 				b: true, c: true, C: 1, E: 2, F: 3, I: true, k: true, O: 4,
 				q: true, s: true, T: 5, M: MetaSetModeSet, N: 6,
 			},
-			wantRaw:   "ms Zm9v 3 b c C1 E2 F3 I k O4 q s T5 Mset N6\r\nbar\r\n",
-			indicator: endIndicatorNoReply,
+			wantRaw:       "ms Zm9v 3 b c C1 E2 F3 I k O4 q s T5 MS N6\r\nbar\r\n",
+			wantOperation: "set",
+			indicator:     endIndicatorNoReply,
 		},
 		{
 			name: "replace",
@@ -228,20 +240,39 @@ func Test_buildMetaSetCommand(t *testing.T) {
 				c: true, C: 1, E: 2, F: 3, I: true, k: true, O: 4,
 				s: true, T: 5, M: MetaSetModeReplace, N: 6,
 			},
-			wantRaw:   "ms foo 3 c C1 E2 F3 I k O4 s T5 Mreplace N6\r\nbar\r\n",
-			indicator: endIndicatorLimitedLines,
+			wantRaw:       "ms foo 3 c C1 E2 F3 I k O4 s T5 MR N6\r\nbar\r\n",
+			wantOperation: "replace",
+			indicator:     endIndicatorLimitedLines,
+		},
+		{
+			name: "add", flags: metaSetFlags{M: MetaSetModeAdd},
+			wantRaw: "ms foo 3 ME\r\nbar\r\n", wantOperation: "add", indicator: endIndicatorLimitedLines,
+		},
+		{
+			name: "append", flags: metaSetFlags{M: MetaSetModeAppend},
+			wantRaw: "ms foo 3 MA\r\nbar\r\n", wantOperation: "append", indicator: endIndicatorLimitedLines,
+		},
+		{
+			name: "prepend", flags: metaSetFlags{M: MetaSetModePrepend},
+			wantRaw: "ms foo 3 MP\r\nbar\r\n", wantOperation: "prepend", indicator: endIndicatorLimitedLines,
+		},
+		{
+			name: "set", flags: metaSetFlags{M: MetaSetModeSet},
+			wantRaw: "ms foo 3 MS\r\nbar\r\n", wantOperation: "set", indicator: endIndicatorLimitedLines,
 		},
 		{
 			name: "omits F0", wantRaw: "ms foo 3\r\nbar\r\n",
-			indicator: endIndicatorLimitedLines,
+			wantOperation: "set", indicator: endIndicatorLimitedLines,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			req, resp, err := buildMetaSetCommand([]byte("foo"), []byte("bar"), &tt.flags, memcodec.Noop)
+			codec := &metaSetOperationCodec{}
+			req, resp, err := buildMetaSetCommand([]byte("foo"), []byte("bar"), &tt.flags, codec)
 			defer releaseReqAndResp(req, resp)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantRaw, string(req.raw))
+			assert.Equal(t, tt.wantOperation, codec.operation)
 			assert.Equal(t, tt.indicator, resp.endIndicator)
 		})
 	}
