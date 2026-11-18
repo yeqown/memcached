@@ -484,6 +484,38 @@ func parseUintFromBytes(bs []byte) (uint64, error) {
 	return r, nil
 }
 
+// parseIntFromBytes parses a signed decimal integer from bs without allocating.
+func parseIntFromBytes(bs []byte) (int64, error) {
+	if len(bs) == 0 {
+		return 0, nil
+	}
+	neg := bs[0] == '-'
+	if neg {
+		bs = bs[1:]
+		if len(bs) == 0 {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+		}
+	}
+	u, err := parseUintFromBytes(bs)
+	if err != nil {
+		return 0, err
+	}
+	const maxInt64 = uint64(^uint64(0) >> 1)
+	if neg {
+		if u > maxInt64+1 {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+		}
+		if u == maxInt64+1 {
+			return int64(-1 << 63), nil
+		}
+		return -int64(u), nil
+	}
+	if u > maxInt64 {
+		return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+	}
+	return int64(u), nil
+}
+
 // incr/decr <key> <value> [noreply]\r\n
 func buildArithmeticCommand(command, key string, delta uint64, noReply bool) (*request, *response) {
 	b := newProtocolBuilder().
