@@ -148,13 +148,13 @@ func (b *protocolBuilder) AddBytes(bs []byte) *protocolBuilder {
 }
 
 func (b *protocolBuilder) AddInt(i int) *protocolBuilder {
-	b.buf.WriteString(strconv.Itoa(i))
+	b.buf.Write(strconv.AppendInt(b.buf.AvailableBuffer(), int64(i), 10))
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }
 
 func (b *protocolBuilder) AddUint(i uint64) *protocolBuilder {
-	b.buf.WriteString(strconv.FormatUint(i, 10))
+	b.buf.Write(strconv.AppendUint(b.buf.AvailableBuffer(), i, 10))
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }
@@ -188,7 +188,8 @@ func (b *protocolBuilder) AddFlagUint(flag string, tok uint64) *protocolBuilder 
 		return b
 	}
 
-	b.buf.WriteString(flag + strconv.FormatUint(tok, 10))
+	b.buf.WriteString(flag)
+	b.buf.Write(strconv.AppendUint(b.buf.AvailableBuffer(), tok, 10))
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }
@@ -198,7 +199,8 @@ func (b *protocolBuilder) AddFlagString(flag, tok string) *protocolBuilder {
 		return b
 	}
 
-	b.buf.WriteString(flag + tok)
+	b.buf.WriteString(flag)
+	b.buf.WriteString(tok)
 	b.buf.WriteByte(_SpaceByte)
 	return b
 }

@@ -3,6 +3,7 @@ package memcached
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,26 @@ func Test_parseFlags(t *testing.T) {
 		{
 			name: "nonexpiring TTL and miss", line: "HD t-1 h0", startPos: 1,
 			want: MetaItem{TTL: -1},
+		},
+		{
+			name: "positive signed TTL", line: "HD t+7", startPos: 1,
+			want: MetaItem{TTL: 7},
+		},
+		{
+			name: "CAS at MaxUint64", line: "HD c18446744073709551615", startPos: 1,
+			want: MetaItem{CAS: math.MaxUint64},
+		},
+		{
+			name: "CAS overflow clamps to MaxUint64", line: "HD c18446744073709551616", startPos: 1,
+			want: MetaItem{CAS: math.MaxUint64},
+		},
+		{
+			name: "TTL just above MaxInt64 clamps", line: "HD t9223372036854775808", startPos: 1,
+			want: MetaItem{TTL: math.MaxInt64},
+		},
+		{
+			name: "TTL just below MinInt64 clamps", line: "HD t-9223372036854775809", startPos: 1,
+			want: MetaItem{TTL: math.MinInt64},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,6 +86,14 @@ func Test_parseMetaItem(t *testing.T) {
 				[]byte("VA 3 c29 f123 h1 kZm9v b l0 O789 s3 t200\r\n"), []byte("bar\r\n"),
 			},
 			want: MetaItem{Value: []byte("bar"), CAS: 29, Flags: 123, TTL: 200, Size: 3, Opaque: 789, HitBefore: true},
+		},
+		{
+			name: "VA length overflow clamps to MaxUint32",
+			lines: [][]byte{
+				[]byte("VA 4294967296\r\n"), []byte("x\r\n"),
+			},
+			// Value is still the second line; only the length token width is asserted.
+			want: MetaItem{Value: []byte("x"), Size: math.MaxUint32},
 		},
 		{
 			name:    "missing value",
@@ -341,6 +370,11 @@ func Test_parseMetaItemDebug(t *testing.T) {
 			lines: [][]byte{[]byte("ME foo exp=-1 la=2 cas=18 fetch=yes cls=1 size=65\r\n")},
 			want:  MetaItemDebug{TTL: -1, LastAssessTime: 2, CAS: 18, HitBefore: true, SlabClassID: 1, Size: 65},
 		},
+		{
+			name:  "cls overflow clamps to MaxUint32; size stays 64-bit",
+			lines: [][]byte{[]byte("ME foo cls=4294967296 size=18446744073709551615\r\n")},
+			want:  MetaItemDebug{SlabClassID: math.MaxUint32, Size: math.MaxUint64},
+		},
 		{name: "not found", lines: [][]byte{[]byte("EN\r\n")}, wantErr: ErrNotFound},
 		{name: "missing response", wantErr: ErrMalformedResponse},
 		{name: "unexpected status", lines: [][]byte{[]byte("HD\r\n")}, wantErr: ErrMalformedResponse},
@@ -355,5 +389,37 @@ func Test_parseMetaItemDebug(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, *item)
 		})
+	}
+}
+
+// Benchmarks for meta response parsing (HD / VA). Run with:
+//
+//	go test -run '^$' -bench 'BenchmarkParseMetaItem_(HD|VA)' -benchmem
+func BenchmarkParseMetaItem_HD(b *testing.B) {
+	lines := [][]byte{[]byte("HD c26 kZm9v b O456 s3 t200\r\n")}
+	item := &MetaItem{}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		*item = MetaItem{}
+		if err := parseMetaItem(lines, item, false, memcodec.Noop); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParseMetaItem_VA(b *testing.B) {
+	lines := [][]byte{
+		[]byte("VA 3 c29 f123 h1 kZm9v b l0 O789 s3 t200\r\n"),
+		[]byte("bar\r\n"),
+	}
+	item := &MetaItem{}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		*item = MetaItem{}
+		if err := parseMetaItem(lines, item, false, memcodec.Noop); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

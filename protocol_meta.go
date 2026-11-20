@@ -3,7 +3,6 @@ package memcached
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 
 	"github.com/pkg/errors"
 )
@@ -386,15 +385,13 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 	)
 	cd := parts[CDIndex]
 
-	switch string(cd) {
-	case "NF":
+	switch {
+	case bytes.Equal(cd, []byte("NF")), bytes.Equal(cd, []byte("EN")):
 		return ErrNotFound
-	case "NS":
+	case bytes.Equal(cd, []byte("NS")):
 		return ErrNotStored
-	case "EX":
+	case bytes.Equal(cd, []byte("EX")):
 		return ErrExists
-	case "EN":
-		return ErrNotFound
 	}
 
 	if !bytes.Equal(cd, []byte("VA")) {
@@ -402,8 +399,10 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 		return nil
 	}
 
-	// VA handling
-	item.Size, _ = strconv.ParseUint(string(parts[dataLenIndex]), 10, 32)
+	// VA handling — length token historically used a 32-bit parse width.
+	if size, err := parseUintFromBytesWidth(parts[dataLenIndex], 32); err == nil {
+		item.Size = size
+	}
 	parseFlags(parts, 2, item)
 
 	if len(lines) < 2 {
@@ -423,32 +422,29 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 //
 //	HD c26 kZm9v b O456 s3\r\n
 func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
-	parseUint := func(b []byte) uint64 {
-		v, _ := strconv.ParseUint(string(b), 10, 64)
-		return v
-	}
-
-	parseInt := func(b []byte) int64 {
-		v, _ := strconv.ParseInt(string(b), 10, 64)
-		return v
-	}
-
 	for i := startPos; i < len(parts); i++ {
+		if len(parts[i]) == 0 {
+			continue
+		}
+		tok := parts[i][1:]
 		switch parts[i][0] {
 		case 'c':
-			item.CAS = parseUint(parts[i][1:])
+			item.CAS, _ = parseUintFromBytes(tok)
 		case 'f':
-			item.Flags = uint32(parseUint(parts[i][1:]))
+			v, _ := parseUintFromBytes(tok)
+			item.Flags = uint32(v)
 		case 't':
-			item.TTL = parseInt(parts[i][1:])
+			item.TTL, _ = parseIntFromBytes(tok)
 		case 'l':
-			item.LastAccessedTime = int64(parseUint(parts[i][1:]))
+			v, _ := parseUintFromBytes(tok)
+			item.LastAccessedTime = int64(v)
 		case 's':
-			item.Size = parseUint(parts[i][1:])
+			item.Size, _ = parseUintFromBytes(tok)
 		case 'O':
-			item.Opaque = parseUint(parts[i][1:])
+			item.Opaque, _ = parseUintFromBytes(tok)
 		case 'h':
-			item.HitBefore = parseUint(parts[i][1:]) == 1
+			v, _ := parseUintFromBytes(tok)
+			item.HitBefore = v == 1
 			// NO need to parse key again in client.
 			// case 'k':
 			//	item.Key = string(parts[i][1:])
@@ -739,10 +735,10 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 	)
 
 	cd := parts[CDIndex]
-	switch string(cd) {
-	case "EN":
+	switch {
+	case bytes.Equal(cd, []byte("EN")):
 		return ErrNotFound
-	case "ME":
+	case bytes.Equal(cd, []byte("ME")):
 		// success
 	default:
 		return errors.Wrap(ErrMalformedResponse, "unexpected cd<="+string(cd)+">")
@@ -757,19 +753,20 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 			continue
 		}
 
-		switch string(kv[0]) {
-		case "exp":
-			item.TTL, _ = strconv.ParseInt(string(kv[1]), 10, 64)
-		case "la":
-			item.LastAssessTime, _ = strconv.ParseInt(string(kv[1]), 10, 64)
-		case "cas":
-			item.CAS, _ = strconv.ParseUint(string(kv[1]), 10, 64)
-		case "fetch":
-			item.HitBefore = string(kv[1]) == "yes"
-		case "cls":
-			item.SlabClassID, _ = strconv.ParseUint(string(kv[1]), 10, 32)
-		case "size":
-			item.Size, _ = strconv.ParseUint(string(kv[1]), 10, 64)
+		switch {
+		case bytes.Equal(kv[0], []byte("exp")):
+			item.TTL, _ = parseIntFromBytes(kv[1])
+		case bytes.Equal(kv[0], []byte("la")):
+			item.LastAssessTime, _ = parseIntFromBytes(kv[1])
+		case bytes.Equal(kv[0], []byte("cas")):
+			item.CAS, _ = parseUintFromBytes(kv[1])
+		case bytes.Equal(kv[0], []byte("fetch")):
+			item.HitBefore = bytes.Equal(kv[1], []byte("yes"))
+		case bytes.Equal(kv[0], []byte("cls")):
+			// cls historically used a 32-bit parse width; size stays 64-bit.
+			item.SlabClassID, _ = parseUintFromBytesWidth(kv[1], 32)
+		case bytes.Equal(kv[0], []byte("size")):
+			item.Size, _ = parseUintFromBytes(kv[1])
 		}
 	}
 

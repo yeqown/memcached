@@ -459,29 +459,88 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 	return dataLen, nil
 }
 
-// parseUintFromBytes parses slice of bytes to uint64.
-//
-// For example:
-// []byte("1234567890") -> 1234567890
-//
-// If the slice of bytes is empty, it returns 0.
-//
-// If the slice of bytes contains non-digit characters, it returns an error.
+// parseUintFromBytes parses an unsigned decimal integer from bs without allocating
+// on the common path. Values with more than 19 digits fall back to strconv so
+// overflow matches strconv.ParseUint(..., 10, 64) (clamped to math.MaxUint64).
 func parseUintFromBytes(bs []byte) (uint64, error) {
+	return parseUintFromBytesWidth(bs, 64)
+}
+
+// parseUintFromBytesWidth is like parseUintFromBytes but respects bitSize the same
+// way strconv.ParseUint does. A fast path covers digit lengths that always fit
+// (19 for 64-bit, 9 for 32-bit); longer tokens use strconv.
+func parseUintFromBytesWidth(bs []byte, bitSize int) (uint64, error) {
 	if len(bs) == 0 {
 		return 0, nil
 	}
 
-	r := uint64(0)
+	maxFastDigits := 19
+	if bitSize > 0 && bitSize <= 32 {
+		maxFastDigits = 9
+	}
+
+	if len(bs) > maxFastDigits {
+		v, err := strconv.ParseUint(string(bs), 10, bitSize)
+		if err != nil {
+			if ne, ok := err.(*strconv.NumError); ok && ne.Err == strconv.ErrRange {
+				// Preserve previous Meta behavior: ignore range errors, keep clamp.
+				return v, nil
+			}
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid uint number")
+		}
+		return v, nil
+	}
+
+	var r uint64
 	for _, b := range bs {
 		if b < '0' || b > '9' {
 			return 0, errors.Wrap(ErrMalformedResponse, "invalid uint number")
 		}
-
 		r = r*10 + uint64(b-'0')
 	}
-
 	return r, nil
+}
+
+// parseIntFromBytes parses a signed decimal integer from bs without allocating
+// on the common path. Leading '+' and '-' are accepted. Magnitudes longer than
+// 18 digits fall back to strconv.ParseInt so overflow matches previous behavior
+// (clamped to math.MaxInt64 / math.MinInt64).
+func parseIntFromBytes(bs []byte) (int64, error) {
+	if len(bs) == 0 {
+		return 0, nil
+	}
+
+	start := 0
+	if bs[0] == '+' || bs[0] == '-' {
+		start = 1
+		if len(bs) == 1 {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+		}
+	}
+
+	digits := bs[start:]
+	if len(digits) > 18 {
+		v, err := strconv.ParseInt(string(bs), 10, 64)
+		if err != nil {
+			if ne, ok := err.(*strconv.NumError); ok && ne.Err == strconv.ErrRange {
+				return v, nil
+			}
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+		}
+		return v, nil
+	}
+
+	var u uint64
+	for _, b := range digits {
+		if b < '0' || b > '9' {
+			return 0, errors.Wrap(ErrMalformedResponse, "invalid int number")
+		}
+		u = u*10 + uint64(b-'0')
+	}
+	if bs[0] == '-' {
+		return -int64(u), nil
+	}
+	return int64(u), nil
 }
 
 // incr/decr <key> <value> [noreply]\r\n
