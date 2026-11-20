@@ -399,8 +399,8 @@ func parseMetaItem(lines [][]byte, item *MetaItem, noReply bool, codec Codec) er
 		return nil
 	}
 
-	// VA handling
-	if size, err := parseUintFromBytes(parts[dataLenIndex]); err == nil {
+	// VA handling — length token historically used a 32-bit parse width.
+	if size, err := parseUintFromBytesWidth(parts[dataLenIndex], 32); err == nil {
 		item.Size = size
 	}
 	parseFlags(parts, 2, item)
@@ -763,7 +763,8 @@ func parseMetaItemDebug(lines [][]byte, item *MetaItemDebug) error {
 		case bytes.Equal(kv[0], []byte("fetch")):
 			item.HitBefore = bytes.Equal(kv[1], []byte("yes"))
 		case bytes.Equal(kv[0], []byte("cls")):
-			item.SlabClassID, _ = parseUintFromBytes(kv[1])
+			// cls historically used a 32-bit parse width; size stays 64-bit.
+			item.SlabClassID, _ = parseUintFromBytesWidth(kv[1], 32)
 		case bytes.Equal(kv[0], []byte("size")):
 			item.Size, _ = parseUintFromBytes(kv[1])
 		}
