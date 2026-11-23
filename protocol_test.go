@@ -172,8 +172,8 @@ func Test_parseUintFromBytes(t *testing.T) {
 		{raw: "1234567890abc", wantErr: ErrMalformedResponse},
 		{raw: " ", wantErr: ErrMalformedResponse},
 		{raw: "-123", wantErr: ErrMalformedResponse},
-		{raw: "18446744073709551615", want: ^uint64(0)},            // MaxUint64
-		{raw: "18446744073709551616", want: ^uint64(0)},            // MaxUint64+1 clamps
+		{raw: "18446744073709551615", want: ^uint64(0)}, // MaxUint64
+		{raw: "18446744073709551616", want: ^uint64(0)}, // MaxUint64+1 clamps
 	} {
 		t.Run(fmt.Sprintf("%q", tt.raw), func(t *testing.T) {
 			got, err := parseUintFromBytes([]byte(tt.raw))
@@ -217,10 +217,10 @@ func Test_parseIntFromBytes(t *testing.T) {
 		{raw: "-", wantErr: ErrMalformedResponse},
 		{raw: "+", wantErr: ErrMalformedResponse},
 		{raw: "abc", wantErr: ErrMalformedResponse},
-		{raw: "9223372036854775807", want: 1<<63 - 1},             // MaxInt64
-		{raw: "9223372036854775808", want: 1<<63 - 1},             // MaxInt64+1 clamps
-		{raw: "-9223372036854775808", want: -1 << 63},             // MinInt64
-		{raw: "-9223372036854775809", want: -1 << 63},             // MinInt64-1 clamps
+		{raw: "9223372036854775807", want: 1<<63 - 1}, // MaxInt64
+		{raw: "9223372036854775808", want: 1<<63 - 1}, // MaxInt64+1 clamps
+		{raw: "-9223372036854775808", want: -1 << 63}, // MinInt64
+		{raw: "-9223372036854775809", want: -1 << 63}, // MinInt64-1 clamps
 	} {
 		t.Run(fmt.Sprintf("%q", tt.raw), func(t *testing.T) {
 			got, err := parseIntFromBytes([]byte(tt.raw))
