@@ -222,7 +222,7 @@ func (c *client) Get(ctx context.Context, key string) (*Item, error) {
 		return nil, errors.Wrap(err, "parse values failed")
 	}
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, ErrNotFound
 	}
 
 	return items[0], nil
@@ -245,7 +245,7 @@ func (c *client) Gets(ctx context.Context, keys ...string) ([]*Item, error) {
 		return nil, errors.Wrap(ErrMalformedResponse, "parse values failed")
 	}
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, ErrNotFound
 	}
 
 	return items, nil
@@ -269,7 +269,7 @@ func (c *client) GetAndTouch(ctx context.Context, expiry time.Duration, key stri
 	}
 
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, ErrNotFound
 	}
 
 	return items[0], nil
@@ -294,7 +294,7 @@ func (c *client) GetAndTouches(ctx context.Context, expiry time.Duration, keys .
 	}
 
 	if len(items) == 0 {
-		return nil, errors.Wrap(ErrNotFound, "no items found")
+		return nil, ErrNotFound
 	}
 
 	return items, nil

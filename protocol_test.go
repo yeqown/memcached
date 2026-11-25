@@ -172,9 +172,58 @@ func Test_parseUintFromBytes(t *testing.T) {
 		{raw: "1234567890abc", wantErr: ErrMalformedResponse},
 		{raw: " ", wantErr: ErrMalformedResponse},
 		{raw: "-123", wantErr: ErrMalformedResponse},
+		{raw: "18446744073709551615", want: ^uint64(0)}, // MaxUint64
+		{raw: "18446744073709551616", want: ^uint64(0)}, // MaxUint64+1 clamps
 	} {
 		t.Run(fmt.Sprintf("%q", tt.raw), func(t *testing.T) {
 			got, err := parseUintFromBytes([]byte(tt.raw))
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_parseUintFromBytesWidth32(t *testing.T) {
+	for _, tt := range []struct {
+		raw  string
+		want uint64
+	}{
+		{raw: "4294967295", want: 4294967295}, // MaxUint32
+		{raw: "4294967296", want: 4294967295}, // MaxUint32+1 clamps
+		{raw: "123", want: 123},
+	} {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, err := parseUintFromBytesWidth([]byte(tt.raw), 32)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_parseIntFromBytes(t *testing.T) {
+	for _, tt := range []struct {
+		raw     string
+		want    int64
+		wantErr error
+	}{
+		{raw: "7", want: 7},
+		{raw: "+7", want: 7},
+		{raw: "-1", want: -1},
+		{raw: ""},
+		{raw: "-", wantErr: ErrMalformedResponse},
+		{raw: "+", wantErr: ErrMalformedResponse},
+		{raw: "abc", wantErr: ErrMalformedResponse},
+		{raw: "9223372036854775807", want: 1<<63 - 1}, // MaxInt64
+		{raw: "9223372036854775808", want: 1<<63 - 1}, // MaxInt64+1 clamps
+		{raw: "-9223372036854775808", want: -1 << 63}, // MinInt64
+		{raw: "-9223372036854775809", want: -1 << 63}, // MinInt64-1 clamps
+	} {
+		t.Run(fmt.Sprintf("%q", tt.raw), func(t *testing.T) {
+			got, err := parseIntFromBytes([]byte(tt.raw))
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				return
