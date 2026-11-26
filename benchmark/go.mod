@@ -3,7 +3,7 @@ module benchmark
 go 1.26.0
 
 require (
-	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874
+	github.com/bradfitz/gomemcache v0.0.0-20260422231931-4d751bb6e37c
 	github.com/yeqown/memcached v1.5.0
 )
 
