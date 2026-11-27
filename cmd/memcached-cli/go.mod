@@ -6,9 +6,9 @@ require (
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/pkg/errors v0.9.1
-	github.com/samber/lo v1.49.1
+	github.com/samber/lo v1.53.0
 	github.com/spf13/cobra v1.10.2
-	github.com/yeqown/log v1.1.1
+	github.com/yeqown/log v1.3.1
 	github.com/yeqown/memcached v1.5.0
 )
 
