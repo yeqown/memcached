@@ -13,12 +13,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+
 	"github.com/yeqown/memcached/internal/testutil"
 	"github.com/yeqown/memcached/picker"
 	"github.com/yeqown/memcached/resolver"
 	"github.com/yeqown/memcached/telemetry"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 )
 
 func TestTopologyUpdatesMembership(t *testing.T) {
@@ -167,8 +168,8 @@ func TestTopologySelectionAndLookupUseSameMembership(t *testing.T) {
 	}()
 	// Mutex waits are not durable in synctest; use a real bounded wait.
 	select {
-	case <-updated:
-		t.Fatal("update split routing from node lookup")
+	case err := <-updated:
+		t.Fatalf("update split routing from node lookup: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 	finish()

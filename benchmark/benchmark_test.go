@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
+
 	"github.com/yeqown/memcached"
 )
 

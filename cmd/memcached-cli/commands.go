@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
+
 	"github.com/yeqown/memcached"
 )
 
@@ -465,7 +466,7 @@ func ignoreMemcachedError(err error) error {
 
 	logger.Debugf("ignoreMemcachedError handling err: %v", err)
 
-	var memErrs = []error{
+	memErrs := []error{
 		memcached.ErrNonexistentCommand,
 		memcached.ErrClientError,
 		memcached.ErrServerError,

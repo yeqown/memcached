@@ -378,7 +378,7 @@ func parseValueItems(lines [][]byte, withoutEndLine, withCAS bool, codec Codec) 
 			return nil, errors.Wrap(ErrMalformedResponse, "missing data block")
 		}
 		item.Value = trimCRLF(lines[i+1])
-		if len(item.Value) != int(dataLen) {
+		if uint64(len(item.Value)) != dataLen {
 			return nil, errors.Wrap(ErrMalformedResponse, "data block length mismatch")
 		}
 
@@ -431,7 +431,11 @@ func parseValueLine(line []byte, item *Item, withCas bool) (dataLen uint64, err 
 			if err != nil {
 				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
 			}
-			item.Flags = uint32(flags)
+			parsedFlags, ok := uint64ToUint32(flags)
+			if !ok {
+				return 0, errors.Wrap(ErrMalformedResponse, "invalid flags")
+			}
+			item.Flags = parsedFlags
 		case dataLenIndex:
 			si := i
 			if i == n-1 {
@@ -761,7 +765,6 @@ func buildStatsCommand(subCommand string) (*request, *response) {
 	return req, resp
 }
 
-//nolint:unused
 func buildRawCommand(rawCommand string, indicator responseEndIndicator, lines int) (*request, *response) {
 	_, _, _ = rawCommand, indicator, lines
 	panic("IMPLEMENT ME!!!")

@@ -96,7 +96,7 @@ func NewCompressCodec(algorithm Compression, threshold, level int) (CompressCode
 	}, nil
 }
 
-func (c *compressCodec) Encode(_ []byte, value []byte, flag uint32) ([]byte, uint32, error) {
+func (c *compressCodec) Encode(_, value []byte, flag uint32) ([]byte, uint32, error) {
 	if flag > 0xFFFF {
 		return nil, 0, errInvalidFlags
 	}

@@ -2,6 +2,7 @@ package memcached
 
 import (
 	"github.com/pkg/errors"
+
 	"github.com/yeqown/memcached/resolver"
 )
 

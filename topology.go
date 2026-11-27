@@ -108,9 +108,16 @@ func (t *topology) allNodes() ([]*node, error) {
 
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	nodes := make([]*node, 0, len(t.nodes))
+	nodes := make([]*node, 0, len(t.cachedAddrs))
 	for _, addr := range t.cachedAddrs {
-		nodes = append(nodes, t.nodes[*addr])
+		if addr == nil {
+			continue
+		}
+		n := t.nodes[*addr]
+		if n == nil {
+			continue
+		}
+		nodes = append(nodes, n)
 	}
 	return nodes, nil
 }

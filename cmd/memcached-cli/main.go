@@ -49,14 +49,18 @@ func main() {
 
 	// 添加全局标志
 	rootCmd.PersistentFlags().StringVarP(
-		&servers, "servers", "s", "", "memcached server addresses, separated by comma, e.g. '127.0.0.1:11211'")
+		&servers, "servers", "s", "", "memcached server addresses, separated by comma, e.g. '127.0.0.1:11211'",
+	)
 	rootCmd.PersistentFlags().StringVarP(
-		&hashStrategy, "hash", "d", "rendezvous", "hash distribution algorithm: crc32, murmur3, rendezvous(default)")
+		&hashStrategy, "hash", "d", "rendezvous", "hash distribution algorithm: crc32, murmur3, rendezvous(default)",
+	)
 
 	rootCmd.PersistentFlags().DurationVarP(
-		&timeout, "timeout", "", 10*time.Second, "timeout for interactive mode, default 10s")
+		&timeout, "timeout", "", 10*time.Second, "timeout for interactive mode, default 10s",
+	)
 	rootCmd.PersistentFlags().BoolVarP(
-		&verbose, "verbose", "v", false, "enable verbose mode")
+		&verbose, "verbose", "v", false, "enable verbose mode",
+	)
 
 	rootCmd.AddCommand(
 		newVersionCommand(), // add version command
@@ -178,7 +182,6 @@ func newContextCommand() *cobra.Command {
 }
 
 func newKVCommand() *cobra.Command {
-
 	var contextName string
 
 	cmd := &cobra.Command{
@@ -217,7 +220,8 @@ func newKVCommand() *cobra.Command {
 
 	cmd.PersistentFlags().StringVarP(
 		&contextName,
-		"context", "c", "", "context name to use, if not set, use current context")
+		"context", "c", "", "context name to use, if not set, use current context",
+	)
 
 	cmd.AddCommand(
 		newKVGetCommand(),

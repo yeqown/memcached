@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/yeqown/memcached/internal/testutil"
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/yeqown/memcached/internal/testutil"
 )
 
 func TestMetricsRecordResolve(t *testing.T) {

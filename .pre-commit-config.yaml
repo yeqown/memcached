@@ -8,15 +8,23 @@ repos:
       - id: check-added-large-files
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.13.2
+    rev: v2.15.0
     hooks:
       - id: golangci-lint
         args: [--timeout=5m]
 
+  - repo: local
+    hooks:
+      - id: gofumpt
+        name: gofumpt
+        entry: gofumpt -extra=group_params,clothe_returns,balance_calls -l
+        language: system
+        types: [go]
+        pass_filenames: true
+
   - repo: https://github.com/dnephin/pre-commit-golang
     rev: v0.5.1
     hooks:
-      - id: go-fmt
       - id: go-vet
         exclude: ^(example|benchmark)/
       - id: go-imports

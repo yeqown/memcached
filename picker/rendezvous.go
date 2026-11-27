@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/yeqown/memcached/resolver"
 )
 
@@ -43,6 +44,9 @@ func (p *rendezvousHashPicker) Pick(addrs []*resolver.Addr, _, key []byte) (*res
 			winner, highest = addr, score
 		}
 	}
+	if winner == nil {
+		return nil, errors.Wrap(resolver.ErrInvalidAddress, "no available address")
+	}
 	return winner, nil
 }
 
@@ -63,6 +67,9 @@ func (p *rendezvousHashPicker) score(addr *resolver.Addr, key []byte) uint64 {
 }
 
 func appendRendezvousInput(input []byte, addr *resolver.Addr, key []byte) []byte {
+	if key == nil {
+		key = []byte{}
+	}
 	// Length framing keeps distinct network/address/key boundaries unambiguous.
 	input = binary.AppendUvarint(input, uint64(len(addr.Network)))
 	input = append(input, addr.Network...)

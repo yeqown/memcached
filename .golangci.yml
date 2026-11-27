@@ -39,6 +39,17 @@ linters:
 formatters:
   enable:
     - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      module-path: github.com/yeqown/memcached
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
+    goimports:
+      local-prefixes:
+        - github.com/yeqown/memcached
   exclusions:
     generated: lax
     paths:

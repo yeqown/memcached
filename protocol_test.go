@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	memcodec "github.com/yeqown/memcached/codec"
 )
 
@@ -393,11 +394,11 @@ func Test_parseArithmetic(t *testing.T) {
 
 type prependOnlyRestrictedCodec struct{}
 
-func (prependOnlyRestrictedCodec) Encode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+func (prependOnlyRestrictedCodec) Encode(_, value []byte, flags uint32) ([]byte, uint32, error) {
 	return value, flags, nil
 }
 
-func (prependOnlyRestrictedCodec) Decode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+func (prependOnlyRestrictedCodec) Decode(_, value []byte, flags uint32) ([]byte, uint32, error) {
 	return value, flags, nil
 }
 

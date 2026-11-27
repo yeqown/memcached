@@ -33,7 +33,7 @@ func newContextManager() (*contextManager, error) {
 	}
 
 	path := filepath.Join(home, ".memcached-cli", "config.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 
@@ -134,7 +134,7 @@ func (m *contextManager) save() error {
 		return err
 	}
 
-	return os.WriteFile(m.path, data, 0644)
+	return os.WriteFile(m.path, data, 0o644)
 }
 
 // addTemporaryContext creates a new temporary context for interactive use
