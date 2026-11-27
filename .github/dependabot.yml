@@ -1,0 +1,94 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      root:
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: /cmd/memcached-cli
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cli:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: github.com/yeqown/memcached
+
+  - package-ecosystem: gomod
+    directory: /benchmark
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      benchmark:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: github.com/yeqown/memcached
+
+  - package-ecosystem: gomod
+    directory: /cmd/gui
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      gui-go:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: github.com/yeqown/memcached
+
+  - package-ecosystem: npm
+    directory: /cmd/gui/frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      gui-npm:
+        patterns:
+          - "*"
+    ignore:
+      # Bleibt bei TS4; später manueller Sprung auf TS6 — kein Auto-Bump (auch nicht auf 7)
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        versions:
+          - "7.x"
+
+  - package-ecosystem: gomod
+    directory: /example
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      example:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: github.com/yeqown/memcached
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
