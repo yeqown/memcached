@@ -1021,6 +1021,12 @@ func TestClientDiscoveryConcurrentRequestsBroadcastAndClose(t *testing.T) {
 			t.Fatal("request workers did not start")
 		}
 	}
+	// Workers can lose the race to the first Version/FlushAll on a busy scheduler.
+	// Require successful traffic on the initial topology before discovery churn starts,
+	// otherwise Close can finish with completed == 0 even though the client is healthy.
+	require.Eventually(t, func() bool { return completed.Load() > 0 }, time.Second, time.Millisecond,
+		"workers must complete requests on the initial topology before refresh")
+	baseline := completed.Load()
 	allowRefresh()
 	select {
 	case <-refreshed:
@@ -1029,6 +1035,8 @@ func TestClientDiscoveryConcurrentRequestsBroadcastAndClose(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return clientView(c).generation >= 10 }, time.Second, time.Millisecond,
 		"discovery must publish changed topologies while requests run")
+	require.Eventually(t, func() bool { return completed.Load() > baseline }, time.Second, time.Millisecond,
+		"workers must keep completing requests while discovery refreshes")
 	require.NoError(t, c.Close())
 	wg.Wait()
 	close(errCh)

@@ -31,12 +31,12 @@ func newHistoryManager(enabled bool, maxLines int) (*kvCommandHistoryManager, er
 	}
 
 	path := filepath.Join(home, ".memcached-cli", ".history")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 
 	// 以追加模式打开文件
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}

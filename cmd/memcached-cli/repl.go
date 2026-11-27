@@ -10,6 +10,7 @@ import (
 
 	"github.com/c-bata/go-prompt"
 	"github.com/pkg/errors"
+
 	"github.com/yeqown/memcached"
 )
 

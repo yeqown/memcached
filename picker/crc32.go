@@ -4,6 +4,7 @@ import (
 	"hash/crc32"
 
 	"github.com/pkg/errors"
+
 	"github.com/yeqown/memcached/resolver"
 )
 
@@ -21,7 +22,7 @@ func (p *crc32HashPicker) Pick(addrs []*resolver.Addr, _, key []byte) (*resolver
 	}
 
 	sum := crc32.ChecksumIEEE(key)
-	return addrs[sum%uint32(n)], nil
+	return addrs[int(sum)%n], nil
 }
 
 // NewCRC32HashPicker creates a Picker using CRC32 hashing.

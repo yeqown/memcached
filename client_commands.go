@@ -3,6 +3,7 @@ package memcached
 import (
 	"bytes"
 	"context"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -454,9 +455,13 @@ func (c *client) MetaSet(ctx context.Context, key, value []byte, msOptions ...Me
 		return nil, errors.Wrap(err, "request failed")
 	}
 
+	ttl, ok := uint64ToInt64(msFlags.T)
+	if !ok {
+		ttl = math.MaxInt64
+	}
 	item := &MetaItem{
 		Key:   key,
-		TTL:   int64(msFlags.T),
+		TTL:   ttl,
 		Flags: clientFlags,
 	}
 	err = parseMetaItem(resp.rawLines, item, msFlags.q, c.options.codec)

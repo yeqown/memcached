@@ -7,12 +7,12 @@ var Noop = &NoopCodec{}
 type NoopCodec struct{}
 
 // Encode returns the value and flags unchanged.
-func (*NoopCodec) Encode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+func (*NoopCodec) Encode(_, value []byte, flags uint32) ([]byte, uint32, error) {
 	return value, flags, nil
 }
 
 // Decode returns the value and flags unchanged.
-func (*NoopCodec) Decode(_ []byte, value []byte, flags uint32) ([]byte, uint32, error) {
+func (*NoopCodec) Decode(_, value []byte, flags uint32) ([]byte, uint32, error) {
 	return value, flags, nil
 }
 

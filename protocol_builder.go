@@ -252,7 +252,7 @@ type request struct {
 	udpEnabled bool
 }
 
-func buildRequest(cmd []byte, key []byte, raw []byte) *request {
+func buildRequest(cmd, key, raw []byte) *request {
 	req := requestPool.Get().(*request)
 	req.cmd = cmd
 	req.key = key
@@ -571,9 +571,11 @@ func releaseReqAndResp(req *request, resp *response) {
 }
 
 func unsafeStringToByteSlice(s string) []byte {
-	return unsafe.Slice(unsafe.StringData(s), len(s))
+	// Zero-copy conversion for hot-path protocol framing; callers must not mutate.
+	return unsafe.Slice(unsafe.StringData(s), len(s)) // #nosec G103 -- intentional zero-copy
 }
 
 func unsafeByteSliceToString(bs []byte) string {
-	return unsafe.String(unsafe.SliceData(bs), len(bs))
+	// Zero-copy conversion for hot-path protocol framing; result must not outlive bs.
+	return unsafe.String(unsafe.SliceData(bs), len(bs)) // #nosec G103 -- intentional zero-copy
 }

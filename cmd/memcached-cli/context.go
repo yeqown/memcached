@@ -7,6 +7,7 @@ import (
 	"github.com/yeqown/memcached/picker"
 
 	"github.com/samber/lo"
+
 	"github.com/yeqown/memcached"
 )
 

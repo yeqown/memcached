@@ -3,6 +3,7 @@ package memcached
 import (
 	"bytes"
 	"fmt"
+	"math"
 
 	"github.com/pkg/errors"
 )
@@ -432,12 +433,20 @@ func parseFlags(parts [][]byte, startPos int, item *MetaItem) {
 			item.CAS, _ = parseUintFromBytes(tok)
 		case 'f':
 			v, _ := parseUintFromBytes(tok)
-			item.Flags = uint32(v)
+			if flags, ok := uint64ToUint32(v); ok {
+				item.Flags = flags
+			} else {
+				item.Flags = math.MaxUint32
+			}
 		case 't':
 			item.TTL, _ = parseIntFromBytes(tok)
 		case 'l':
 			v, _ := parseUintFromBytes(tok)
-			item.LastAccessedTime = int64(v)
+			if lat, ok := uint64ToInt64(v); ok {
+				item.LastAccessedTime = lat
+			} else {
+				item.LastAccessedTime = math.MaxInt64
+			}
 		case 's':
 			item.Size, _ = parseUintFromBytes(tok)
 		case 'O':

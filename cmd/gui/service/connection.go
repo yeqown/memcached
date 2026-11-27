@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	memcached "github.com/yeqown/memcached"
 )
 
@@ -30,7 +31,7 @@ func NewConnectionService() (*ConnectionService, error) {
 	}
 	configDir = filepath.Join(configDir, "memcached-gui")
 
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create config dir: %w", err)
 	}
 
@@ -225,5 +226,5 @@ func (s *ConnectionService) saveContextsLocked(contexts []Context) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.configPath(), data, 0644)
+	return os.WriteFile(s.configPath(), data, 0o644)
 }

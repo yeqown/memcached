@@ -2,6 +2,7 @@ package picker
 
 import (
 	"github.com/pkg/errors"
+
 	"github.com/yeqown/memcached/resolver"
 )
 
@@ -47,6 +48,9 @@ func newMurmur3Hash(seed uint64) *murmur3Hash {
 
 // sum64 returns the digest of the given key.
 func (h *murmur3Hash) sum64(key []byte) uint64 {
+	if key == nil {
+		key = []byte{}
+	}
 	length := len(key)
 	hash := h.seed
 

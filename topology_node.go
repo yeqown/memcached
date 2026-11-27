@@ -85,6 +85,9 @@ func createConnFactory(
 // getConn confirms availability both before and after waiting or dialing.
 // Once confirmed, the request may finish even if the node starts draining.
 func (n *node) getConn(ctx context.Context, borrowed *borrowedConn) error {
+	if n == nil || n.pool == nil {
+		return ErrInstanceAbnormal
+	}
 	if n.status() != nodeAvailable {
 		return ErrInstanceAbnormal
 	}
@@ -104,25 +107,42 @@ func (n *node) getConn(ctx context.Context, borrowed *borrowedConn) error {
 }
 
 func (n *node) putConn(cn memcachedConn) error {
+	if n == nil {
+		return nil
+	}
 	return cn.release()
 }
 
 // drain rejects new borrows without waiting for connection cleanup.
 func (n *node) drain() {
+	if n == nil {
+		return
+	}
 	n.state.CompareAndSwap(uint32(nodeAvailable), uint32(nodeDraining))
 }
 
 func (n *node) close() error {
+	if n == nil {
+		return nil
+	}
 	n.drain()
+	if n.pool == nil {
+		return nil
+	}
 	return n.pool.close()
 }
 
 func (n *node) status() nodeState {
+	if n == nil {
+		return nodeClosed
+	}
 	state := n.state.Load()
 	if state == uint32(nodeDraining) {
-		stats := n.pool.stats()
-		if stats.Closed && stats.TotalConns == 0 {
-			n.state.Store(uint32(nodeClosed))
+		if n.pool != nil {
+			stats := n.pool.stats()
+			if stats.Closed && stats.TotalConns == 0 {
+				n.state.Store(uint32(nodeClosed))
+			}
 		}
 	}
 

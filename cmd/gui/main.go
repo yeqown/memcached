@@ -39,7 +39,6 @@ func main() {
 			opSvc,
 		},
 	})
-
 	if err != nil {
 		println("Error:", err.Error())
 	}

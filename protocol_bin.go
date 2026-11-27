@@ -126,9 +126,18 @@ type binaryRequest struct {
 }
 
 func (br *binaryRequest) send(w io.Writer) error {
-	nKey := uint16(len(br.key))
-	nValue := uint32(len(br.value))
-	nExtras := uint8(len(br.extras))
+	nKey, ok := intToUint16(len(br.key))
+	if !ok {
+		return errors.New("binary key too long")
+	}
+	nValue, ok := intToUint32(len(br.value))
+	if !ok {
+		return errors.New("binary value too long")
+	}
+	nExtras, ok := intToUint8(len(br.extras))
+	if !ok {
+		return errors.New("binary extras too long")
+	}
 
 	buf := make([]byte, 24+uint32(nExtras)+uint32(nKey)+nValue)
 

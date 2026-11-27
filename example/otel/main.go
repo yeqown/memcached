@@ -7,13 +7,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/yeqown/memcached"
-	"github.com/yeqown/memcached/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/yeqown/memcached"
+	"github.com/yeqown/memcached/telemetry"
 )
 
 func main() {
