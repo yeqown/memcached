@@ -27,7 +27,16 @@ export interface ShortcutConfig {
   onClear?: () => void
 }
 
-const COMMAND_KEYS: OperationTab[] = ['get', 'set', 'delete', 'incr', 'decr', 'stats', 'flushall', 'version']
+const COMMAND_KEYS: OperationTab[] = [
+  'get',
+  'set',
+  'delete',
+  'incr',
+  'decr',
+  'stats',
+  'flushall',
+  'version',
+]
 
 export function createShortcutHandler(config: ShortcutConfig): KeyboardHandler {
   return (e: KeyboardEvent) => {

@@ -1,19 +1,23 @@
 <script lang="ts">
   import { keyHistory } from '../stores/keyHistory'
 
-  export let value = ''
-  export let placeholder = 'Key'
-  export let disabled = false
-  export let id = ''
+  interface Props {
+    value?: string
+    placeholder?: string
+    disabled?: boolean
+    id?: string
+  }
 
-  let showSuggestions = false
-  let selectedIndex = 0
-  let suggestions: string[] = []
-  let inputEl: HTMLInputElement
+  let { value = $bindable(''), placeholder = 'Key', disabled = false, id = '' }: Props = $props()
 
-  $: suggestionsId = `${id}-suggestions`
+  let showSuggestions = $state(false)
+  let selectedIndex = $state(0)
+  let suggestions = $state<string[]>([])
+  let inputEl = $state<HTMLInputElement | undefined>()
 
-  $: {
+  const suggestionsId = $derived(`${id}-suggestions`)
+
+  $effect(() => {
     if (value) {
       suggestions = keyHistory.filterByPrefix(value, 5)
       selectedIndex = 0
@@ -22,7 +26,7 @@
       showSuggestions = false
       suggestions = []
     }
-  }
+  })
 
   function handleKeydown(e: KeyboardEvent) {
     if (!showSuggestions) return
@@ -43,11 +47,19 @@
   }
 
   function handleBlur() {
-    setTimeout(() => { showSuggestions = false }, 150)
+    setTimeout(() => {
+      showSuggestions = false
+    }, 150)
+  }
+
+  function selectSuggestion(suggestion: string, e: MouseEvent) {
+    e.preventDefault()
+    value = suggestion
+    showSuggestions = false
   }
 
   export function focus() {
-    inputEl.focus()
+    inputEl?.focus()
   }
 </script>
 
@@ -59,8 +71,8 @@
     bind:value
     {placeholder}
     {disabled}
-    on:keydown={handleKeydown}
-    on:blur={handleBlur}
+    onkeydown={handleKeydown}
+    onblur={handleBlur}
     aria-label={placeholder}
     role="combobox"
     aria-autocomplete="list"
@@ -70,16 +82,13 @@
   />
   {#if showSuggestions}
     <ul id={suggestionsId} class="suggestions" role="listbox" aria-label="Recent keys">
-      {#each suggestions as suggestion, i}
+      {#each suggestions as suggestion, i (suggestion)}
         <li
           id={`${suggestionsId}-${i}`}
           role="option"
           aria-selected={i === selectedIndex}
           class:selected={i === selectedIndex}
-          on:mousedown|preventDefault={() => {
-            value = suggestion
-            showSuggestions = false
-          }}
+          onmousedown={(e) => selectSuggestion(suggestion, e)}
         >
           {suggestion}
         </li>
@@ -103,14 +112,18 @@
     font-size: 13px;
     font-family: var(--font-mono);
     box-sizing: border-box;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
   input:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
-  input:disabled { opacity: 0.5; }
+  input:disabled {
+    opacity: 0.5;
+  }
   .suggestions {
     position: absolute;
     top: 100%;
@@ -138,11 +151,14 @@
     white-space: nowrap;
     border-radius: 6px;
   }
-  li:hover, li.selected {
+  li:hover,
+  li.selected {
     background: var(--accent-soft);
     color: var(--accent);
   }
   @media (prefers-reduced-motion: reduce) {
-    input { transition: none; }
+    input {
+      transition: none;
+    }
   }
 </style>

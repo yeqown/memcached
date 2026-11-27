@@ -2,17 +2,20 @@
   import { getCommand, type CommandId } from '../lib/commands'
   import KeyInput from './KeyInput.svelte'
 
-  export let command: CommandId = 'get'
-  export let disabled = false
+  interface Props {
+    command?: CommandId
+    disabled?: boolean
+  }
 
-  // Store values for each possible input
-  let values: { key: string; value: string; [field: string]: string | number } = {
+  let { command = 'get', disabled = false }: Props = $props()
+
+  let values = $state<{ key: string; value: string; [field: string]: string | number }>({
     key: '',
     value: '',
     flags: 0,
     expiry: 0,
     delta: 1,
-  }
+  })
 
   export function getValues(): Record<string, string | number> {
     const cmd = getCommand(command)
@@ -33,8 +36,7 @@
     values.key = ''
   }
 
-  // Reset default values when command changes
-  $: {
+  $effect(() => {
     const cmd = getCommand(command)
     if (cmd) {
       for (const input of cmd.inputs) {
@@ -43,7 +45,7 @@
         }
       }
     }
-  }
+  })
 </script>
 
 <div class="input-area">
@@ -67,8 +69,7 @@
             bind:value={values.value}
             placeholder={field.placeholder || field.label}
             rows="4"
-            {disabled}
-          ></textarea>
+            {disabled}></textarea>
         </div>
       {:else if field.type === 'number'}
         <div class="field">
@@ -117,7 +118,9 @@
     font-family: var(--font-mono);
     box-sizing: border-box;
     resize: vertical;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
   textarea:focus {
     outline: none;
@@ -127,7 +130,7 @@
   textarea:disabled {
     opacity: 0.5;
   }
-  input[type="number"] {
+  input[type='number'] {
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-input);
@@ -136,17 +139,22 @@
     color: var(--text-primary);
     font-size: 13px;
     box-sizing: border-box;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
-  input[type="number"]:focus {
+  input[type='number']:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
-  input[type="number"]:disabled {
+  input[type='number']:disabled {
     opacity: 0.5;
   }
   @media (prefers-reduced-motion: reduce) {
-    textarea, input[type="number"] { transition: none; }
+    textarea,
+    input[type='number'] {
+      transition: none;
+    }
   }
 </style>

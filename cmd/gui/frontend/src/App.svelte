@@ -9,7 +9,12 @@
   import { createShortcutHandler, type OperationTab } from './lib/keyboard'
   import { loadString, saveString } from './lib/storage'
 
-  let operationPanelRef: OperationPanel
+  interface OperationPanelHandle {
+    setTab: (tab: OperationTab) => void
+    executeCurrent: () => void
+  }
+
+  let operationPanelRef = $state<OperationPanelHandle | undefined>()
 
   function clearResult() {
     displayValue.set('')
@@ -19,10 +24,10 @@
 
   const shortcutHandler = createShortcutHandler({
     onTabSwitch: (tab: OperationTab) => {
-      operationPanelRef.setTab(tab)
+      operationPanelRef?.setTab(tab)
     },
     onExecute: () => {
-      operationPanelRef.executeCurrent()
+      operationPanelRef?.executeCurrent()
     },
     onClear: () => {
       clearResult()
@@ -38,7 +43,7 @@
 
     const savedTab = loadString('active-tab') as OperationTab | null
     if (savedTab) {
-      operationPanelRef.setTab(savedTab)
+      operationPanelRef?.setTab(savedTab)
     }
 
     return () => {
@@ -46,9 +51,11 @@
     }
   })
 
-  $: if ($activeOperationTab) {
-    saveString('active-tab', $activeOperationTab)
-  }
+  $effect(() => {
+    if ($activeOperationTab) {
+      saveString('active-tab', $activeOperationTab)
+    }
+  })
 </script>
 
 <div class="app-layout">

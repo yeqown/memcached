@@ -45,11 +45,11 @@
 </script>
 
 <div class="theme-toggle" role="group" aria-label="Theme mode">
-  {#each options as opt}
+  {#each options as opt (opt.id)}
     <button
       class="mode-btn"
       class:active={$themeMode === opt.id}
-      on:click={() => handleSwitch(opt.id)}
+      onclick={() => handleSwitch(opt.id)}
       title={opt.title}
       aria-label={opt.title}
       type="button"
@@ -79,7 +79,9 @@
     line-height: 1.2;
     min-width: 56px;
     border-radius: 6px;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
 
   .mode-btn:hover {
@@ -98,6 +100,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .mode-btn { transition: none; }
+    .mode-btn {
+      transition: none;
+    }
   }
 </style>

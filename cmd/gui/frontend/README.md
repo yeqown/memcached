@@ -6,7 +6,7 @@ This template should help get you started developing with Svelte and TypeScript 
 
 [VS Code](https://code.visualstudio.com/)
 
-+ [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+- [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
 
 ## Need an official Svelte framework?
 

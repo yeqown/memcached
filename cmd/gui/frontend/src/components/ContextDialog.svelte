@@ -1,23 +1,28 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import type { McContext, McServer } from '../stores/app'
 
-  export let show = false
-  export let editContext: McContext | null = null
-
-  let name = ''
-  let servers: McServer[] = [{ host: 'localhost', port: 11211 }]
-  const dispatch = createEventDispatcher()
-
-  $: if (show) {
-    if (editContext) {
-      name = editContext.name
-      servers = editContext.servers.map(s => ({ ...s }))
-    } else {
-      name = ''
-      servers = [{ host: 'localhost', port: 11211 }]
-    }
+  interface Props {
+    show?: boolean
+    editContext?: McContext | null
+    onsave?: (ctx: McContext) => void
   }
+
+  let { show = $bindable(false), editContext = null, onsave }: Props = $props()
+
+  let name = $state('')
+  let servers = $state<McServer[]>([{ host: 'localhost', port: 11211 }])
+
+  $effect(() => {
+    if (show) {
+      if (editContext) {
+        name = editContext.name
+        servers = editContext.servers.map((s) => ({ ...s }))
+      } else {
+        name = ''
+        servers = [{ host: 'localhost', port: 11211 }]
+      }
+    }
+  })
 
   function addServer() {
     servers = [...servers, { host: 'localhost', port: 11211 }]
@@ -33,17 +38,25 @@
     const ctx: McContext = {
       id: editContext?.id || '',
       name: name.trim(),
-      servers: servers.filter(s => s.host.trim()).map(s => ({
-        host: s.host.trim(),
-        port: Number(s.port),
-      })),
+      servers: servers
+        .filter((s) => s.host.trim())
+        .map((s) => ({
+          host: s.host.trim(),
+          port: Number(s.port),
+        })),
     }
-    dispatch('save', ctx)
+    onsave?.(ctx)
     show = false
   }
 
   function handleCancel() {
     show = false
+  }
+
+  function handleOverlayClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) {
+      handleCancel()
+    }
   }
 
   function handleOverlayKeydown(event: KeyboardEvent) {
@@ -55,7 +68,12 @@
 </script>
 
 {#if show}
-  <div class="overlay" role="presentation" on:click|self={handleCancel} on:keydown={handleOverlayKeydown}>
+  <div
+    class="overlay"
+    role="presentation"
+    onclick={handleOverlayClick}
+    onkeydown={handleOverlayKeydown}
+  >
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ctx-dialog-title">
       <h2 id="ctx-dialog-title">{editContext ? 'Edit Context' : 'Add Context'}</h2>
 
@@ -66,7 +84,7 @@
 
       <fieldset class="form-group server-fieldset">
         <legend>Servers</legend>
-        {#each servers as server, i}
+        {#each servers as server, i (i)}
           <div class="server-row">
             <input
               id={`server-host-${i}`}
@@ -83,16 +101,23 @@
               aria-label={`Server ${i + 1} port`}
             />
             {#if servers.length > 1}
-              <button type="button" class="btn-icon btn-danger" on:click={() => removeServer(i)} aria-label={`Remove server ${i + 1}`}>×</button>
+              <button
+                type="button"
+                class="btn-icon btn-danger"
+                onclick={() => removeServer(i)}
+                aria-label={`Remove server ${i + 1}`}
+              >
+                ×
+              </button>
             {/if}
           </div>
         {/each}
-        <button type="button" class="btn-small" on:click={addServer}>+ Add Server</button>
+        <button type="button" class="btn-small" onclick={addServer}>+ Add Server</button>
       </fieldset>
 
       <div class="actions">
-        <button type="button" class="btn-secondary" on:click={handleCancel}>Cancel</button>
-        <button type="button" class="btn-primary" on:click={handleSave}>
+        <button type="button" class="btn-secondary" onclick={handleCancel}>Cancel</button>
+        <button type="button" class="btn-primary" onclick={handleSave}>
           {editContext ? 'Update' : 'Create'}
         </button>
       </div>
@@ -103,7 +128,10 @@
 <style>
   .overlay {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: var(--bg-overlay);
     display: flex;
     align-items: center;
@@ -151,7 +179,8 @@
     font-weight: 500;
     color: var(--text-muted);
   }
-  input[type="text"], input[type="number"] {
+  input[type='text'],
+  input[type='number'] {
     width: 100%;
     padding: 8px 12px;
     background: var(--bg-input);
@@ -160,7 +189,9 @@
     color: var(--text-primary);
     font-size: 13px;
     box-sizing: border-box;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
   input:focus {
     outline: none;
@@ -173,8 +204,12 @@
     margin-bottom: 8px;
     align-items: center;
   }
-  .server-row input:first-child { flex: 2; }
-  .server-row input:nth-child(2) { flex: 1; }
+  .server-row input:first-child {
+    flex: 2;
+  }
+  .server-row input:nth-child(2) {
+    flex: 1;
+  }
   .btn-icon {
     width: 28px;
     height: 28px;
@@ -186,7 +221,9 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .btn-danger {
     background: var(--danger-soft);
@@ -205,7 +242,10 @@
     cursor: pointer;
     font-size: 12px;
     width: 100%;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    transition:
+      border-color 0.15s,
+      color 0.15s,
+      background 0.15s;
   }
   .btn-small:hover {
     border-color: var(--accent);
@@ -218,25 +258,33 @@
     gap: 8px;
     margin-top: 20px;
   }
-  .btn-primary, .btn-secondary {
+  .btn-primary,
+  .btn-secondary {
     padding: 7px 16px;
     border-radius: 8px;
     border: none;
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .btn-primary {
     background: var(--accent);
     color: var(--accent-contrast);
   }
-  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
   .btn-secondary {
     background: var(--bg-surface-soft);
     color: var(--text-primary);
   }
-  .btn-secondary:hover { background: var(--bg-active); color: var(--text-primary); }
+  .btn-secondary:hover {
+    background: var(--bg-active);
+    color: var(--text-primary);
+  }
   .btn-icon:focus-visible,
   .btn-small:focus-visible,
   .btn-primary:focus-visible,
@@ -246,9 +294,13 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    input[type="text"], input[type="number"], .btn-icon, .btn-small, .btn-primary, .btn-secondary {
+    input[type='text'],
+    input[type='number'],
+    .btn-icon,
+    .btn-small,
+    .btn-primary,
+    .btn-secondary {
       transition: none;
     }
   }
 </style>
-

@@ -1,22 +1,25 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
   import { COMMANDS, COMMAND_GROUPS, getCommand, type CommandId } from '../lib/commands'
 
-  export let selected: CommandId = 'get'
-  export let disabled = false
+  interface Props {
+    selected?: CommandId
+    disabled?: boolean
+    onchange?: (id: CommandId) => void
+  }
 
-  const dispatch = createEventDispatcher<{ change: CommandId }>()
+  let { selected = $bindable('get' as CommandId), disabled = false, onchange }: Props = $props()
 
-  let open = false
+  let open = $state(false)
 
-  function toggleDropdown() {
+  function toggleDropdown(e: MouseEvent) {
+    e.stopPropagation()
     if (!disabled) open = !open
   }
 
   function selectCommand(id: CommandId) {
     selected = id
     open = false
-    dispatch('change', id)
+    onchange?.(id)
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -25,7 +28,7 @@
     }
   }
 
-  $: selectedLabel = getCommand(selected)?.label || 'Select Command'
+  const selectedLabel = $derived(getCommand(selected)?.label || 'Select Command')
 
   function handleClickOutside(e: MouseEvent) {
     const target = e.target as HTMLElement
@@ -35,13 +38,13 @@
   }
 </script>
 
-<svelte:window on:click={handleClickOutside} on:keydown={handleKeydown} />
+<svelte:window onclick={handleClickOutside} onkeydown={handleKeydown} />
 
 <div class="command-selector" class:disabled>
   <button
     type="button"
     class="selector-button"
-    on:click|stopPropagation={toggleDropdown}
+    onclick={toggleDropdown}
     {disabled}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -52,15 +55,15 @@
 
   {#if open}
     <div class="dropdown" role="listbox">
-      {#each COMMAND_GROUPS as group}
+      {#each COMMAND_GROUPS as group (group.id)}
         <div class="dropdown-group">
           <div class="group-label">{group.label}</div>
-          {#each COMMANDS.filter(c => c.group === group.id) as cmd}
+          {#each COMMANDS.filter((c) => c.group === group.id) as cmd (cmd.id)}
             <button
               type="button"
               class="dropdown-item"
               class:selected={selected === cmd.id}
-              on:click={() => selectCommand(cmd.id)}
+              onclick={() => selectCommand(cmd.id)}
               role="option"
               aria-selected={selected === cmd.id}
             >
@@ -90,7 +93,9 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
     min-width: 140px;
   }
   .selector-button:hover:not(:disabled) {
@@ -172,6 +177,10 @@
     cursor: not-allowed;
   }
   @media (prefers-reduced-motion: reduce) {
-    .selector-button, .selector-arrow, .dropdown-item { transition: none; }
+    .selector-button,
+    .selector-arrow,
+    .dropdown-item {
+      transition: none;
+    }
   }
 </style>

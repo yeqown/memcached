@@ -2,12 +2,12 @@
   import { queryResult, displayMode, displayValue, activeOperationTab } from '../stores/app'
   import JsonTree from './JsonTree.svelte'
 
-  let copied = false
-  let metaExpanded = false
-  let searchQuery = ''
-  let forceExpanded = false
-  let forceCollapsed = false
-  let showCopyMenu = false
+  let copied = $state(false)
+  let metaExpanded = $state(false)
+  let searchQuery = $state('')
+  let forceExpanded = $state(false)
+  let forceCollapsed = $state(false)
+  let showCopyMenu = $state(false)
 
   function handleCopyRaw() {
     copyToClipboard(rawValue)
@@ -22,12 +22,14 @@
   }
 
   function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text)
+    void navigator.clipboard.writeText(text)
     copied = true
-    setTimeout(() => copied = false, 1500)
+    setTimeout(() => {
+      copied = false
+    }, 1500)
   }
 
-  function tryParseJson(str: string): any | null {
+  function tryParseJson(str: string): unknown | null {
     try {
       return JSON.parse(str)
     } catch {
@@ -49,33 +51,41 @@
     }
   }
 
-  $: rawValue = $queryResult
-    ? $queryResult.value || $queryResult.data || ''
-    : $displayValue
-  $: hasContent = rawValue.length > 0
-  $: parsedJson = tryParseJson(rawValue)
-  $: isJson = parsedJson !== null
-  $: isMetaResult = $queryResult && ($queryResult.ttl !== undefined || $queryResult.cas !== undefined)
-  $: showValuePanel = $activeOperationTab !== 'set' && $activeOperationTab !== 'delete'
-  $: showMetaSummary = $activeOperationTab === 'get' && isMetaResult
-  $: effectiveMode = (() => {
-    if ($displayMode === 'json' && isJson) return 'json'
-    return 'text'
-  })()
+  const rawValue = $derived(
+    $queryResult ? $queryResult.value || $queryResult.data || '' : $displayValue,
+  )
+  const hasContent = $derived(rawValue.length > 0)
+  const parsedJson = $derived(tryParseJson(rawValue))
+  const isJson = $derived(parsedJson !== null)
+  const isMetaResult = $derived(
+    !!$queryResult && ($queryResult.ttl !== undefined || $queryResult.cas !== undefined),
+  )
+  const showValuePanel = $derived($activeOperationTab !== 'set' && $activeOperationTab !== 'delete')
+  const showMetaSummary = $derived($activeOperationTab === 'get' && isMetaResult)
+  const effectiveMode = $derived($displayMode === 'json' && isJson ? 'json' : 'text')
 
-  $: metaFields = $queryResult ? [
-    { label: 'Key', value: $queryResult.key },
-    { label: 'TTL', value: $queryResult.ttl },
-    { label: 'Last Access', value: $queryResult.lastAccessedTime },
-    { label: 'CAS', value: $queryResult.cas },
-    { label: 'Flags', value: $queryResult.flags },
-    { label: 'Size', value: $queryResult.size },
-    { label: 'Hit Before', value: $queryResult.hitBefore != null ? String($queryResult.hitBefore) : undefined },
-    { label: 'Opaque', value: $queryResult.opaque },
-  ].filter(f => f.value !== undefined && f.value !== null) : []
+  const metaFields = $derived(
+    $queryResult
+      ? [
+          { label: 'Key', value: $queryResult.key },
+          { label: 'TTL', value: $queryResult.ttl },
+          { label: 'Last Access', value: $queryResult.lastAccessedTime },
+          { label: 'CAS', value: $queryResult.cas },
+          { label: 'Flags', value: $queryResult.flags },
+          { label: 'Size', value: $queryResult.size },
+          {
+            label: 'Hit Before',
+            value: $queryResult.hitBefore != null ? String($queryResult.hitBefore) : undefined,
+          },
+          { label: 'Opaque', value: $queryResult.opaque },
+        ].filter((f) => f.value !== undefined && f.value !== null)
+      : [],
+  )
 
   function handleCopyBlur() {
-    setTimeout(() => { showCopyMenu = false }, 150)
+    setTimeout(() => {
+      showCopyMenu = false
+    }, 150)
   }
 </script>
 
@@ -85,7 +95,7 @@
       type="button"
       class="meta-summary-toggle"
       class:expanded={metaExpanded}
-      on:click={toggleMetaExpanded}
+      onclick={toggleMetaExpanded}
       aria-expanded={metaExpanded}
       aria-controls="get-meta-panel"
     >
@@ -95,12 +105,14 @@
     {#if metaExpanded}
       <div id="get-meta-panel" class="meta-summary-body" aria-live="polite">
         <table class="meta-table">
-          {#each metaFields as field}
-            <tr>
-              <td class="meta-label">{field.label}</td>
-              <td class="meta-value">{field.value}</td>
-            </tr>
-          {/each}
+          <tbody>
+            {#each metaFields as field (field.label)}
+              <tr>
+                <td class="meta-label">{field.label}</td>
+                <td class="meta-value">{field.value}</td>
+              </tr>
+            {/each}
+          </tbody>
         </table>
       </div>
     {/if}
@@ -113,13 +125,37 @@
       <div class="header-left">
         <span>Value</span>
         <div class="mode-toggle" role="tablist" aria-label="Value display mode">
-          <button type="button" class="mode-btn" class:active={effectiveMode === 'text'} on:click={() => displayMode.set('text')} role="tab" aria-selected={effectiveMode === 'text'}>Text</button>
-          <button type="button" class="mode-btn" class:active={effectiveMode === 'json'} on:click={() => displayMode.set('json')} disabled={!isJson} role="tab" aria-selected={effectiveMode === 'json'}>JSON</button>
+          <button
+            type="button"
+            class="mode-btn"
+            class:active={effectiveMode === 'text'}
+            onclick={() => displayMode.set('text')}
+            role="tab"
+            aria-selected={effectiveMode === 'text'}
+          >
+            Text
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            class:active={effectiveMode === 'json'}
+            onclick={() => displayMode.set('json')}
+            disabled={!isJson}
+            role="tab"
+            aria-selected={effectiveMode === 'json'}
+          >
+            JSON
+          </button>
         </div>
       </div>
       <div class="header-right">
         {#if effectiveMode === 'json' && hasContent}
-          <button type="button" class="btn-tool" on:click={toggleExpandAll} title={forceExpanded ? 'Collapse all' : 'Expand all'}>
+          <button
+            type="button"
+            class="btn-tool"
+            onclick={toggleExpandAll}
+            title={forceExpanded ? 'Collapse all' : 'Expand all'}
+          >
             {forceExpanded ? 'Collapse' : 'Expand'}
           </button>
           <input
@@ -131,13 +167,25 @@
           />
         {/if}
         <div class="copy-wrapper">
-          <button type="button" class="btn-copy" on:click={() => showCopyMenu = !showCopyMenu} disabled={!hasContent}>
+          <button
+            type="button"
+            class="btn-copy"
+            onclick={() => (showCopyMenu = !showCopyMenu)}
+            disabled={!hasContent}
+          >
             {copied ? 'Copied!' : 'Copy'}
           </button>
           {#if showCopyMenu}
-            <div class="copy-menu" role="menu" on:blur={handleCopyBlur}>
-              <button type="button" role="menuitem" on:click={handleCopyRaw}>Raw Value</button>
-              <button type="button" role="menuitem" on:click={handleCopyFormatted} disabled={!isJson}>Formatted JSON</button>
+            <div class="copy-menu" role="menu" onblur={handleCopyBlur}>
+              <button type="button" role="menuitem" onclick={handleCopyRaw}>Raw Value</button>
+              <button
+                type="button"
+                role="menuitem"
+                onclick={handleCopyFormatted}
+                disabled={!isJson}
+              >
+                Formatted JSON
+              </button>
             </div>
           {/if}
         </div>
@@ -147,7 +195,16 @@
       {#if !hasContent}
         <div class="empty">No data to display</div>
       {:else if effectiveMode === 'json' && parsedJson !== null}
-        <div class="json-tree"><JsonTree data={parsedJson} depth={0} expanded={true} {searchQuery} {forceExpanded} {forceCollapsed} /></div>
+        <div class="json-tree">
+          <JsonTree
+            data={parsedJson}
+            depth={0}
+            expanded={true}
+            {searchQuery}
+            {forceExpanded}
+            {forceCollapsed}
+          />
+        </div>
       {:else}
         <pre>{rawValue}</pre>
       {/if}
@@ -174,7 +231,9 @@
     text-transform: uppercase;
     letter-spacing: 0.3px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .meta-summary-toggle:hover {
     background: var(--bg-hover);
@@ -194,8 +253,12 @@
     transform-origin: 35% 50%;
     transition: transform 0.15s;
   }
-  .meta-summary-toggle.expanded .meta-toggle-icon { transform: rotate(90deg); }
-  .meta-summary-body { padding: 0 16px 12px; }
+  .meta-summary-toggle.expanded .meta-toggle-icon {
+    transform: rotate(90deg);
+  }
+  .meta-summary-body {
+    padding: 0 16px 12px;
+  }
 
   .value-panel {
     display: flex;
@@ -245,7 +308,9 @@
     font-size: 11px;
     font-weight: 500;
     border-radius: 4px;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .mode-btn:hover {
     background: rgba(255, 255, 255, 0.08);
@@ -255,8 +320,14 @@
     background: var(--accent);
     color: var(--accent-contrast);
   }
-  .mode-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mode-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .mode-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
   .btn-tool {
     padding: 3px 8px;
     border-radius: 5px;
@@ -268,7 +339,10 @@
     font-weight: 500;
     white-space: nowrap;
   }
-  .btn-tool:hover { color: var(--text-secondary); background: var(--bg-hover); }
+  .btn-tool:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
   .search-input {
     width: 120px;
     padding: 3px 8px;
@@ -279,8 +353,14 @@
     font-size: 11px;
     font-family: var(--font-mono);
   }
-  .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .copy-wrapper { position: relative; }
+  .search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  .copy-wrapper {
+    position: relative;
+  }
   .btn-copy {
     padding: 3px 10px;
     border-radius: 5px;
@@ -290,10 +370,18 @@
     cursor: pointer;
     font-size: 11px;
     font-weight: 500;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
-  .btn-copy:hover:not(:disabled) { color: var(--text-secondary); background: var(--bg-hover); }
-  .btn-copy:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-copy:hover:not(:disabled) {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+  }
+  .btn-copy:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
   .copy-menu {
     position: absolute;
     top: 100%;
@@ -319,8 +407,13 @@
     text-align: left;
     border-radius: 6px;
   }
-  .copy-menu button:hover { background: var(--bg-hover); }
-  .copy-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .copy-menu button:hover {
+    background: var(--bg-hover);
+  }
+  .copy-menu button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
   .value-content {
     flex: 1;
     overflow-y: auto;
@@ -342,10 +435,16 @@
     white-space: pre-wrap;
     word-break: break-all;
   }
-  .json-tree { line-height: 1.6; }
+  .json-tree {
+    line-height: 1.6;
+  }
 
   @media (prefers-reduced-motion: reduce) {
-    .meta-summary-toggle, .meta-toggle-icon, .mode-btn, .btn-copy, .btn-tool {
+    .meta-summary-toggle,
+    .meta-toggle-icon,
+    .mode-btn,
+    .btn-copy,
+    .btn-tool {
       transition: none;
     }
   }
