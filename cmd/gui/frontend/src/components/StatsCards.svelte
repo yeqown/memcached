@@ -1,5 +1,9 @@
 <script lang="ts">
-  export let data: string = ''
+  interface Props {
+    data?: string
+  }
+
+  let { data = '' }: Props = $props()
 
   interface StatItem {
     label: string
@@ -7,13 +11,7 @@
     progress?: number
   }
 
-  $: stats = parseStats(data)
-
-  function parseNumber(val: string | undefined): number {
-    if (!val) return 0
-    const n = parseInt(val, 10)
-    return isNaN(n) ? 0 : n
-  }
+  const stats = $derived(parseStats(data))
 
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return bytes + ' B'
@@ -39,7 +37,11 @@
       const memProgress = maxBytes > 0 ? Math.round((bytes / maxBytes) * 100) : 0
 
       return [
-        { label: 'Memory', value: `${formatBytes(bytes)} / ${formatBytes(maxBytes)}`, progress: memProgress },
+        {
+          label: 'Memory',
+          value: `${formatBytes(bytes)} / ${formatBytes(maxBytes)}`,
+          progress: memProgress,
+        },
         { label: 'Hit Rate', value: `${hitRate}% (${getHits}/${totalGets})`, progress: hitRate },
         { label: 'Connections', value: String(currConnections) },
         { label: 'Items', value: String(totalItems) },
@@ -52,7 +54,7 @@
 
 {#if stats.length > 0}
   <div class="stats-cards">
-    {#each stats as stat}
+    {#each stats as stat (stat.label)}
       <div class="stat-card">
         <div class="stat-label">{stat.label}</div>
         <div class="stat-value">{stat.value}</div>

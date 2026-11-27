@@ -16,22 +16,52 @@ export interface CommandDef {
 }
 
 export const COMMANDS: CommandDef[] = [
-  { id: 'get', label: 'Get', group: 'storage', inputs: [{ id: 'key', label: 'Key', type: 'text', required: true }], needsConfirmation: false },
-  { id: 'set', label: 'Set', group: 'storage', inputs: [
-    { id: 'key', label: 'Key', type: 'text', required: true },
-    { id: 'value', label: 'Value', type: 'textarea', required: true },
-    { id: 'flags', label: 'Flags', type: 'number', defaultValue: 0, required: false },
-    { id: 'expiry', label: 'Expiry (s)', type: 'number', defaultValue: 0, required: false },
-  ], needsConfirmation: false },
-  { id: 'delete', label: 'Delete', group: 'storage', inputs: [{ id: 'key', label: 'Key', type: 'text', required: true }], needsConfirmation: true },
-  { id: 'incr', label: 'Incr', group: 'counter', inputs: [
-    { id: 'key', label: 'Key', type: 'text', required: true },
-    { id: 'delta', label: 'Delta', type: 'number', defaultValue: 1, required: true },
-  ], needsConfirmation: false },
-  { id: 'decr', label: 'Decr', group: 'counter', inputs: [
-    { id: 'key', label: 'Key', type: 'text', required: true },
-    { id: 'delta', label: 'Delta', type: 'number', defaultValue: 1, required: true },
-  ], needsConfirmation: false },
+  {
+    id: 'get',
+    label: 'Get',
+    group: 'storage',
+    inputs: [{ id: 'key', label: 'Key', type: 'text', required: true }],
+    needsConfirmation: false,
+  },
+  {
+    id: 'set',
+    label: 'Set',
+    group: 'storage',
+    inputs: [
+      { id: 'key', label: 'Key', type: 'text', required: true },
+      { id: 'value', label: 'Value', type: 'textarea', required: true },
+      { id: 'flags', label: 'Flags', type: 'number', defaultValue: 0, required: false },
+      { id: 'expiry', label: 'Expiry (s)', type: 'number', defaultValue: 0, required: false },
+    ],
+    needsConfirmation: false,
+  },
+  {
+    id: 'delete',
+    label: 'Delete',
+    group: 'storage',
+    inputs: [{ id: 'key', label: 'Key', type: 'text', required: true }],
+    needsConfirmation: true,
+  },
+  {
+    id: 'incr',
+    label: 'Incr',
+    group: 'counter',
+    inputs: [
+      { id: 'key', label: 'Key', type: 'text', required: true },
+      { id: 'delta', label: 'Delta', type: 'number', defaultValue: 1, required: true },
+    ],
+    needsConfirmation: false,
+  },
+  {
+    id: 'decr',
+    label: 'Decr',
+    group: 'counter',
+    inputs: [
+      { id: 'key', label: 'Key', type: 'text', required: true },
+      { id: 'delta', label: 'Delta', type: 'number', defaultValue: 1, required: true },
+    ],
+    needsConfirmation: false,
+  },
   { id: 'stats', label: 'Stats', group: 'admin', inputs: [], needsConfirmation: false },
   { id: 'flushall', label: 'FlushAll', group: 'admin', inputs: [], needsConfirmation: true },
   { id: 'version', label: 'Version', group: 'admin', inputs: [], needsConfirmation: false },
@@ -44,7 +74,8 @@ export const COMMAND_GROUPS = [
 ]
 
 export function getCommand(id: string): CommandDef | undefined {
-  return COMMANDS.find(c => c.id === id)
+  return COMMANDS.find((c) => c.id === id)
 }
 
-export type CommandId = 'get' | 'set' | 'delete' | 'incr' | 'decr' | 'stats' | 'flushall' | 'version'
+export type CommandId =
+  'get' | 'set' | 'delete' | 'incr' | 'decr' | 'stats' | 'flushall' | 'version'

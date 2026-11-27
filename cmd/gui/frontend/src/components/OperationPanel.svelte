@@ -1,23 +1,47 @@
 <script lang="ts">
-  import { connected, addLog, displayValue, displayMode, queryResult, activeOperationTab } from '../stores/app'
+  import {
+    connected,
+    addLog,
+    displayValue,
+    displayMode,
+    queryResult,
+    activeOperationTab,
+  } from '../stores/app'
   import { keyHistory } from '../stores/keyHistory'
-  import { Get, Set, Delete, Incr, Decr, Stats, FlushAll, Version } from '../../wailsjs/go/service/OperationService.js'
+  import {
+    Get,
+    Set,
+    Delete,
+    Incr,
+    Decr,
+    Stats,
+    FlushAll,
+    Version,
+  } from '../../wailsjs/go/service/OperationService.js'
   import { getCommand, type CommandId } from '../lib/commands'
   import ThemeToggle from './ThemeToggle.svelte'
   import CommandSelector from './CommandSelector.svelte'
   import InputArea from './InputArea.svelte'
 
-  let activeCommand: CommandId = 'get'
-  let inputArea: InputArea
+  interface InputAreaHandle {
+    getValues: () => Record<string, string | number>
+    getKey: () => string
+    clearKey: () => void
+  }
 
-  $: activeOperationTab.set(activeCommand)
+  let activeCommand = $state<CommandId>('get')
+  let inputArea = $state<InputAreaHandle | undefined>()
+
+  $effect(() => {
+    activeOperationTab.set(activeCommand)
+  })
 
   export function setTab(tab: CommandId) {
     activeCommand = tab
   }
 
   export function executeCurrent() {
-    executeCommand(activeCommand)
+    void executeCommand(activeCommand)
   }
 
   async function executeCommand(cmd: CommandId) {
@@ -26,7 +50,12 @@
 
     if (def.needsConfirmation) {
       const key = inputArea?.getKey() || ''
-      const msg = cmd === 'delete' ? `Delete key "${key}"?` : cmd === 'flushall' ? 'Flush ALL data? This cannot be undone.' : 'Confirm?'
+      const msg =
+        cmd === 'delete'
+          ? `Delete key "${key}"?`
+          : cmd === 'flushall'
+            ? 'Flush ALL data? This cannot be undone.'
+            : 'Confirm?'
       if (!confirm(msg)) return
     }
 
@@ -35,7 +64,7 @@
 
     try {
       switch (cmd) {
-        case 'get':
+        case 'get': {
           if (!key.trim()) return
           addLog({ op: 'GET', key, status: 'info', message: 'Fetching...' })
           const getResult = await Get(key)
@@ -46,21 +75,24 @@
             displayMode.set(getResult.valueKind === 'json' ? 'json' : 'text')
             addLog({ op: 'GET', key, status: 'success', message: 'OK' })
           } else {
-            displayValue.set(getResult.error)
+            const errorMessage = getResult.error ?? 'Unknown error'
+            displayValue.set(errorMessage)
             displayMode.set('text')
-            addLog({ op: 'GET', key, status: 'error', message: getResult.error })
+            addLog({ op: 'GET', key, status: 'error', message: errorMessage })
           }
           break
+        }
 
-        case 'set':
+        case 'set': {
           if (!key.trim()) return
           addLog({ op: 'SET', key, status: 'info', message: 'Storing...' })
           await Set(key, values.value as string, values.flags as number, values.expiry as number)
           keyHistory.add(key)
           addLog({ op: 'SET', key, status: 'success', message: 'OK' })
           break
+        }
 
-        case 'delete':
+        case 'delete': {
           if (!key.trim()) return
           addLog({ op: 'DELETE', key, status: 'info', message: 'Deleting...' })
           await Delete(key)
@@ -68,8 +100,9 @@
           displayValue.set('')
           addLog({ op: 'DELETE', key, status: 'success', message: 'OK' })
           break
+        }
 
-        case 'incr':
+        case 'incr': {
           if (!key.trim()) return
           addLog({ op: 'INCR', key, status: 'info', message: 'Incrementing...' })
           const incrResult = await Incr(key, values.delta as number)
@@ -78,8 +111,9 @@
           displayMode.set('text')
           addLog({ op: 'INCR', key, status: 'success', message: 'OK' })
           break
+        }
 
-        case 'decr':
+        case 'decr': {
           if (!key.trim()) return
           addLog({ op: 'DECR', key, status: 'info', message: 'Decrementing...' })
           const decrResult = await Decr(key, values.delta as number)
@@ -88,8 +122,9 @@
           displayMode.set('text')
           addLog({ op: 'DECR', key, status: 'success', message: 'OK' })
           break
+        }
 
-        case 'stats':
+        case 'stats': {
           addLog({ op: 'STATS', status: 'info', message: 'Fetching stats...' })
           const statsResult = await Stats()
           if (statsResult.success) {
@@ -97,29 +132,34 @@
             displayMode.set('json')
             addLog({ op: 'STATS', status: 'success', message: 'OK' })
           } else {
-            displayValue.set(statsResult.error)
+            const errorMessage = statsResult.error ?? 'Unknown error'
+            displayValue.set(errorMessage)
             displayMode.set('text')
-            addLog({ op: 'STATS', status: 'error', message: statsResult.error })
+            addLog({ op: 'STATS', status: 'error', message: errorMessage })
           }
           break
+        }
 
-        case 'flushall':
+        case 'flushall': {
           addLog({ op: 'FLUSHALL', status: 'info', message: 'Flushing...' })
           await FlushAll()
           displayValue.set('')
           addLog({ op: 'FLUSHALL', status: 'success', message: 'OK' })
           break
+        }
 
-        case 'version':
+        case 'version': {
           addLog({ op: 'VERSION', status: 'info', message: 'Checking version...' })
           const versionResult = await Version()
           displayValue.set(versionResult || 'OK')
           displayMode.set('text')
           addLog({ op: 'VERSION', status: 'success', message: 'OK' })
           break
+        }
       }
-    } catch (e: any) {
-      addLog({ op: cmd.toUpperCase(), key, status: 'error', message: e.message || String(e) })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      addLog({ op: cmd.toUpperCase(), key, status: 'error', message })
     }
   }
 
@@ -132,8 +172,8 @@
 <div class="panel">
   <div class="panel-head">
     <CommandSelector
-      selected={activeCommand}
-      on:change={(e) => handleCommandChange(e.detail)}
+      bind:selected={activeCommand}
+      onchange={handleCommandChange}
       disabled={!$connected}
     />
     <div class="panel-tools">
@@ -153,7 +193,7 @@
     <div class="action-row">
       <button
         type="button"
-        on:click={executeCurrent}
+        onclick={executeCurrent}
         disabled={!$connected}
         class:btn-danger={getCommand(activeCommand)?.needsConfirmation}
       >
@@ -184,7 +224,10 @@
   }
   .disabled-overlay {
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -232,6 +275,8 @@
     background: var(--danger-hover);
   }
   @media (prefers-reduced-motion: reduce) {
-    button { transition: none; }
+    button {
+      transition: none;
+    }
   }
 </style>

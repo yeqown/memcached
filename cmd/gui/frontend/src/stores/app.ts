@@ -38,14 +38,15 @@ export interface QueryResult {
 export type ConnectionStatus = 'disconnected' | 'connected' | 'error'
 export type DisplayMode = 'text' | 'json' | 'meta'
 export type ThemeMode = 'system' | 'light' | 'dark'
-export type OperationTab = 'get' | 'set' | 'delete' | 'incr' | 'decr' | 'stats' | 'flushall' | 'version'
+export type OperationTab =
+  'get' | 'set' | 'delete' | 'incr' | 'decr' | 'stats' | 'flushall' | 'version'
 
 // Context list
 export const contexts = writable<McContext[]>([])
 export const activeContextId = writable<string | null>(null)
 export const activeContext = derived([activeContextId, contexts], ([$id, $ctxs]) => {
   if (!$id) return null
-  return $ctxs.find(c => c.id === $id) || null
+  return $ctxs.find((c) => c.id === $id) || null
 })
 
 // Connection state
@@ -72,5 +73,5 @@ export const themeMode = writable<ThemeMode>('system')
 export function addLog(entry: Omit<LogEntry, 'time'>) {
   const now = new Date()
   const time = now.toLocaleTimeString()
-  logs.update(v => [{ ...entry, time }, ...v].slice(0, 200))
+  logs.update((v) => [{ ...entry, time }, ...v].slice(0, 200))
 }

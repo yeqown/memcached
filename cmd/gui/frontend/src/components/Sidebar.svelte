@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { contexts, activeContextId, connected, addLog, connectionStatus, connectionError, activeContextName } from '../stores/app'
+  import {
+    contexts,
+    activeContextId,
+    connected,
+    addLog,
+    connectionStatus,
+    connectionError,
+    activeContextName,
+    type McContext,
+  } from '../stores/app'
   import {
     LoadContexts,
     SaveContext,
@@ -7,17 +16,19 @@
     Connect,
     Disconnect,
   } from '../../wailsjs/go/service/ConnectionService.js'
+  import { service } from '../../wailsjs/go/models'
   import ContextDialog from './ContextDialog.svelte'
 
-  let showDialog = false
-  let editingContext = null
+  let showDialog = $state(false)
+  let editingContext = $state<McContext | null>(null)
 
   async function load() {
     try {
       const list = await LoadContexts()
       contexts.set(list || [])
-    } catch (e: any) {
-      addLog({ op: 'Load', status: 'error', message: e.message || String(e) })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      addLog({ op: 'Load', status: 'error', message })
     }
   }
 
@@ -30,18 +41,19 @@
       await Connect(id)
       connected.set(true)
       activeContextId.set(id)
-      const ctx = $contexts.find(c => c.id === id)
+      const ctx = $contexts.find((c) => c.id === id)
       connectionStatus.set('connected')
       connectionError.set('')
       activeContextName.set(ctx?.name || id)
       addLog({ op: 'Connect', status: 'success', message: `Connected to ${ctx?.name || id}` })
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
       connected.set(false)
       activeContextId.set(null)
       connectionStatus.set('error')
-      connectionError.set(e.message || String(e))
+      connectionError.set(message)
       activeContextName.set('')
-      addLog({ op: 'Connect', status: 'error', message: e.message || String(e) })
+      addLog({ op: 'Connect', status: 'error', message })
     }
   }
 
@@ -54,18 +66,20 @@
       connectionError.set('')
       activeContextName.set('')
       addLog({ op: 'Disconnect', status: 'info', message: 'Disconnected' })
-    } catch (e: any) {
-      addLog({ op: 'Disconnect', status: 'error', message: e.message || String(e) })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      addLog({ op: 'Disconnect', status: 'error', message })
     }
   }
 
-  async function handleSaveContext(e: CustomEvent) {
+  async function handleSaveContext(ctx: McContext) {
     try {
-      await SaveContext(e.detail)
+      await SaveContext(service.Context.createFrom(ctx))
       await load()
-      addLog({ op: 'Save', status: 'success', message: `Context "${e.detail.name}" saved` })
-    } catch (e: any) {
-      addLog({ op: 'Save', status: 'error', message: e.message || String(e) })
+      addLog({ op: 'Save', status: 'success', message: `Context "${ctx.name}" saved` })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      addLog({ op: 'Save', status: 'error', message })
     }
   }
 
@@ -78,14 +92,21 @@
       }
       await load()
       addLog({ op: 'Delete', status: 'info', message: `Context "${name}" deleted` })
-    } catch (e: any) {
-      addLog({ op: 'Delete', status: 'error', message: e.message || String(e) })
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      addLog({ op: 'Delete', status: 'error', message })
     }
   }
 
-  function handleEdit(ctx: any) {
+  function handleEdit(ctx: McContext, e: MouseEvent) {
+    e.stopPropagation()
     editingContext = ctx
     showDialog = true
+  }
+
+  function handleDeleteClick(id: string, name: string, e: MouseEvent) {
+    e.stopPropagation()
+    void handleDeleteContext(id, name)
   }
 
   function handleAdd() {
@@ -96,17 +117,17 @@
   function onItemKeydown(event: KeyboardEvent, id: string) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      handleConnect(id)
+      void handleConnect(id)
     }
   }
 
-  load()
+  void load()
 </script>
 
 <div class="sidebar">
   <div class="sidebar-header">
     <h3>Contexts</h3>
-    <button type="button" class="btn-add" on:click={handleAdd} aria-label="Add context">+</button>
+    <button type="button" class="btn-add" onclick={handleAdd} aria-label="Add context">+</button>
   </div>
 
   <div class="context-list" aria-live="polite">
@@ -118,8 +139,8 @@
           class="context-item"
           class:active={$activeContextId === ctx.id}
           class:connected={$activeContextId === ctx.id && $connected}
-          on:click={() => handleConnect(ctx.id)}
-          on:keydown={(event) => onItemKeydown(event, ctx.id)}
+          onclick={() => void handleConnect(ctx.id)}
+          onkeydown={(event) => onItemKeydown(event, ctx.id)}
           tabindex="0"
           role="button"
           aria-pressed={$activeContextId === ctx.id && $connected}
@@ -142,17 +163,21 @@
             <button
               type="button"
               class="btn-tiny"
-              on:click|stopPropagation={() => handleEdit(ctx)}
+              onclick={(e) => handleEdit(ctx, e)}
               title="Edit"
               aria-label={`Edit context ${ctx.name}`}
-            >&#9998;</button>
+            >
+              &#9998;
+            </button>
             <button
               type="button"
               class="btn-tiny btn-tiny-danger"
-              on:click|stopPropagation={() => handleDeleteContext(ctx.id, ctx.name)}
+              onclick={(e) => handleDeleteClick(ctx.id, ctx.name, e)}
               title="Delete"
               aria-label={`Delete context ${ctx.name}`}
-            >&#10005;</button>
+            >
+              &#10005;
+            </button>
           </div>
         </div>
       {/each}
@@ -160,11 +185,7 @@
   </div>
 </div>
 
-<ContextDialog
-  bind:show={showDialog}
-  editContext={editingContext}
-  on:save={handleSaveContext}
-/>
+<ContextDialog bind:show={showDialog} editContext={editingContext} onsave={handleSaveContext} />
 
 <style>
   .sidebar {
@@ -201,7 +222,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    transition:
+      border-color 0.15s,
+      color 0.15s,
+      background 0.15s;
   }
   .btn-add:hover {
     border-color: var(--accent);
@@ -264,8 +288,12 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .dot.green { background: var(--success); }
-  .dot.gray { background: var(--text-dim); }
+  .dot.green {
+    background: var(--success);
+  }
+  .dot.gray {
+    background: var(--text-dim);
+  }
   .context-servers {
     font-size: 11px;
     color: var(--text-muted);
@@ -296,7 +324,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .btn-tiny:hover {
     background: var(--bg-active);
@@ -311,7 +341,11 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .btn-add, .context-item, .context-actions, .btn-tiny { transition: none; }
+    .btn-add,
+    .context-item,
+    .context-actions,
+    .btn-tiny {
+      transition: none;
+    }
   }
 </style>
-

@@ -5,14 +5,18 @@
 <div class="log-panel" aria-live="polite">
   <div class="log-header">
     <span>Protocol Log</span>
-    <button type="button" class="btn-clear" on:click={() => logs.set([])}>Clear</button>
+    <button type="button" class="btn-clear" onclick={() => logs.set([])}>Clear</button>
   </div>
   <div class="log-list">
     {#if $logs.length === 0}
       <div class="empty">No operations yet</div>
     {:else}
-      {#each $logs as entry}
-        <div class="log-entry" class:success={entry.status === 'success'} class:error={entry.status === 'error'}>
+      {#each $logs as entry, i (`${entry.time}-${entry.op}-${i}`)}
+        <div
+          class="log-entry"
+          class:success={entry.status === 'success'}
+          class:error={entry.status === 'error'}
+        >
           <span class="log-time">{entry.time}</span>
           <span class="log-op">{entry.op}</span>
           {#if entry.key}
@@ -54,7 +58,9 @@
     cursor: pointer;
     font-size: 11px;
     font-weight: 500;
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .btn-clear:hover {
     color: var(--text-secondary);
@@ -88,8 +94,12 @@
   .log-entry:hover {
     background: var(--bg-hover);
   }
-  .log-entry.success .log-op { color: var(--success); }
-  .log-entry.error .log-op { color: var(--danger); }
+  .log-entry.success .log-op {
+    color: var(--success);
+  }
+  .log-entry.error .log-op {
+    color: var(--danger);
+  }
   .log-time {
     color: var(--text-dim);
     flex-shrink: 0;
@@ -118,7 +128,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .btn-clear { transition: none; }
+    .btn-clear {
+      transition: none;
+    }
   }
 </style>
-

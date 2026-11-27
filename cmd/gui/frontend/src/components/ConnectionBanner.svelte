@@ -3,7 +3,7 @@
   import { Stats } from '../../wailsjs/go/service/OperationService.js'
   import { onDestroy } from 'svelte'
 
-  let statsText = ''
+  let statsText = $state('')
   let statsInterval: ReturnType<typeof setInterval> | null = null
 
   async function refreshStats() {
@@ -11,7 +11,6 @@
       const result = await Stats()
       if (result && result.success && result.data) {
         const parsed = JSON.parse(result.data)
-        // Backend returns flat Statistic struct, not nested server map
         const totalItems = parsed.curr_items ?? 0
         const getHits = parsed.get_hits ?? 0
         const getMisses = parsed.get_misses ?? 0
@@ -31,11 +30,13 @@
     }
   }
 
-  $: {
+  $effect(() => {
     if ($connected && $connectionStatus === 'connected') {
-      refreshStats()
+      void refreshStats()
       if (statsInterval) clearInterval(statsInterval)
-      statsInterval = setInterval(refreshStats, 30000)
+      statsInterval = setInterval(() => {
+        void refreshStats()
+      }, 30000)
     } else {
       statsText = ''
       if (statsInterval) {
@@ -43,7 +44,7 @@
         statsInterval = null
       }
     }
-  }
+  })
 
   onDestroy(() => {
     if (statsInterval) clearInterval(statsInterval)
@@ -96,7 +97,9 @@
     background: var(--bg-primary);
     color: var(--text-muted);
   }
-  .banner-text { flex-shrink: 0; }
+  .banner-text {
+    flex-shrink: 0;
+  }
   .banner-stats {
     margin-left: auto;
     font-size: 11px;
@@ -110,9 +113,15 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .dot.green { background: var(--success); }
-  .dot.red { background: var(--danger); }
-  .dot.gray { background: var(--text-dim); }
+  .dot.green {
+    background: var(--success);
+  }
+  .dot.red {
+    background: var(--danger);
+  }
+  .dot.gray {
+    background: var(--text-dim);
+  }
   .error-text {
     margin: 4px 0 0 16px;
     font-family: var(--font-mono);
